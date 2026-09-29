@@ -234,7 +234,10 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 		}
 	}
 	if c.cache != nil && method != http.MethodGet && method != http.MethodHead {
+		// Before and after the write: a concurrent GET may re-cache the old state while the
+		// write is in flight.
 		c.cache.invalidate(req.Path)
+		defer c.cache.invalidate(req.Path)
 	}
 
 	maxRetries := c.maxRetries

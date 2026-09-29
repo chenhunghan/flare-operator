@@ -1,22 +1,22 @@
 // Package controller is the registry through which controllers and API schemes join the
 // manager (cmd/manager) and the test harness (internal/testenv).
 //
-// Adding a controller (later workstreams):
+// To add a controller (later workstreams), register it from an init function in the
+// controller's package:
 //
-//  1. In the controller's package, register it from an init function:
+//	func init() {
+//		controller.Register(controller.Registration{
+//			Name:        "kvnamespace",
+//			AddToScheme: kvv1alpha1.AddToScheme,
+//			Setup: func(mgr ctrl.Manager, d controller.Deps) error {
+//				return (&Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Tagger: d.Tagger}).SetupWithManager(mgr)
+//			},
+//		})
+//	}
 //
-//     func init() {
-//         controller.Register(controller.Registration{
-//             Name:        "kvnamespace",
-//             AddToScheme: kvv1alpha1.AddToScheme,
-//             Setup: func(mgr ctrl.Manager, d controller.Deps) error {
-//                 return (&Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Tagger: d.Tagger}).SetupWithManager(mgr)
-//             },
-//         })
-//     }
-//
-//  2. Blank-import the package in cmd/manager/controllers.go (and nowhere else), so the
-//     manager and every test that imports cmd/manager's list see it.
+// then blank-import the package in cmd/manager/controllers.go. Tests import the package
+// (registering it) and run it with testenv's Env.StartManager(t, testenv.ManagerOptions{
+// Controllers: []string{"kvnamespace"}}); testenv.Start picks up every registered scheme.
 //
 // Put kubebuilder RBAC markers on the reconciler; `make manifests` collects them from
 // ./internal/controller/... into config/rbac. A Registration may also carry only a scheme
