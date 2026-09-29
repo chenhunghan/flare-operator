@@ -357,7 +357,10 @@ func TestTunnelLateInitializeOnlyForeign(t *testing.T) {
 	h.newTunnel("foreign-li", func(tun *tunnelsv1alpha1.Tunnel) {
 		tun.Spec.ManagementPolicies = []commonv1alpha1.ManagementAction{commonv1alpha1.ManageObserve, commonv1alpha1.ManageLateInitialize}
 	})
-	tun := h.waitTunnel("foreign-li", func(t *tunnelsv1alpha1.Tunnel) bool { return tunnelReady(t) && t.Status.ID == id })
+	tun := h.waitTunnel("foreign-li", func(t *tunnelsv1alpha1.Tunnel) bool { return tunnelReady(t) && t.Status.AtProvider.ID == id })
+	if tun.Status.ID != "" || tun.Annotations[commonv1alpha1.AnnotationExternalID] != "" {
+		t.Errorf("name lookup without a write policy pinned the tunnel: status.id %q annotation %q", tun.Status.ID, tun.Annotations[commonv1alpha1.AnnotationExternalID])
+	}
 	for _, o := range []client.Object{&appsv1.Deployment{}, &corev1.Secret{}, &networkingv1.NetworkPolicy{}} {
 		name := "foreign-li-cloudflared"
 		if _, ok := o.(*corev1.Secret); ok {
@@ -370,7 +373,7 @@ func TestTunnelLateInitializeOnlyForeign(t *testing.T) {
 	if n := testenv.Count(h.since(m), http.MethodGet, "/token"); n != 0 {
 		t.Errorf("token of a foreign tunnel fetched (%d)", n)
 	}
-	h.assertNoWritesAfterReconcile([]client.Object{tun}, []string{"/cfd_tunnel/" + id})
+	h.assertNoWritesAfterReconcile([]client.Object{tun}, []string{"/cfd_tunnel"}) // found by name (list), not by ID
 	if w := testenv.Writes(h.since(m)); len(w) != 0 {
 		t.Fatalf("Observe+LateInitialize wrote:\n%s", testenv.Summary(w))
 	}

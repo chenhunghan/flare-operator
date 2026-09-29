@@ -18,6 +18,11 @@
 //   - Cloudflare does not check dependencies on delete (0099), so the delete order is enforced
 //     here: the Tunnel's finalizer waits for every VPCService that references it. A VPCService
 //     whose Tunnel is missing, being deleted or has no ID yet is DependencyNotReady.
+//   - Deletion (Delete policy) removes the service only when ownership is proven: this object
+//     created it (annotation created-by-uid, persisted with the ID right after the create) or
+//     pins it with the external-id annotation. Otherwise, or when the CloudflareAccount no
+//     longer exists, the service is kept with a Warning Event ExternalResourceKept and the
+//     finalizer is removed; an account that exists but is not Ready is waited for.
 package vpcservice
 
 import (
@@ -33,6 +38,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -74,7 +80,8 @@ func init() {
 		Name:        Name,
 		AddToScheme: AddToScheme,
 		Setup: func(mgr ctrl.Manager, d controller.Deps) error {
-			return (&Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts}).SetupWithManager(mgr)
+			return (&Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Recorder: mgr.GetEventRecorder(Name),
+				APIReader: mgr.GetAPIReader()}).SetupWithManager(mgr)
 		},
 	})
 }
@@ -95,6 +102,11 @@ type Reconciler struct {
 	DNS tunnelnet.ClusterDNS
 	// ResyncInterval re-reads the service periodically (default DefaultResyncInterval).
 	ResyncInterval time.Duration
+	// Recorder records Events on VPCServices (optional; nil records none).
+	Recorder events.EventRecorder
+	// APIReader confirms, uncached, that a CloudflareAccount is gone before a finalizer gives
+	// up on its Cloudflare resource (default: Client).
+	APIReader client.Reader
 }
 
 // +kubebuilder:rbac:groups=workersvpc.cloudflare.flare.dev,resources=vpcservices,verbs=get;list;watch;update;patch
@@ -103,6 +115,7 @@ type Reconciler struct {
 // +kubebuilder:rbac:groups=tunnels.cloudflare.flare.dev,resources=tunnels,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 func (r *Reconciler) resync() time.Duration {
 	if r.ResyncInterval > 0 {
@@ -133,7 +146,8 @@ func tunnelChanged() predicate.Funcs {
 			if !ok1 || !ok2 {
 				return true
 			}
-			return o.Status.ID != n.Status.ID || o.DeletionTimestamp.IsZero() != n.DeletionTimestamp.IsZero() ||
+			return o.Status.ID != n.Status.ID || o.Status.AtProvider.ID != n.Status.AtProvider.ID ||
+				o.DeletionTimestamp.IsZero() != n.DeletionTimestamp.IsZero() ||
 				o.Spec.AccountRef != n.Spec.AccountRef
 		},
 	}
@@ -181,25 +195,57 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return res, err
 }
 
+// owns reports whether vs has proven ownership of its service: it created it, or it pins the
+// ID with the external-id annotation (VPC services carry no ownership tag). status.id alone
+// is no proof.
+func owns(vs *workersvpcv1alpha1.VPCService) bool {
+	return tunnelnet.CreatedByThis(vs) || reconcile.HasExternalIDAnnotation(vs)
+}
+
+func (r *Reconciler) apiReader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
+}
+
+// warn records a Warning Event on vs (when a Recorder is set).
+func (r *Reconciler) warn(vs *workersvpcv1alpha1.VPCService, reason, format string, args ...any) {
+	if r.Recorder != nil {
+		r.Recorder.Eventf(vs, nil, corev1.EventTypeWarning, reason, "Delete", format, args...)
+	}
+}
+
 func (r *Reconciler) finalize(ctx context.Context, vs *workersvpcv1alpha1.VPCService) (ctrl.Result, bool, error) {
 	if !controllerutil.ContainsFinalizer(vs, commonv1alpha1.Finalizer) {
 		return ctrl.Result{}, true, nil
 	}
-	var acct *reconcile.Resolved
-	if reconcile.ShouldDeleteExternal(vs, commonv1alpha1.DeletionDelete) && reconcile.ExternalID(vs) != "" {
-		var err error
-		if acct, err = r.Accounts.Resolve(ctx, vs); err != nil {
-			if reconcile.IsAccountNotReady(err) {
+	var deleteExternal func(context.Context, string) error
+	if id := reconcile.ExternalID(vs); id != "" && reconcile.ShouldDeleteExternal(vs, commonv1alpha1.DeletionDelete) {
+		if !owns(vs) {
+			r.warn(vs, tunnelnet.EventReasonExternalResourceKept,
+				"deletionPolicy is Delete, but this VPCService neither created VPC service %s nor pins it with the %s annotation; it was kept in Cloudflare",
+				id, commonv1alpha1.AnnotationExternalID)
+		} else {
+			acct, accountGone, err := tunnelnet.ResolveForDelete(ctx, r.Accounts, r.apiReader(), vs)
+			switch {
+			case accountGone:
+				r.warn(vs, tunnelnet.EventReasonExternalResourceKept,
+					"deletionPolicy is Delete, but CloudflareAccount %s no longer exists; VPC service %s was kept in Cloudflare", vs.Spec.AccountRef.Name, id)
+			case reconcile.IsAccountNotReady(err):
 				reconcile.MarkAccountNotReady(vs, err)
 				return ctrl.Result{RequeueAfter: reconcile.AccountRetryInterval}, false, nil
+			case err != nil:
+				return ctrl.Result{}, false, err
+			default:
+				deleteExternal = func(ctx context.Context, id string) error {
+					return deleteService(ctx, acct.Client, acct.AccountID, id)
+				}
 			}
-			return ctrl.Result{}, false, err
 		}
 	}
-	_, err := reconcile.Finalize(ctx, r.Client, vs, commonv1alpha1.DeletionDelete, func(ctx context.Context, id string) error {
-		return deleteService(ctx, acct.Client, acct.AccountID, id)
-	})
-	if err != nil {
+	// deleteExternal nil: the service is kept and only the finalizer is removed.
+	if _, err := reconcile.Finalize(ctx, r.Client, vs, commonv1alpha1.DeletionDelete, deleteExternal); err != nil {
 		return ctrl.Result{}, false, client.IgnoreNotFound(err)
 	}
 	return ctrl.Result{}, true, nil
@@ -238,10 +284,16 @@ func (r *Reconciler) tunnelID(ctx context.Context, vs *workersvpcv1alpha1.VPCSer
 		return "", fmt.Sprintf("Tunnel %s is being deleted", t.Name), nil
 	case t.Spec.AccountRef.Name != vs.Spec.AccountRef.Name:
 		return "", fmt.Sprintf("Tunnel %s uses CloudflareAccount %s, not %s", t.Name, t.Spec.AccountRef.Name, vs.Spec.AccountRef.Name), nil
-	case t.Status.ID == "":
+	}
+	// An observe-only Tunnel that found its tunnel by name reports the ID in atProvider only.
+	id = t.Status.ID
+	if id == "" {
+		id = t.Status.AtProvider.ID
+	}
+	if id == "" {
 		return "", fmt.Sprintf("Tunnel %s has no Cloudflare ID yet", t.Name), nil
 	}
-	return t.Status.ID, "", nil
+	return id, "", nil
 }
 
 // shortNameError rejects "<service>.<namespace>" hostnames that name an existing Service: they
@@ -407,7 +459,7 @@ func (r *Reconciler) sync(ctx context.Context, vs *workersvpcv1alpha1.VPCService
 			if cur, err = createService(ctx, cf, accountID, body); err != nil {
 				return syncErr(err)
 			}
-			if err := reconcile.PersistExternalID(ctx, r.Client, vs, cur.ServiceID); err != nil {
+			if err := tunnelnet.PersistCreated(ctx, r.Client, vs, cur.ServiceID); err != nil {
 				return ctrl.Result{}, err
 			}
 		default:

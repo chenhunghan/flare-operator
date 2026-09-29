@@ -12,6 +12,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -45,18 +46,23 @@ type harness struct {
 	cf   cfclient.Client
 }
 
-func start(t *testing.T) *harness {
+func start(t *testing.T) *harness { return startWith(t, testenv.ManagerOptions{}) }
+
+// startWith is start with manager options (Tagger, ...); Setup is filled in.
+func startWith(t *testing.T, o testenv.ManagerOptions) *harness {
 	t.Helper()
 	e := testenv.Require(t, env)
-	e.StartManager(t, testenv.ManagerOptions{Setup: []func(ctrl.Manager, controller.Deps) error{
+	o.Setup = []func(ctrl.Manager, controller.Deps) error{
 		func(mgr ctrl.Manager, d controller.Deps) error {
 			return (&tunnel.Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Tagger: d.Tagger, ClusterName: d.ClusterName,
-				DrainInterval: 200 * time.Millisecond, Recorder: mgr.GetEventRecorder(tunnel.Name)}).SetupWithManager(mgr)
+				DrainInterval: 200 * time.Millisecond, Recorder: mgr.GetEventRecorder(tunnel.Name), APIReader: mgr.GetAPIReader()}).SetupWithManager(mgr)
 		},
 		func(mgr ctrl.Manager, d controller.Deps) error {
-			return (&vpcservice.Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts}).SetupWithManager(mgr)
+			return (&vpcservice.Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts,
+				Recorder: mgr.GetEventRecorder(vpcservice.Name), APIReader: mgr.GetAPIReader()}).SetupWithManager(mgr)
 		},
-	}})
+	}
+	e.StartManager(t, o)
 	h := &harness{t: t, e: e}
 	h.ensureKubeDNS()
 	h.ns = e.Namespace(t)
@@ -371,4 +377,48 @@ func contains(list []string, sub string) bool {
 		}
 	}
 	return false
+}
+
+// waitEvent waits for a Warning Event with reason on the object named regarding whose note
+// contains every substring in notes.
+func (h *harness) waitEvent(regarding, reason string, notes ...string) {
+	h.t.Helper()
+	testenv.Eventually(h.t, 30*time.Second, func() (bool, string) {
+		var evs eventsv1.EventList
+		if err := h.e.Client.List(h.ctx(), &evs, client.InNamespace(h.ns)); err != nil {
+			return false, err.Error()
+		}
+		var seen []string
+	next:
+		for _, e := range evs.Items {
+			seen = append(seen, e.Regarding.Name+"/"+e.Reason+": "+e.Note)
+			if e.Regarding.Name != regarding || e.Reason != reason || e.Type != corev1.EventTypeWarning {
+				continue
+			}
+			for _, n := range notes {
+				if !strings.Contains(e.Note, n) {
+					continue next
+				}
+			}
+			return true, ""
+		}
+		return false, fmt.Sprintf("no %s Event on %s; events: %q", reason, regarding, seen)
+	})
+}
+
+// createService creates a VPC service directly in Cloudflare and returns its ID.
+func (h *harness) apiCreateService(name, tunnelID string) string {
+	h.t.Helper()
+	resp, err := h.cf.Do(h.ctx(), cfclient.Request{Method: http.MethodPost, Path: "/accounts/" + h.acct.AccountID + "/connectivity/directory/services",
+		Body: map[string]any{"name": name, "type": "tcp", "tcp_port": 5432, "host": map[string]any{"ipv4": "10.0.0.5", "network": map[string]string{"tunnel_id": tunnelID}}}})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	var created struct {
+		ServiceID string `json:"service_id"`
+	}
+	if err := json.Unmarshal(resp.Result, &created); err != nil {
+		h.t.Fatal(err)
+	}
+	return created.ServiceID
 }
