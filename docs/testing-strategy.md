@@ -52,13 +52,13 @@ So for us, **"API version" means a spec snapshot (the `cloudflare/api-schemas` c
 
 `internal/fake` + `cmd/flarefake` implement:
 
-- **Profiles:** KV namespaces (plus the legacy path until its sunset), D1 (control plane), Queues, Tunnels (including config, token, connections, soft delete and the auto-created default virtual network), virtual networks, and Workers VPC services.
+- **Profiles:** KV namespaces (plus the legacy path until its sunset), D1 (control plane), Queues, Tunnels (including config, token, connections, soft delete and the auto-created default virtual network), virtual networks, Workers VPC services, and Workers scripts (multipart upload with `vpc_service` binding validation, implicit version plus 100% deployment, `/versions`, `/deployments`, `/settings` GET/PATCH, per-script and account `/subdomain`, delete).
 - **Engine:** per-token rate limiting (429 responses, with headers matching the real API), fault injection, a request journal, a fake clock (which drives the KV legacy-path and tunnel `connections` sunsets), queued IDs, spec request validation (journaled, or rejected as 400/10001), and the `/_fake` control API.
-- **Conformance:** `TestConformance` replays **122 real-API recordings** across 6 scenarios, and all of them match. It checks status, envelope keys (including `null` versus `[]`), errors, the result (timestamps compared by precision; secrets compared by presence and type), `result_info`, rate-limit policy and `Content-Type`.
+- **Conformance:** `TestConformance` replays **147 real-API recordings** across 6 scenarios, and all of them match. It checks status, envelope keys (including `null` versus `[]`), errors, the result (timestamps compared by precision; secrets compared by presence and type), `result_info`, rate-limit policy and `Content-Type`.
   - It **fails** if a recording hits an emulated route that no scenario replays, if a hook label doesn't exist, or if a queued ID is left over.
   - **Mutation-checked:** 10 of 10 deliberate emulator regressions were caught.
 - **Peer review (2026-09-29):** an independent review found a rate-limiter data race, an overflow in page arithmetic that could wedge the server, a panic when a fault had no status, a wrong queue-list default, filters that were silently ignored, and a user ID left in the recordings. **All are fixed and covered by tests** (`behavior_test.go`, which includes a concurrent test that reproduces the race).
-- **Not yet:** Workers scripts, logs, and the resource model generated from `x-fern` annotations. Profiles are hand-declared for now.
+- **Not yet:** Workers tails, Observability telemetry and live-tail, script content GET, secrets, version upload and gradual deployments, and the resource model generated from `x-fern` annotations. Profiles are hand-declared for now.
 
 ### 3.1 Generic engine (driven by the spec)
 
