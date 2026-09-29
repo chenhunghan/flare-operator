@@ -9,7 +9,7 @@ import (
 
 // D1 databases: /accounts/{account_id}/d1/database.
 // Source recordings: test/recordings/2026-09-29/0017…0027.
-// Only the control plane is emulated; SQL execution is not (except the recorded validation).
+// The control plane is emulated; SQL execution only for constant SELECTs (d1_sql.go).
 
 type d1Database struct {
 	UUID         string
@@ -176,18 +176,51 @@ func d1Query(c *reqCtx) response {
 	if !found {
 		return d1NotFound(c.params["database_id"])
 	}
-	var req struct {
+	type query struct {
 		SQL    string `json:"sql"`
 		Params []any  `json:"params"`
+	}
+	var req struct {
+		query
+		Batch []query `json:"batch"`
 	}
 	if r := c.decodeJSON(&req); r != nil {
 		return *r
 	}
-	if countSQLStatements(req.SQL) > 1 && len(req.Params) > 0 { // 0022
-		return fail(http.StatusBadRequest, 7400, "The request is malformed: params with multiple statements is not supported")
+	queries := req.Batch
+	if queries == nil {
+		queries = []query{req.query}
 	}
-	_ = d
-	return fail(http.StatusNotImplemented, 99999, "flarefake: D1 SQL execution is not emulated")
+	// The result is one entry per statement, each {results, success, meta}: SOURCED (relies)
+	// wrangler's `d1 execute --remote --command` posts {sql} and reads result[].results and
+	// meta.duration, cloudflare/workers-sdk@3bdcd0d:packages/wrangler/src/d1/execute.ts#L35-L42,L507-L521,L653-L663.
+	// The meta values are fixed placeholders (UNVERIFIED: no successful query is recorded).
+	out := []any{}
+	for _, q := range queries {
+		if countSQLStatements(q.SQL) > 1 && len(q.Params) > 0 { // 0022
+			return fail(http.StatusBadRequest, 7400, "The request is malformed: params with multiple statements is not supported")
+		}
+		for _, stmt := range splitSQL(q.SQL) {
+			cols, err := evalConstantSelect(stmt, q.Params)
+			if err != nil {
+				// UNVERIFIED by design: flarefake's own answer for SQL it does not execute.
+				return fail(http.StatusBadRequest, 99999, "flarefake: D1 SQL execution is not emulated: "+err.Error())
+			}
+			row := map[string]any{}
+			for _, col := range cols {
+				row[col.name] = col.value
+			}
+			out = append(out, map[string]any{
+				"results": []any{row}, "success": true,
+				"meta": map[string]any{
+					"served_by_region": d.Region, "served_by_primary": true,
+					"duration": 0, "changes": 0, "last_row_id": 0, "changed_db": false,
+					"size_after": d.FileSize, "rows_read": 0, "rows_written": 0,
+				},
+			})
+		}
+	}
+	return ok(out)
 }
 
 func d1Bookmark(c *reqCtx) response {

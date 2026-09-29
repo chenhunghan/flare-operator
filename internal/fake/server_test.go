@@ -66,8 +66,8 @@ func TestRateLimitEnforcedWith429(t *testing.T) {
 		}
 	}
 	st, env, h := c.do("GET", acct+"/queues", nil)
-	if st != http.StatusTooManyRequests || env.Errors[0].Code != 971 || h.Get("Retry-After") == "" {
-		t.Fatalf("want 429/971 with Retry-After, got %d %v %q", st, env.Errors, h.Get("Retry-After"))
+	if st != http.StatusTooManyRequests || env.Errors[0].Code != rateLimitedCode || h.Get("Retry-After") == "" {
+		t.Fatalf("want 429/1015 with Retry-After, got %d %v %q", st, env.Errors, h.Get("Retry-After"))
 	}
 	// Budget is per token.
 	other := *c

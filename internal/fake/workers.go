@@ -2,8 +2,6 @@ package fake
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,9 +18,13 @@ import (
 // subdomain. Source recordings: test/recordings/2026-09-29/0001, 0002, 0036…0039, 0062, 0063,
 // 0065, 0091, 0104, 0106, 0108, 0109, 0114, 0120, 0142…0145, 0183, 0184, 0197, 0211, 0214.
 //
+// The versions API (POST …/versions, GET …/versions/{id}, POST …/deployments), script-settings,
+// the secrets list, the services and Workers-resource reads that wrangler uses are in
+// workers_versions.go.
+//
 // Not emulated yet: tails (0064, 0073…0075, 0139…0141), Workers Observability telemetry and
-// live-tail (0047, 0053, 0054, 0077…0098, 0107, 0115…0138), GET of the script content, secrets,
-// schedules, script-settings, version upload (POST /versions) and gradual deployments.
+// live-tail (0047, 0053, 0054, 0077…0098, 0107, 0115…0138), GET of the script content, secret
+// writes and schedules.
 
 type workerScript struct {
 	Name     string
@@ -30,21 +32,17 @@ type workerScript struct {
 	Created  time.Time
 	Modified time.Time
 	Seq      int64
+	// DeployedFrom is last_deployed_from: "wrangler" after an upload by wrangler, else "api"
+	// (see uploadSource).
+	DeployedFrom string
 
-	MainModule    string // "" for service-worker syntax (body_part)
-	EntryPoint    string
-	CompatDate    string
-	CompatFlags   []string
-	UsageModel    string
-	Bindings      []map[string]any
+	// workerResources is the deployed version's code and bindings (the version with the largest
+	// share of the latest deployment).
+	workerResources
 	Observability *workerObservability
 	Logpush       bool
 	Tags          []string
 	TailConsumers []map[string]any
-	Placement     map[string]any
-	Handlers      []string
-	Etag          string
-	StartupMs     int
 
 	Versions    []*workerVersion    // oldest first
 	Deployments []*workerDeployment // oldest first
@@ -52,19 +50,43 @@ type workerScript struct {
 	Subdomain workerScriptSubdomain
 }
 
+// workerResources are the per-version parts of a script: what a version upload (POST
+// …/versions) sets, as opposed to the non-versioned script settings.
+type workerResources struct {
+	MainModule  string // "" for service-worker syntax (body_part)
+	EntryPoint  string
+	CompatDate  string
+	CompatFlags []string
+	UsageModel  string
+	Bindings    []map[string]any
+	Placement   map[string]any
+	Handlers    []string
+	Etag        string
+	StartupMs   int
+}
+
 type workerVersion struct {
 	ID          string
 	Number      int
 	Created     time.Time
 	TriggeredBy string
+	Source      string            // metadata.source (see uploadSource)
+	Annotations map[string]string // workers/message, workers/tag as uploaded (POST …/versions)
+	res         workerResources
 }
 
 type workerDeployment struct {
 	ID          string
 	Created     time.Time
 	Message     string
-	TriggeredBy string
-	VersionID   string
+	TriggeredBy string // "" = not reported (explicit deployments, UNVERIFIED)
+	Source      string
+	Versions    []workerTraffic
+}
+
+type workerTraffic struct {
+	VersionID  string  `json:"version_id"`
+	Percentage float64 `json:"percentage"`
 }
 
 type workerScriptSubdomain struct {
@@ -107,6 +129,9 @@ type workerMetadata struct {
 	Tags               *[]string            `json:"tags"`
 	TailConsumers      *[]map[string]any    `json:"tail_consumers"`
 	Placement          *map[string]any      `json:"placement"`
+	// Version uploads (POST …/versions) only; see workers_versions.go.
+	Annotations  map[string]string `json:"annotations"`
+	KeepBindings []string          `json:"keep_bindings"`
 }
 
 const (
@@ -124,10 +149,14 @@ const (
 	workerVPCDocsURL        = "https://developers.cloudflare.com/workers-vpc/get-started/"
 )
 
-// workerHandlerRe finds exported handler methods (`async fetch(req) {` at the start of a line)
-// without matching calls like `env.X.fetch(url)`. Real handler detection runs the script;
-// this heuristic is UNVERIFIED beyond the fetch-only scripts recorded (0036, 0062, 0183).
-var workerHandlerRe = regexp.MustCompile(`(?m)^\s*(?:async\s+)?(fetch|scheduled|queue|email|tail|trace|test)\s*\(`)
+// workerHandlerRe finds handler methods of the exported object: a method definition
+// (`async fetch(req) {`) or a property (`fetch: async (req) =>`, `fetch: function`) at the start
+// of a line or right after `{` or `,`, which also covers one-line modules such as
+// `export default { async fetch() {…} }` and esbuild's `var src_default = { async fetch(…`.
+// Calls like `env.X.fetch(url)` do not match (a `.` precedes them). Real handler detection
+// runs the script; this heuristic is UNVERIFIED beyond the fetch-only scripts recorded (0036,
+// 0062, 0183: handlers [fetch]).
+var workerHandlerRe = regexp.MustCompile(`(?m)(?:^|[{,])\s*(?:async\s+)?(fetch|scheduled|queue|email|tail|trace|test)\s*(?:\(|:\s*(?:async\b\s*)?(?:function\b|\(|[A-Za-z_$][\w$]*\s*=>))`)
 
 // workerNotFound is Workers' missing-script error (0109, 0143, 0211: GET …/settings). The code
 // and message are the API's for a missing Worker on any route, per wrangler: SOURCED
@@ -150,6 +179,7 @@ func (s *Server) registerWorkers() {
 	s.handle(http.MethodGet, base+"/{script_name}/subdomain", workerSubdomainGet)
 	s.handle(http.MethodPost, base+"/{script_name}/subdomain", workerSubdomainPost)
 	s.handle(http.MethodDelete, base+"/{script_name}/subdomain", workerSubdomainDelete)
+	s.registerWorkerVersions()
 }
 
 // SetWorkerStartupTime sets the startup_time_ms reported by subsequent script uploads. The real
@@ -247,7 +277,7 @@ func (w *workerScript) common() map[string]any {
 		"has_modules":        w.MainModule != "", // true for module syntax (0036); false for body_part UNVERIFIED
 		"etag":               w.Etag,
 		"handlers":           emptyIfNil(w.Handlers),
-		"last_deployed_from": "api", // 0036, 0114
+		"last_deployed_from": w.DeployedFrom, // "api" in 0036, 0114; see uploadSource
 		"compatibility_date": w.CompatDate,
 		"usage_model":        w.UsageModel,
 	}
@@ -295,7 +325,7 @@ func (w *workerScript) settingsJSON() map[string]any {
 		"tags":                emptyIfNil(w.Tags),          // [] here, null in the upload response
 		"tail_consumers":      emptyIfNil(w.TailConsumers), // [] here, null in the upload response
 		"logpush":             w.Logpush,
-		"annotations":         map[string]any{"workers/triggered_by": w.currentVersion().TriggeredBy},
+		"annotations":         map[string]any{"workers/triggered_by": w.deployedVersion().TriggeredBy},
 		"bindings":            readBindings(w.Bindings), // echoed as uploaded (0065), secrets withheld
 	}
 	if w.Observability != nil {
@@ -306,24 +336,55 @@ func (w *workerScript) settingsJSON() map[string]any {
 
 func (w *workerScript) currentVersion() *workerVersion { return w.Versions[len(w.Versions)-1] }
 
+// deployedVersion is the version with the largest share of the latest deployment (the only one
+// after an upload). Which version a split deployment reports in settings is UNVERIFIED.
+func (w *workerScript) deployedVersion() *workerVersion {
+	d := w.Deployments[len(w.Deployments)-1]
+	best := d.Versions[0]
+	for _, t := range d.Versions[1:] {
+		if t.Percentage > best.Percentage {
+			best = t
+		}
+	}
+	for _, v := range w.Versions {
+		if v.ID == best.VersionID {
+			return v
+		}
+	}
+	return w.currentVersion()
+}
+
 func (v *workerVersion) json() map[string]any {
+	ann := map[string]any{"workers/triggered_by": v.TriggeredBy}
+	for k, val := range v.Annotations {
+		ann[k] = val
+	}
 	return map[string]any{
 		"id": v.ID, "number": v.Number,
 		"metadata": map[string]any{
-			"created_on": tsMicro(v.Created), "source": "api",
+			"created_on": tsMicro(v.Created), "source": v.Source,
 			"author_id": workerAuthorID, "author_email": workerAuthorEmail,
 			"has_preview": true, // 0038 (even with previews_enabled false)
 		},
-		"annotations": map[string]any{"workers/triggered_by": v.TriggeredBy},
+		"annotations": ann,
 	}
 }
 
 func (d *workerDeployment) json() map[string]any {
+	ann := map[string]any{}
+	if d.Message != "" {
+		ann["workers/message"] = d.Message
+	}
+	if d.TriggeredBy != "" {
+		ann["workers/triggered_by"] = d.TriggeredBy
+	}
+	versions := make([]any, 0, len(d.Versions))
+	for _, t := range d.Versions {
+		versions = append(versions, map[string]any{"version_id": t.VersionID, "percentage": t.Percentage})
+	}
 	return map[string]any{
-		"id": d.ID, "source": "api", "strategy": "percentage", "author_email": workerAuthorEmail,
-		"annotations": map[string]any{"workers/message": d.Message, "workers/triggered_by": d.TriggeredBy},
-		"versions":    []any{map[string]any{"version_id": d.VersionID, "percentage": 100}},
-		"created_on":  tsMicro(d.Created),
+		"id": d.ID, "source": d.Source, "strategy": "percentage", "author_email": workerAuthorEmail,
+		"annotations": ann, "versions": versions, "created_on": tsMicro(d.Created),
 	}
 }
 
@@ -434,17 +495,40 @@ func validateBindings(a *account, bindings []map[string]any) *response {
 	return nil
 }
 
-// newVersionAndDeployment adds a version and a 100% deployment of it — every upload does this
-// implicitly (0038, 0039). IDs are consumed version first, then deployment.
-func (c *reqCtx) newVersionAndDeployment(w *workerScript, triggeredBy, message string) {
+// newVersion adds a version (not deployed) and consumes its ID.
+func (c *reqCtx) newVersion(w *workerScript, triggeredBy string) *workerVersion {
 	n := 1
 	if len(w.Versions) > 0 {
 		n = w.currentVersion().Number + 1 // UNVERIFIED: only version 1 recorded
 	}
-	v := &workerVersion{ID: c.s.ids.next(uuidV4), Number: n, Created: c.now, TriggeredBy: triggeredBy}
-	d := &workerDeployment{ID: c.s.ids.next(uuidV4), Created: c.now, Message: message, TriggeredBy: triggeredBy, VersionID: v.ID}
+	v := &workerVersion{ID: c.s.ids.next(uuidV4), Number: n, Created: c.now, TriggeredBy: triggeredBy, Source: uploadSource(c)}
 	w.Versions = append(w.Versions, v)
+	return v
+}
+
+// newVersionAndDeployment adds a version and a 100% deployment of it — every upload does this
+// implicitly (0038, 0039). IDs are consumed version first, then deployment. The caller sets the
+// version's resources (v.res) once they are final.
+func (c *reqCtx) newVersionAndDeployment(w *workerScript, triggeredBy, message string) *workerVersion {
+	v := c.newVersion(w, triggeredBy)
+	d := &workerDeployment{ID: c.s.ids.next(uuidV4), Created: c.now, Message: message, TriggeredBy: triggeredBy,
+		Source: v.Source, Versions: []workerTraffic{{VersionID: v.ID, Percentage: 100}}}
 	w.Deployments = append(w.Deployments, d)
+	return v
+}
+
+// uploadSource is the source the API reports for a version, deployment and last_deployed_from:
+// "api" for the recorded uploads (0036, 0038, 0039, 0114, made with a plain HTTP client), and
+// "wrangler" when wrangler uploads. SOURCED (statement): wrangler deploy warns that a Worker
+// "was last updated via the script API" when last_deployed_from is "api",
+// wrangler@4.143.0:wrangler-dist/cli.js#L174999-L175001, so its own uploads must report
+// something else, and `versions list` knows the source "wrangler" (cli.js#L353249-L353262).
+// That the API tells them apart by the User-Agent is UNVERIFIED.
+func uploadSource(c *reqCtx) string {
+	if strings.HasPrefix(c.r.Header.Get("User-Agent"), "wrangler/") {
+		return "wrangler"
+	}
+	return "api"
 }
 
 // workerUpload: PUT …/workers/scripts/{name}, multipart with a "metadata" part and one part per
@@ -452,76 +536,26 @@ func (c *reqCtx) newVersionAndDeployment(w *workerScript, triggeredBy, message s
 // else (0104). Server-assigned values are consumed from the ID source in this order: tag (new
 // scripts only), version ID, deployment ID, etag.
 func workerUpload(c *reqCtx) response {
-	parts, r := readParts(c)
+	name := c.params["script_name"]
+	w, exists := c.account.scripts[name]
+	up, r := parseScriptUpload(c, w)
 	if r != nil {
 		return *r
 	}
-	rawMeta, found := parts["metadata"]
-	if !found {
-		return fail(http.StatusBadRequest, 10021, "Missing metadata part.") // UNVERIFIED
-	}
-	var md workerMetadata
-	if r := decodeMetadata(rawMeta, &md); r != nil {
-		return *r
-	}
-	var mainModule, entry string
-	switch {
-	case md.MainModule != nil && *md.MainModule != "":
-		mainModule, entry = *md.MainModule, *md.MainModule
-	case md.BodyPart != nil && *md.BodyPart != "":
-		// Service-worker syntax (not recorded): metadata.body_part names the script part.
-		// SOURCED: cloudflare/workers-sdk@485cfb3:packages/wrangler/src/__tests__/helpers/mock-upload-worker.ts#L123
-		// (the fixture asserts wrangler's request); see has_modules for the response.
-		entry = *md.BodyPart
-	default:
-		return fail(http.StatusBadRequest, 10021, "Metadata must set main_module or body_part.") // UNVERIFIED
-	}
-	code, found := parts[entry]
-	if !found {
-		return fail(http.StatusBadRequest, 10021, fmt.Sprintf("No such module %q.", entry)) // UNVERIFIED
-	}
-	var bindings []map[string]any
-	if md.Bindings != nil {
-		bindings = *md.Bindings
-	}
-	if r := validateBindings(c.account, bindings); r != nil {
-		return *r
-	}
-
-	name := c.params["script_name"]
-	w, exists := c.account.scripts[name]
+	md := up.md
 	if !exists {
 		w = &workerScript{Name: name, Tag: c.s.ids.next(hex32), Created: c.now, Seq: c.s.nextSeq()}
 	}
 	w.Modified = c.now // a re-upload advances modified_on and keeps created_on (0104)
-	w.MainModule, w.EntryPoint = mainModule, entry
-	w.CompatDate, w.CompatFlags = deref(md.CompatibilityDate), derefSlice(md.CompatibilityFlags)
-	w.UsageModel = workerDefaultUsageModel
-	if md.UsageModel != nil && *md.UsageModel != "" {
-		w.UsageModel = *md.UsageModel // UNVERIFIED
-	}
-	w.Bindings = bindings
+	w.DeployedFrom = uploadSource(c)
+	w.workerResources = up.res
 	w.Observability = md.Observability
 	w.Logpush = md.Logpush != nil && *md.Logpush // false when omitted (0036)
 	w.Tags, w.TailConsumers = derefSlice(md.Tags), derefSlice(md.TailConsumers)
-	w.Placement = nil // reported as {} when omitted (0065)
-	if md.Placement != nil {
-		w.Placement = *md.Placement
-	}
-	w.Handlers = nil
-	for _, m := range workerHandlerRe.FindAllStringSubmatch(string(code), -1) {
-		if !containsStr(w.Handlers, m[1]) {
-			w.Handlers = append(w.Handlers, m[1])
-		}
-	}
 	w.StartupMs = c.s.workerStartupMs
-	c.newVersionAndDeployment(w, workerTriggeredUpload, workerMessageUpload)
-	// etag: a 64-hex digest that changes with the content (0036 vs 0104). The real input to the
-	// hash is unknown (it is not sha256 of the module or of the body), so this is UNVERIFIED.
-	w.Etag = c.s.ids.next(func() string {
-		sum := sha256.Sum256(append(append([]byte{}, rawMeta...), code...))
-		return hex.EncodeToString(sum[:])
-	})
+	v := c.newVersionAndDeployment(w, workerTriggeredUpload, workerMessageUpload)
+	w.Etag = up.etag(c)
+	v.res = w.workerResources
 	c.account.scripts[name] = w
 	return ok(w.uploadJSON())
 }
@@ -603,7 +637,8 @@ func workerSettingsPatch(c *reqCtx) response {
 		w.Placement = *md.Placement
 	}
 	w.Modified = c.now // UNVERIFIED
-	c.newVersionAndDeployment(w, workerTriggeredSettings, workerMessageSettings)
+	v := c.newVersionAndDeployment(w, workerTriggeredSettings, workerMessageSettings)
+	v.res = w.workerResources
 	return ok(w.settingsJSON())
 }
 

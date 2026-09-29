@@ -15,14 +15,10 @@ import (
 	"flare.dev/operator/test/differential/harness"
 )
 
-// wranglerSrc prefixes evidence citations into wrangler's source at the pinned release
-// (tag wrangler@4.143.0 = commit 3bdcd0d46102289e7ef417c4fb3086ea77a18fb1). wranglerDist cites
-// the published bundle where the code's source file was not located.
-const (
-	wranglerSrc  = "cloudflare/workers-sdk@3bdcd0d:"
-	wranglerDist = "wrangler@4.143.0:wrangler-dist/cli.js"
-	wranglerID   = "wrangler@" + WranglerVersion
-)
+// Evidence citations into wrangler's source use the pinned release: tag wrangler@4.143.0 =
+// cloudflare/workers-sdk commit 3bdcd0d46102289e7ef417c4fb3086ea77a18fb1, or the published
+// bundle wrangler@4.143.0:wrangler-dist/cli.js where the source file was not located. A new
+// mismatch becomes a harness.Discrepancy with such a citation (docs/differential-testing.md).
 
 // Deterministic IDs (queued in flarefake before each create), so the Worker's config can name
 // them before they exist.
@@ -33,75 +29,20 @@ const (
 
 const workerName = "flare-diff-worker"
 
-// Known wrangler discrepancies. Each has a Check in TestWrangler; the ones marked "shimmed"
-// also have a shim (wrangler_shims_test.go) so the deploy scenario can run past them.
-var (
-	dWrServiceGet = harness.Discrepancy{
-		ID: "WR-SERVICE-GET", Client: wranglerID,
-		Summary: "GET /accounts/{a}/workers/services/{name} is not emulated (404/7000, and absent from the pinned spec). " +
-			"wrangler deploy needs 404 with code 10007 (or 10090) for a new Worker and default_environment.script.tag for an existing one; with 7000 it aborts before uploading. (shimmed)",
-		Evidence: wranglerDist + "#L174943 (deploy: serviceMetaData.default_environment.script); " +
-			wranglerSrc + "packages/deploy-helpers/src/deploy/helpers/worker-not-found-error.ts#L4,L9",
-	}
-	dWrSecrets = harness.Discrepancy{
-		ID: "WR-SECRETS-LIST", Client: wranglerID,
-		Summary:  "GET /accounts/{a}/workers/scripts/{name}/secrets is not emulated (404/7000). wrangler deploy lists secrets whenever the config has bindings or vars and only tolerates 404/10007. (shimmed)",
-		Evidence: wranglerSrc + "packages/deploy-helpers/src/deploy/helpers/check-remote-secrets-override.ts#L10,L35-L42",
-	}
-	dWrWorkerGet = harness.Discrepancy{
-		ID: "WR-WORKER-GET", Client: wranglerID,
-		Summary:  "GET /accounts/{a}/workers/workers/{name} (Workers resource API) is not emulated (404/7000). wrangler reads subdomain.enabled/previews_enabled from it after every upload with workers_dev. (shimmed)",
-		Evidence: wranglerSrc + "packages/deploy-helpers/src/triggers/subdomain.ts#L159-L173",
-	}
-	dWrServiceDelete = harness.Discrepancy{
-		ID: "WR-SERVICE-DELETE", Client: wranglerID,
-		Summary:  "DELETE /accounts/{a}/workers/services/{name}?force=… is not emulated (404/7000); `wrangler delete` uses it instead of DELETE …/workers/scripts/{name}. (shimmed)",
-		Evidence: wranglerSrc + "packages/wrangler/src/delete.ts#L154-L159",
-	}
-	dWrRedeploy = harness.Discrepancy{
-		ID: "WR-REDEPLOY-VERSIONS", Client: wranglerID,
-		Summary: "Redeploying an existing Worker uses the versions API: POST …/scripts/{name}/versions (405/10405 in flarefake), then POST …/deployments and PATCH …/script-settings (neither emulated). A second `wrangler deploy` fails.",
-		Evidence: wranglerSrc + "packages/deploy-helpers/src/deploy/deploy.ts#L423-L432,L517-L525; " +
-			wranglerSrc + "packages/deploy-helpers/src/deploy/helpers/versions-api.ts#L145,L180",
-	}
-	dWrVersionGet = harness.Discrepancy{
-		ID: "WR-VERSION-GET", Client: wranglerID,
-		Summary:  "GET /accounts/{a}/workers/scripts/{name}/versions/{id} is not emulated (404/7000); `wrangler versions view` fails.",
-		Evidence: wranglerSrc + "packages/deploy-helpers/src/deploy/helpers/versions-api.ts#L27-L31",
-	}
-	dWrQueueListCounts = harness.Discrepancy{
-		ID: "WR-QUEUE-LIST-COUNTS", Client: wranglerID,
-		Summary:  "Queue list items lack producers_total_count/consumers_total_count (flarefake adds them only to GET; the list item shape is UNVERIFIED, 0148 is an empty list). `wrangler queues list` crashes: Cannot read properties of undefined (reading 'toString').",
-		Evidence: wranglerSrc + "packages/wrangler/src/queues/cli/commands/list.ts#L45-L46,L56-L57",
-	}
-	dWrQueueCreateStrict = harness.Discrepancy{
-		ID: "WR-QUEUE-CREATE-CONTENT-TYPE", Client: wranglerID,
-		Summary:  "wrangler sends the queue-create JSON body without a Content-Type header, so undici sends text/plain;charset=UTF-8. flarefake's spec validation flags it, and with -reject-schema-violations it answers 400/10001, so wrangler fails against strict mode (the live API accepts it: wrangler works in production).",
-		Evidence: wranglerSrc + "packages/wrangler/src/queues/client.ts#L55-L64",
-	}
-	dWrKVValues = harness.Discrepancy{
-		ID: "WR-KV-VALUES", Client: wranglerID,
-		Summary:  "KV values (PUT/GET/DELETE …/storage/kv/namespaces/{id}/values/{key}) are not emulated (404/7000); `wrangler kv key put/get` fail.",
-		Evidence: wranglerSrc + "packages/wrangler/src/kv/helpers.ts#L247-L252",
-	}
-	dWrD1Execute = harness.Discrepancy{
-		ID: "WR-D1-EXECUTE", Client: wranglerID,
-		Summary:  "POST /accounts/{a}/d1/database/{id}/query answers 501/99999 (D1 SQL execution is not emulated); `wrangler d1 execute --remote` fails.",
-		Evidence: wranglerSrc + "packages/wrangler/src/d1/execute.ts#L630-L640",
-	}
-)
-
-// knownWranglerSpecViolations are the requests wrangler makes that break the pinned spec,
-// each covered by a discrepancy above (harness.KnownSpecDefects covers the rest).
+// knownWranglerSpecViolations are requests wrangler makes on every such call that break the
+// pinned spec, so the live API must accept them (SOURCED, relies); flarefake journals them and
+// answers normally. harness.KnownSpecDefects covers the recording-proven ones.
 var knownWranglerSpecViolations = []string{
-	// WR-QUEUE-CREATE-CONTENT-TYPE
-	`POST /accounts/` + harness.AccountID + `/queues: request body has an error: header Content-Type has unexpected value "text/plain;charset=UTF-8"`,
-	// WR-KV-VALUES: wrangler sends a value as text/plain; the spec allows only multipart/form-data
-	// and application/octet-stream, so an emulated values route would also need this relaxed.
-	`PUT /accounts/` + harness.AccountID + `/storage/kv/namespaces/` + kvID + `/values/k1: request body has an error: header Content-Type has unexpected value "text/plain;charset=UTF-8"`,
-	// WR-SERVICE-GET, WR-SERVICE-DELETE
+	// The services routes are absent from the pinned spec; wrangler deploy and delete use them
+	// (internal/fake/workers_versions.go workerServiceGet, workerServiceDelete).
 	`GET /accounts/` + harness.AccountID + `/workers/services/` + workerName + `: no such operation in pinned spec: no matching operation was found`,
 	`DELETE /accounts/` + harness.AccountID + `/workers/services/` + workerName + `: no such operation in pinned spec: no matching operation was found`,
+	// `kv key delete` sends no body; the spec requires one (as for the namespace DELETE, 0013).
+	// cloudflare/workers-sdk@3bdcd0d:packages/wrangler/src/kv/helpers.ts#L279-L292.
+	`DELETE /accounts/` + harness.AccountID + `/storage/kv/namespaces/` + kvID + `/values/k1: request body has an error: value is required but missing`,
+	// `kv key put --metadata` sends metadata as a plain form field (text/plain); the spec's
+	// multipart encoding wants application/json. helpers.ts#L254-L258.
+	`PUT /accounts/` + harness.AccountID + `/storage/kv/namespaces/` + kvID + `/values/dir/k2: request body has an error: failed to decode request body: path metadata: not matching content types: header "text/plain", encoding "application/json"`,
 }
 
 type wrangler struct {
@@ -214,9 +155,10 @@ func jsonOut(t *testing.T, r result, v any) {
 
 func acctPath(p string) string { return "/accounts/" + harness.AccountID + p }
 
-// TestWrangler drives the pinned wrangler through KV, Queues, D1 and a Worker deploy with
-// bindings to all three against flarefake. Each command's requests are logged; with
-// FLARE_DIFF_CAPTURE_DIR set, all of them are written to wrangler-<version>.json there.
+// TestWrangler drives the pinned wrangler through KV (namespaces and keys), Queues, D1 and a
+// Worker deploy with bindings to all three, a redeploy through the versions API, and a delete,
+// against flarefake. Each command's requests are logged; with FLARE_DIFF_CAPTURE_DIR set, all of
+// them are written to wrangler-<version>.json there.
 func TestWrangler(t *testing.T) {
 	bin := wranglerBin(t)
 	f := harness.Start(t, harness.Options{})
@@ -248,15 +190,24 @@ func TestWrangler(t *testing.T) {
 			t.Errorf("title after rename %q", ns.Title)
 		}
 	})
-	dWrKVValues.Check(t, func() error {
-		if r := w.run(t, "kv", "key", "put", "--namespace-id", kvID, "--remote", "k1", "v1"); r.err != nil {
-			return r.failed()
+	t.Run("kv/key-put-get-list-delete", func(t *testing.T) {
+		w.ok(t, "kv", "key", "put", "--namespace-id", kvID, "--remote", "k1", "v1")
+		w.ok(t, "kv", "key", "put", "--namespace-id", kvID, "--remote", "dir/k2", "v2", "--metadata", `{"m":1}`)
+		if r := w.ok(t, "kv", "key", "get", "--namespace-id", kvID, "--remote", "k1"); strings.TrimSpace(r.stdout) != "v1" {
+			t.Errorf("kv key get printed %q, want v1", r.stdout)
 		}
-		r := w.run(t, "kv", "key", "get", "--namespace-id", kvID, "--remote", "k1")
-		if r.err == nil && strings.TrimSpace(r.stdout) != "v1" {
-			return fmt.Errorf("kv key get printed %q, want v1", r.stdout)
+		var keys []struct {
+			Name     string
+			Metadata map[string]any
 		}
-		return r.failed()
+		jsonOut(t, w.ok(t, "kv", "key", "list", "--namespace-id", kvID, "--remote"), &keys)
+		if len(keys) != 2 || keys[0].Name != "dir/k2" || keys[1].Name != "k1" || keys[0].Metadata["m"] != float64(1) {
+			t.Errorf("kv key list %+v, want dir/k2 (with metadata) and k1", keys)
+		}
+		w.ok(t, "kv", "key", "delete", "--namespace-id", kvID, "--remote", "k1")
+		if r := w.run(t, "kv", "key", "get", "--namespace-id", kvID, "--remote", "k1"); r.err == nil && strings.TrimSpace(r.stdout) == "v1" {
+			t.Errorf("kv key get after delete still printed v1")
+		}
 	})
 
 	t.Run("queues/create", func(t *testing.T) {
@@ -274,10 +225,16 @@ func TestWrangler(t *testing.T) {
 			t.Errorf("queues info output:\n%s", r.stdout)
 		}
 	})
-	dWrQueueListCounts.Check(t, func() error { return w.run(t, "queues", "list").failed() })
-	dWrQueueCreateStrict.Check(t, func() error {
+	t.Run("queues/list", func(t *testing.T) {
+		if r := w.ok(t, "queues", "list"); !strings.Contains(r.stdout, "flare-diff-q") {
+			t.Errorf("queues list output:\n%s", r.stdout)
+		}
+	})
+	// wrangler sends the create body without a Content-Type (text/plain); strict mode must still
+	// accept it (internal/fake/spec.go plainTextBodies).
+	t.Run("queues/create-strict", func(t *testing.T) {
 		strict := harness.Start(t, harness.Options{RejectSchemaViolations: true})
-		return newWrangler(t, strict, bin).run(t, "queues", "create", "flare-diff-strict-q").failed()
+		newWrangler(t, strict, bin).ok(t, "queues", "create", "flare-diff-strict-q")
 	})
 
 	t.Run("d1/create", func(t *testing.T) {
@@ -294,31 +251,16 @@ func TestWrangler(t *testing.T) {
 			t.Errorf("d1 list %+v", list)
 		}
 	})
-	dWrD1Execute.Check(t, func() error {
-		return w.run(t, "d1", "execute", "flare-diff-d1", "--remote", "--command", "select 1 as one", "--json").failed()
-	})
-
-	// The deploy flow needs routes flarefake does not emulate. Check the first two directly
-	// (the others need a deployed Worker), then register all shims so the rest of the flow
-	// still runs against flarefake.
-	dWrServiceGet.Check(t, func() error {
-		status, env := f.Call(http.MethodGet, acctPath("/workers/services/"+workerName), nil)
-		if status != http.StatusNotFound || len(env.Errors) == 0 || (env.Errors[0].Code != 10007 && env.Errors[0].Code != 10090) {
-			return fmt.Errorf("GET …/workers/services/%s for a missing Worker: %d %+v, want 404 code 10007", workerName, status, env.Errors)
+	t.Run("d1/execute", func(t *testing.T) {
+		var out []struct {
+			Results []map[string]any
+			Success bool
 		}
-		return nil
-	})
-	dWrSecrets.Check(t, func() error {
-		status, env := f.Call(http.MethodGet, acctPath("/workers/scripts/"+workerName+"/secrets"), nil)
-		if status != http.StatusNotFound || len(env.Errors) == 0 || env.Errors[0].Code != 10007 {
-			return fmt.Errorf("GET …/scripts/%s/secrets for a missing Worker: %d %+v, want 404 code 10007", workerName, status, env.Errors)
+		jsonOut(t, w.ok(t, "d1", "execute", "flare-diff-d1", "--remote", "--command", "select 1 as one; select 'x' as s", "--json"), &out)
+		if len(out) != 2 || !out[0].Success || len(out[0].Results) != 1 || out[0].Results[0]["one"] != float64(1) || out[1].Results[0]["s"] != "x" {
+			t.Errorf("d1 execute %+v, want [{one: 1}] and [{s: x}]", out)
 		}
-		return nil
 	})
-	f.AddShim(shimServiceGet(f, dWrServiceGet.ID))
-	f.AddShim(shimScriptSub(f, dWrSecrets.ID, http.MethodGet, "secrets", []any{}))
-	f.AddShim(shimWorkerGet(f, dWrWorkerGet.ID))
-	f.AddShim(shimServiceDelete(dWrServiceDelete.ID))
 
 	var versionID string
 	t.Run("deploy", func(t *testing.T) {
@@ -341,16 +283,13 @@ func TestWrangler(t *testing.T) {
 		if want := map[string]string{"KV": "kv_namespace", "Q": "queue", "DB": "d1"}; fmt.Sprint(got) != fmt.Sprint(want) {
 			t.Errorf("stored bindings %v, want %v (settings %+v)", got, want, settings.Bindings)
 		}
-		var sub struct{ Enabled bool }
-		if get(t, f, acctPath("/workers/scripts/"+workerName+"/subdomain"), &sub); !sub.Enabled {
-			t.Errorf("workers.dev not enabled after deploy with workers_dev: true")
+		var worker struct {
+			Name      string
+			Subdomain struct{ Enabled bool }
 		}
-	})
-	dWrWorkerGet.Check(t, func() error {
-		if status, _ := f.Call(http.MethodGet, acctPath("/workers/workers/"+workerName), nil); status != http.StatusOK {
-			return fmt.Errorf("GET …/workers/workers/%s for a deployed Worker: %d, want 200", workerName, status)
+		if get(t, f, acctPath("/workers/workers/"+workerName), &worker) != http.StatusOK || worker.Name != workerName || !worker.Subdomain.Enabled {
+			t.Errorf("GET …/workers/workers/%s after deploy with workers_dev: true: %+v", workerName, worker)
 		}
-		return nil
 	})
 	t.Run("versions/list", func(t *testing.T) {
 		var vs []struct {
@@ -381,7 +320,20 @@ func TestWrangler(t *testing.T) {
 			t.Errorf("deployments status does not name %s:\n%s", versionID, r.stdout)
 		}
 	})
-	dWrVersionGet.Check(t, func() error { return w.run(t, "versions", "view", versionID, "--json").failed() })
+	t.Run("versions/view", func(t *testing.T) {
+		var v struct {
+			ID        string
+			Resources struct {
+				Bindings []map[string]any
+				Script   struct{ Handlers []string }
+			}
+		}
+		jsonOut(t, w.ok(t, "versions", "view", versionID, "--json"), &v)
+		if v.ID != versionID || len(v.Resources.Bindings) != 3 || fmt.Sprint(v.Resources.Script.Handlers) != "[fetch]" {
+			t.Errorf("versions view %+v, want %s with 3 bindings and handlers [fetch]", v, versionID)
+		}
+		w.ok(t, "versions", "view", versionID) // the human-readable form reads resources.* too
+	})
 	t.Run("workers-dev-toggle", func(t *testing.T) {
 		w.ok(t, "triggers", "deploy", "--config", "wrangler-nodev.json")
 		var sub struct{ Enabled bool }
@@ -393,13 +345,48 @@ func TestWrangler(t *testing.T) {
 			t.Errorf("workers.dev not re-enabled by triggers deploy with workers_dev: true")
 		}
 	})
-	dWrRedeploy.Check(t, func() error { return w.run(t, "deploy").failed() })
-	dWrServiceDelete.Check(t, func() error {
-		status, env := f.Call(http.MethodDelete, acctPath("/workers/services/"+workerName+"?force=true"), nil)
-		if status != http.StatusOK {
-			return fmt.Errorf("DELETE …/workers/services/%s: %d %+v, want 200", workerName, status, env.Errors)
+	// A second deploy of an existing Worker goes through the versions API: POST …/versions,
+	// POST …/deployments at 100%, PATCH …/script-settings.
+	t.Run("redeploy", func(t *testing.T) {
+		mark := f.Mark()
+		w.ok(t, "deploy")
+		var used []string
+		for _, r := range f.RequestsSince(mark) {
+			used = append(used, r.Method+" "+strings.TrimPrefix(r.Path, acctPath("/workers/scripts/"+workerName)))
 		}
-		return nil
+		for _, want := range []string{"POST /versions", "POST /deployments", "PATCH /script-settings"} {
+			if !slices.Contains(used, want) {
+				t.Errorf("redeploy did not call %s (calls: %v)", want, used)
+			}
+		}
+		var vs []struct{ ID string }
+		jsonOut(t, w.ok(t, "versions", "list", "--json"), &vs)
+		var ds []struct {
+			Versions []struct {
+				VersionID string `json:"version_id"`
+			}
+		}
+		jsonOut(t, w.ok(t, "deployments", "list", "--json"), &ds)
+		if len(vs) != 2 || len(ds) != 2 {
+			t.Fatalf("after redeploy: %d versions, %d deployments, want 2 and 2", len(vs), len(ds))
+		}
+		newID := vs[0].ID // the version that is not the first deploy's (list order is not asserted)
+		if newID == versionID {
+			newID = vs[1].ID
+		}
+		found := false
+		for _, d := range ds {
+			found = found || len(d.Versions) == 1 && d.Versions[0].VersionID == newID
+		}
+		if !found {
+			t.Errorf("no deployment of the new version %s: %+v", newID, ds)
+		}
+		var settings struct {
+			Bindings []map[string]any `json:"bindings"`
+		}
+		if get(t, f, acctPath("/workers/scripts/"+workerName+"/settings"), &settings); len(settings.Bindings) != 3 {
+			t.Errorf("bindings after redeploy %+v, want KV, Q and DB", settings.Bindings)
+		}
 	})
 	t.Run("delete", func(t *testing.T) {
 		w.ok(t, "delete", "--force")
@@ -425,15 +412,8 @@ func TestWrangler(t *testing.T) {
 		for _, v := range f.UnexplainedSchemaViolations(knownWranglerSpecViolations...) {
 			t.Errorf("wrangler request broke the pinned spec (new discrepancy?): %s", v)
 		}
-		known := []string{ // routes of the discrepancies above
-			"/storage/kv/namespaces/" + kvID + "/values/k1",
-			"/workers/scripts/" + workerName + "/versions",
-			"/workers/scripts/" + workerName + "/versions/" + versionID,
-		}
 		for _, u := range f.Unanswered() {
-			if !slices.ContainsFunc(known, func(k string) bool { return strings.HasSuffix(u, acctPath(k)) }) {
-				t.Errorf("wrangler called a route flarefake does not emulate (new discrepancy?): %s", u)
-			}
+			t.Errorf("wrangler called a route flarefake does not emulate (new discrepancy?): %s", u)
 		}
 	})
 }

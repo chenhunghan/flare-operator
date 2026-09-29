@@ -15,6 +15,7 @@ type kvNamespace struct {
 	Title        string
 	Jurisdiction string
 	Created      time.Time
+	values       map[string]*kvValue // kv_values.go; nil until the first write
 }
 
 func (n *kvNamespace) json() map[string]any {
@@ -52,6 +53,7 @@ func (s *Server) registerKV() {
 		s.handle(http.MethodPut, base+"/{namespace_id}", wrap(kvRename))
 		s.handle(http.MethodDelete, base+"/{namespace_id}", wrap(kvDelete))
 	}
+	s.registerKVValues()
 }
 
 func kvTitleTaken(a *account, title, exceptID string) bool {

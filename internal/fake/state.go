@@ -13,6 +13,7 @@ type account struct {
 	vpc     map[string]*vpcService
 	tags    map[string]*tagRecord // tags.go; created lazily
 	scripts map[string]*workerScript
+	routes  map[string]*ipRoute // teamnet_routes.go; created lazily
 }
 
 func (s *Server) accountLocked(id string) *account {
