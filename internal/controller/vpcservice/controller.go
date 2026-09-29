@@ -224,7 +224,27 @@ func (r *Reconciler) finalize(ctx context.Context, vs *workersvpcv1alpha1.VPCSer
 		return ctrl.Result{}, true, nil
 	}
 	var deleteExternal func(context.Context, string) error
-	if id := reconcile.ExternalID(vs); id != "" && reconcile.ShouldDeleteExternal(vs, commonv1alpha1.DeletionDelete) {
+	shouldDelete := reconcile.ShouldDeleteExternal(vs, commonv1alpha1.DeletionDelete)
+	if name, pending := reconcile.PendingCreate(vs); pending && reconcile.ExternalID(vs) == "" && shouldDelete {
+		// No ID, but a create was announced: the manager may have died between the create and
+		// RecordCreated. Find that service and record it, so it is deleted rather than leaked.
+		acct, err := reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, vs, "Delete",
+			fmt.Sprintf("the VPC service %q this object may have created before a restart was not looked up and may be left in Cloudflare", name))
+		if err == nil && acct != nil {
+			_, err = reconcile.AdoptPendingCreate(ctx, r.Client, r.Recorder, vs, "VPC service", func(ctx context.Context, name string) (string, error) {
+				s, err := findServiceByName(ctx, acct.Client, acct.AccountID, name)
+				if s == nil || err != nil {
+					return "", err
+				}
+				return s.ServiceID, nil
+			})
+		}
+		if err != nil {
+			res, err := reconcile.DeletionResult(vs, err)
+			return res, false, err
+		}
+	}
+	if id := reconcile.ExternalID(vs); id != "" && shouldDelete {
 		// Cloudflare lets a service be deleted while a Worker still binds it (0091): wait for
 		// the registered referrers (WorkerScript vpc_service bindings) to go away first.
 		refs, err := generic.BlockingReferrers(ctx, r.Client, Kind, vs)
@@ -510,8 +530,11 @@ func (r *Reconciler) sync(ctx context.Context, vs *workersvpcv1alpha1.VPCService
 				return syncErr(fmt.Errorf("record the pending create of VPC service %q: %w", body.Name, err))
 			}
 			if cur, err = createService(ctx, cf, accountID, body); err != nil {
-				if reconcile.IsPermanent(err) {
+				if reconcile.IsPermanent(err) && !isDuplicateName(err) {
 					// The API refused the create: nothing was made, so nothing may be adopted later.
+					// A duplicate-name refusal proves nothing: the lookup above may have missed
+					// this object's own lost create (a lagging list), which the kept record lets
+					// the next reconcile adopt.
 					if cerr := reconcile.ClearCreatePending(ctx, r.Client, vs); cerr != nil {
 						return syncErr(errors.Join(err, cerr))
 					}

@@ -24,28 +24,51 @@ never a lost one** — the next reconcile must find that resource and adopt it.
 | VPCService | **new:** create-pending record. Before: NameConflict for its own service (the documented known gap). | yes, 5101 (0059) |
 | WorkerScript | **new:** create-pending record carrying the upload's hashes. Before: NameConflict (no owner tag yet) or, with the tag written, a second upload of the same content. | the name is the ID (PUT) |
 
-**Create-pending record** (`internal/reconcile/pending.go`). Kinds that never adopt a same-named
-resource on their own write `cloudflare.flare.dev/create-pending: <uid>/<key>` right before the
-Cloudflare create, after a lookup found nothing (a merge patch with a UID precondition, like
-RecordCreated). After a crash, a resource with that name is the object's own lost create: it is
-adopted with RecordCreated, which also clears the record (RecordOwnership and PersistExternalID
-clear it too). A create the API refuses (a permanent 4xx) clears the record, so a later
-same-named resource of someone else is not adopted. WorkerScript's key also carries the hashes
-of the content, settings and secrets it uploaded, so the adopted script is not uploaded again.
-With tagging, a readable owner tag naming another object still wins (NameConflict).
+**Create-pending record** (`internal/reconcile/pending.go`). Every kind writes
+`cloudflare.flare.dev/create-pending: <uid>/<key>` right before the Cloudflare create, after a
+lookup found nothing (a merge patch with a UID precondition, like RecordCreated); the key is the
+name, or the client-chosen ID (AIGateway). Kinds that never adopt a same-named resource on their
+own (VPCService, Tunnel without tagging, WorkerScript without an owner tag) use it on the next
+reconcile: a resource with that name is the object's own lost create, adopted with
+RecordCreated, which also clears the record (RecordOwnership and PersistExternalID clear it
+too). A create that Tunnel, VPCService or WorkerScript sees refused for good (a permanent 4xx)
+clears the record, so a later same-named resource of someone else is not adopted; VPCService
+keeps it on a duplicate-name refusal (400/5101 "… already exists", 0059), which proves only that
+the name is taken, possibly by the object's own lost create that a lagging list missed. The
+generic reconciler keeps it on every refusal, since it adopts any same-named resource anyway.
+WorkerScript's key also carries the hashes of the content, settings and secrets it uploaded, so
+the adopted script is not uploaded again. With tagging, a readable owner tag naming another
+object still wins (NameConflict).
+
+**Deletion before the restart.** An object deleted while the manager is down, after the create
+but before RecordCreated, has no ID; its finalizer used to drop the finalizer and leak the
+resource despite deletionPolicy Delete (every kind). Now each finalizer (generic, Tunnel,
+VPCService, WorkerScript) first resolves the create-pending record
+(`reconcile.AdoptPendingCreate`): it looks the key up (by name, client ID, or script name),
+records a resource found as the object's own create (RecordCreated) and deletes it through the
+normal ownership check (a foreign owner tag still keeps it). A lookup that can never succeed (a
+permanent 4xx, several resources with the name) and a CloudflareAccount that is gone leave the
+resource with a Warning event ExternalResourceKept rather than blocking the finalizer; a
+transient failure is retried.
 
 Residual risks, by design:
 
-- Someone creating a same-named resource between the object's "not found" lookup and its own
-  create call (one API round trip) would be adopted as the object's own (create-pending kinds),
-  or, for kinds that adopt by name anyway, adopted like any same-named resource.
-- The generic reconciler adopts by name without a create-pending record, and without an owner tag
-  (tagging off, or an untaggable kind: VectorizeIndex, SecretsStore, AIGateway) the adoption only
-  pins the ID; it records no ownership proof. The pin is what lets deletion proceed
-  (`reconcile.MayDeleteExternal`).
+- The create-pending record stands from the lookup that found nothing until a create succeeds
+  or is refused for good. While creates keep failing transiently (5xx, 408, 409, timeouts, lost
+  answers), a same-named resource that someone else creates in that time, however long it
+  lasts, is adopted as the object's own (create-pending kinds) and, with deletionPolicy Delete,
+  deleted with it; kinds that adopt by name anyway adopt it like any same-named resource. The
+  owner tag, where the kind has one, still refuses a resource another object has tagged.
+- Without an owner tag (tagging off, or an untaggable kind: VectorizeIndex, SecretsStore,
+  AIGateway) the generic reconciler's adoption by name only pins the ID; it records no ownership
+  proof. The pin is what lets deletion proceed (`reconcile.MayDeleteExternal`).
 - If a list lags a create (eventual consistency, UNVERIFIED for every product), a lost create can
-  be missed and re-sent: for unique names the API refuses the duplicate and the next reconcile
-  adopts; for Tunnel names (uniqueness UNVERIFIED) a duplicate is possible.
+  be missed and re-sent: for unique names the API refuses the duplicate, the record survives the
+  refusal, and the next reconcile adopts (tested for VPCService: `TestCrashVPCServiceLaggingList`);
+  for Tunnel names (uniqueness UNVERIFIED) a duplicate is possible.
+- A create whose ID is known but whose resource was found gone (404) is recreated with a new
+  record; should that recreate's answer be lost and the object be deleted before the next
+  reconcile, the finalizer deletes the known (gone) ID only, and the new resource is left.
 - A POST whose answer is lost (client timeout, connection reset) is never retried by the client
   (not idempotent); the next reconcile's lookup adopts what it made (tested: "lost create
   response adopted").
@@ -57,9 +80,15 @@ every later call; the manager is stopped and a fresh one started. The test asser
 Cloudflare resource, exactly one create call in the flarefake journal, the object's external-id
 and ownership record, no leftover create-pending record, and for WorkerScript no second upload.
 With the fixes disabled the AIGateway, VPCService, Tunnel/untagged and all three WorkerScript
-cases fail.
+cases fail. `TestCrashThenDeleteBeforeRestart` runs the same cases but deletes the object while
+no manager runs and checks that the restarted manager deletes the resource (none left, one
+create); without `AdoptPendingCreate` all 14 cases leak.
 
 ## 2. Faults
+
+Every fault test also checks the flarefake journal against a call budget: `kvCreateBudget`
+(14) per object plus what its faults may add, documented per test (e.g. one call per 429 or
+503; two per malformed answer or failed page read, the call and a repeated lookup).
 
 | Fault | Behavior | Test |
 |---|---|---|
@@ -147,8 +176,8 @@ is the pinned spec's path template (`cfclient.RouteTemplate`, generated from
 | `cloudflare_api_rate_limit_wait_seconds` | reason (`limiter`, `retry_after`) | time a call waited before being sent |
 | `cloudflare_api_throttled_total` | source (`api`, `client`) | 429 answers; calls refused locally while the token backs off |
 | `cloudflare_api_retries_total` | method, route_template, reason (`429`, `5xx`, `transport`) | retries |
-| `cloudflare_api_list_cache_hits_total`, `_misses_total` | | list cache (`spec.rateLimit.listCacheTTL`) |
-| `flare_managed_sync_failures_total` | kind, reason | reconciles that ended with Synced=False (RateLimited, ReconcileError, AccountNotReady, NameConflict, Immutable, …), including those reported through conditions and a timed requeue rather than an error |
+| `cloudflare_api_list_cache_hits_total`, `_misses_total` | | list cache (`spec.rateLimit.listCacheTTL`): lists served from memory, and lists fetched from the API with the cache on (item GETs count as neither) |
+| `flare_managed_sync_failures_total` | kind, reason | Synced=False conditions set (RateLimited, ReconcileError, AccountNotReady, NameConflict, Immutable, …), including failures reported through conditions and a timed requeue rather than an error; counted when set, so normally one per failing reconcile (a reconcile that sets it twice counts twice, and a status write that then fails still counts) |
 
 `TestMetricsEndpoint` scrapes a manager and checks each of them and that no label carries a
 32-hex ID.

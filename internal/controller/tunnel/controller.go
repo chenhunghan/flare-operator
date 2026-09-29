@@ -408,12 +408,12 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 			}
 			tagged = true
 		case pol.CanCreate():
-			if !tagging {
-				// Without an owner tag, a same-named tunnel found after a crash could not be told
-				// from someone else's: announce the create first (the case above adopts it).
-				if err := reconcile.MarkCreatePending(ctx, r.Client, t, t.TunnelName()); err != nil {
-					return syncErr(fmt.Errorf("record the pending create of tunnel %q: %w", t.TunnelName(), err))
-				}
+			// Announce the create first. Without an owner tag, a same-named tunnel found after a
+			// crash could not be told from someone else's (the case above adopts it); with or
+			// without one, a Tunnel deleted before a restarted manager adopted it has no ID,
+			// and its finalizer finds the tunnel through this record (reconcile.AdoptPendingCreate).
+			if err := reconcile.MarkCreatePending(ctx, r.Client, t, t.TunnelName()); err != nil {
+				return syncErr(fmt.Errorf("record the pending create of tunnel %q: %w", t.TunnelName(), err))
 			}
 			if tun, err = createTunnel(ctx, cf, accountID, t.TunnelName()); err != nil {
 				if reconcile.IsPermanent(err) {
@@ -674,6 +674,25 @@ func (r *Reconciler) finalize(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (c
 		reconcile.SetReady(t, metav1.ConditionFalse, commonv1alpha1.ReasonDependency,
 			fmt.Sprintf("waiting for %d VPCService(s) that reference this Tunnel to be deleted: %s", len(names), strings.Join(names, ", ")))
 		return ctrl.Result{RequeueAfter: DependencyRetry}, false, nil
+	}
+	if name := pendingName(t); name != "" && reconcile.ExternalID(t) == "" && reconcile.ShouldDeleteExternal(t, commonv1alpha1.DeletionDelete) {
+		// No ID, but a create was announced: the manager may have died between the create and
+		// RecordCreated. Find that tunnel and record it, so it is deleted rather than leaked.
+		acct, err := reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, t, "Delete",
+			fmt.Sprintf("the tunnel %q this object may have created before a restart was not looked up and may be left in Cloudflare", name))
+		if err == nil && acct != nil {
+			_, err = reconcile.AdoptPendingCreate(ctx, r.Client, r.Recorder, t, "tunnel", func(ctx context.Context, name string) (string, error) {
+				tun, err := findTunnelByName(ctx, acct.Client, acct.AccountID, name)
+				if tun == nil || err != nil {
+					return "", err
+				}
+				return tun.ID, nil
+			})
+		}
+		if err != nil {
+			res, err := reconcile.DeletionResult(t, err)
+			return res, false, err
+		}
 	}
 	var del func(context.Context, string) error
 	switch id := reconcile.ExternalID(t); {

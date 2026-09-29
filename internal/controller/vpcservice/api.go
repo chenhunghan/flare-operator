@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
 	"flare.dev/operator/internal/cfclient"
@@ -74,6 +75,24 @@ func getService(ctx context.Context, cf cfclient.Client, accountID, id string) (
 		return nil, err
 	}
 	return decodeService(resp)
+}
+
+// codeInvalidParameters is the code of a refused create, a duplicate name among other causes
+// (0059: 400/5101 "request contained invalid parameters: Service name '…' already exists").
+const codeInvalidParameters = 5101
+
+// isDuplicateName reports the API's refusal of a create because the name is taken (0059).
+func isDuplicateName(err error) bool {
+	ae, ok := cfclient.AsAPIError(err)
+	if !ok || ae.Status != http.StatusBadRequest {
+		return false
+	}
+	for _, d := range ae.Errors {
+		if d.Code == codeInvalidParameters && strings.Contains(d.Message, "already exists") {
+			return true
+		}
+	}
+	return false
 }
 
 // findServiceByName lists the account's services (0112: one unpaginated array) and returns the

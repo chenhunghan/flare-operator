@@ -99,6 +99,18 @@ func (k *kvEnv) assertOnePerTitle(titles []string) {
 	}
 }
 
+// assertBudget fails when j (this test's calls) exceeds objects creates at kvCreateBudget each
+// plus extra (what the faults may add; each test documents its formula): a retry hot loop
+// anywhere in the path would blow it.
+func (k *kvEnv) assertBudget(j []fake.JournalEntry, objects, extra int) {
+	k.t.Helper()
+	budget := objects*kvCreateBudget + extra
+	k.t.Logf("API calls: %d, budget %d (%d objects, %d for the faults)", len(j), budget, objects, extra)
+	if len(j) > budget {
+		k.t.Errorf("%d API calls, budget %d:\n%s", len(j), budget, testenv.Summary(j))
+	}
+}
+
 func (k *kvEnv) creates(j []fake.JournalEntry) []fake.JournalEntry {
 	p := k.kvPath()
 	return testenv.Filter(j, func(e fake.JournalEntry) bool { return e.Method == http.MethodPost && e.Path == p })
@@ -140,10 +152,7 @@ func TestRateLimitStorm(t *testing.T) {
 		t.Errorf("%d creates, want %d", n, len(objs))
 	}
 	// Budget: the storm adds its 429s (each retried once) to the normal cost of 4 creates.
-	t.Logf("API calls: %d for %d objects and %d 429s", len(j), len(objs), storm)
-	if budget := storm + len(objs)*kvCreateBudget; len(j) > budget {
-		t.Errorf("%d API calls, budget %d:\n%s", len(j), budget, testenv.Summary(j))
-	}
+	k.assertBudget(j, len(objs), storm)
 }
 
 // kvCreateBudget is the most Cloudflare calls one KVNamespace create costs with ownership tags
@@ -190,6 +199,8 @@ func TestLongRetryAfter(t *testing.T) {
 		}
 	}
 	k.assertOnePerTitle(titles)
+	// Budget: the 429 is one call; its failed reconcile repeats nothing before Retry-After.
+	k.assertBudget(j, 1, 1)
 	if el := time.Since(start); el < wait-2*time.Second {
 		t.Errorf("converged after %v, before Retry-After %v", el, wait)
 	}
@@ -207,10 +218,7 @@ func Test5xxBurst(t *testing.T) {
 	k.waitAll(objs, 90*time.Second)
 	k.assertOnePerTitle(titles)
 	j := k.journal()
-	t.Logf("API calls: %d for %d objects and %d 503s", len(j), len(objs), burst)
-	if budget := burst + len(objs)*kvCreateBudget; len(j) > budget {
-		t.Errorf("%d API calls, budget %d:\n%s", len(j), budget, testenv.Summary(j))
-	}
+	k.assertBudget(j, len(objs), burst)
 }
 
 // TestSlowResponses covers client timeouts and reconcile deadlines.
@@ -225,6 +233,8 @@ func TestSlowResponses(t *testing.T) {
 		objs, titles := k.createKV(1, "slowread")
 		k.waitAll(objs, 60*time.Second)
 		k.assertOnePerTitle(titles)
+		// Budget: the two abandoned reads (retried inline by the client).
+		k.assertBudget(k.journal(), 1, 2)
 	})
 	// The create succeeds in Cloudflare but its answer arrives after the client gave up (a lost
 	// response): the next reconcile finds the namespace by title and adopts it. One create.
@@ -244,6 +254,8 @@ func TestSlowResponses(t *testing.T) {
 		if got := objs[0].GetAnnotations()[commonv1alpha1.AnnotationExternalID]; count(ids, got) != 1 {
 			t.Errorf("external-id %q is not the namespace the lost create made (%v)", got, ids)
 		}
+		// Budget: the lost create and the lookup of the reconcile that adopts it.
+		k.assertBudget(k.journal(), 1, 2)
 	})
 	// A hung call is cut by the reconcile deadline (--reconcile-timeout), not by the (long)
 	// HTTP timeout: the object converges well before the stalled answer would have arrived.
@@ -260,6 +272,8 @@ func TestSlowResponses(t *testing.T) {
 		if el := time.Since(start); el >= stall {
 			t.Errorf("converged after %v: the reconcile deadline did not cut the %v stall", el, stall)
 		}
+		// Budget: the stalled read.
+		k.assertBudget(k.journal(), 1, 1)
 	})
 }
 
@@ -297,7 +311,9 @@ func TestMalformedBodies(t *testing.T) {
 	if n := len(testenv.Filter(j, func(e fake.JournalEntry) bool { return e.Fault })); n != 7 {
 		t.Errorf("%d faulted requests, want all 7 consumed:\n%s", n, testenv.Summary(j))
 	}
-	t.Logf("API calls: %d for 3 objects and 7 malformed answers", len(j))
+	// Budget: each malformed answer is one call and fails its reconcile, whose retry may repeat
+	// one more lookup; the seeding POST is one call.
+	k.assertBudget(j, 3, 2*7+1)
 }
 
 // TestPartialListFailure: the adoption lookup's second page fails. ListAll fails as a whole (a
@@ -355,4 +371,7 @@ func TestPartialListFailure(t *testing.T) {
 	if faulted != failures {
 		t.Errorf("%d faulted requests, want all %d consumed", faulted, failures)
 	}
+	// Budget: each failed page-2 read is one call, and every failed listing (at least one
+	// failure each, retried by the client) re-reads page 1 on the next reconcile.
+	k.assertBudget(j, 1, 2*failures)
 }

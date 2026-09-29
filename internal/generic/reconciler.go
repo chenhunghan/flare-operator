@@ -50,7 +50,8 @@ const accountRefIndex = ".spec.accountRef.name"
 //   - Missing resource: created from forProvider ∩ CreateFields (unless the policies forbid
 //     Create); set fields of UpdateFields \ CreateFields are applied by an update right after.
 //     The new ID and the ownership record (reconcile.RecordCreated) are written to the
-//     annotations at once, so a crash cannot orphan it.
+//     annotations at once, so a crash cannot orphan it; a create-pending record written just
+//     before the create lets the finalizer find a resource whose ID a crash did lose.
 //   - Existing resource: GET → status.atProvider/status.id; the ownership tag is ensured and
 //     recorded (a resource owned by another object is not touched; Observe-only objects neither
 //     tag, record nor pin an adopted ID); a change of an Immutable field sets
@@ -413,8 +414,8 @@ func (r *Reconciler) findByName(ctx context.Context, sc scope, desired map[strin
 	case 1:
 		return ids[0], nil
 	default:
-		return "", fmt.Errorf("%d resources have %s %q (%s); pin one with the %s annotation",
-			len(ids), d.NameField, want, strings.Join(ids, ", "), commonv1alpha1.AnnotationExternalID)
+		return "", fmt.Errorf("%d resources have %s %q (%s); pin one with the %s annotation: %w",
+			len(ids), d.NameField, want, strings.Join(ids, ", "), commonv1alpha1.AnnotationExternalID, reconcile.ErrAmbiguousName)
 	}
 }
 
@@ -439,9 +440,47 @@ func (r *Reconciler) findByClientID(ctx context.Context, sc scope, desired map[s
 	return want, nil
 }
 
+// pendingKey is the create-pending key of a create of desired: the NameField value (adoption by
+// name) or the client-chosen ID (findByClientID); "" when the kind can find a lost create by
+// neither.
+func (r *Reconciler) pendingKey(desired map[string]any) string {
+	d := r.Descriptor
+	if d.NameField != "" {
+		if v, ok := desired[d.NameField].(string); ok && d.ListPath != "" {
+			return v
+		}
+		return ""
+	}
+	if v, ok := desired[d.IDField].(string); ok && has(d.CreateFields, d.IDField) {
+		return v
+	}
+	return ""
+}
+
+// findPending looks up the resource a create-pending record names (pendingKey): by name, or by
+// the client-chosen ID. It returns "" when there is none.
+func (r *Reconciler) findPending(ctx context.Context, sc scope, key string) (string, error) {
+	d := r.Descriptor
+	if d.NameField != "" {
+		return r.findByName(ctx, sc, map[string]any{d.NameField: key})
+	}
+	return r.findByClientID(ctx, sc, map[string]any{d.IDField: key}, "")
+}
+
 func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc scope, desired map[string]any) (ctrl.Result, error) {
 	d := r.Descriptor
 	reconcile.MarkCreating(obj, "")
+	// Announce the create (reconcile.MarkCreatePending): the next reconcile adopts a lost create
+	// by name or client ID anyway, but an object deleted before that has no ID, and its
+	// finalizer finds the resource through this record (reconcile.AdoptPendingCreate). The
+	// record is kept when the API refuses the create: this reconciler takes any resource with
+	// the name (or ID) for the object's own anyway, so the record claims nothing more, and a
+	// duplicate-name refusal may be the answer to a lost create that a lagging list missed.
+	if key := r.pendingKey(desired); key != "" {
+		if err := reconcile.MarkCreatePending(ctx, r.Client, obj, key); err != nil {
+			return errResult(obj, fmt.Errorf("record the pending create: %w", err))
+		}
+	}
 	resp, err := sc.cf.Do(ctx, cfclient.Request{Method: http.MethodPost, Path: sc.path(d.CreatePath, ""), Body: pick(desired, d.CreateFields)})
 	if err != nil {
 		return errResult(obj, fmt.Errorf("create: %w", err))
@@ -685,6 +724,14 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 	if d.Singleton {
 		id = ""
 	}
+	if _, pending := reconcile.PendingCreate(obj); id == "" && deleteExternal && pending {
+		// No ID, but a create was announced: the manager may have died between the create and
+		// RecordCreated. Find that resource and record it, so it is deleted rather than leaked.
+		var err error
+		if id, err = r.adoptPendingCreate(ctx, obj); err != nil {
+			return reconcile.DeletionResult(obj, err)
+		}
+	}
 	release := id != "" && !deleteExternal && reconcile.PoliciesOf(obj).CanWrite() && r.tagging()
 	deleteExternal = deleteExternal && id != ""
 
@@ -777,6 +824,26 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 		r.applied.Delete(client.ObjectKeyFromObject(obj))
 	}
 	return res, err
+}
+
+// adoptPendingCreate resolves the resource of obj's create-pending record for its finalizer
+// (reconcile.AdoptPendingCreate). Without a usable account nothing can be looked up: a gone
+// account leaves it with a Warning event, one that is not Ready yet is waited for.
+func (r *Reconciler) adoptPendingCreate(ctx context.Context, obj reconcile.ManagedObject) (string, error) {
+	d := r.Descriptor
+	key, _ := reconcile.PendingCreate(obj)
+	acct, err := reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, obj, "Delete",
+		fmt.Sprintf("the %s this object may have created before a restart (create-pending %q) was not looked up and may be left in Cloudflare", d.Kind, key))
+	if err != nil || acct == nil {
+		return "", err
+	}
+	sc, err := r.scopeFor(obj, acct)
+	if err != nil {
+		return "", err
+	}
+	return reconcile.AdoptPendingCreate(ctx, r.Client, r.Recorder, obj, d.Kind, func(ctx context.Context, key string) (string, error) {
+		return r.findPending(ctx, sc, key)
+	})
 }
 
 // groupKind is the kind's API group and kind.

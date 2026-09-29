@@ -22,6 +22,16 @@ func pendingKey(name string, d *desired) string {
 	return fmt.Sprintf("%s;c=%s;s=%s;w=%s", name, d.contentHash, d.settingsHash, d.secretsHash)
 }
 
+// pendingScript is the script name of ws's create-pending record ("" without one).
+func pendingScript(ws *workersv1alpha1.WorkerScript) string {
+	key, ok := reconcile.PendingCreate(ws)
+	if !ok {
+		return ""
+	}
+	name, _, _ := strings.Cut(key, ";")
+	return name
+}
+
 // pendingUpload returns what ws's create-pending record says it was about to upload to name.
 func pendingUpload(ws *workersv1alpha1.WorkerScript, name string) (appliedState, bool) {
 	key, ok := reconcile.PendingCreate(ws)

@@ -56,7 +56,7 @@ var (
 	})
 	MetricListCacheMisses = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "cloudflare_api_list_cache_misses_total",
-		Help: "Collection GETs the client's list cache could not answer (sent to the API).",
+		Help: "List results fetched from the API because the client's list cache had no fresh entry (item GETs are not counted).",
 	})
 )
 

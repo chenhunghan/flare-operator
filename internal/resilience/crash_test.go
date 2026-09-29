@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -66,11 +67,8 @@ func (cx *crashCtx) path(p string) string {
 	return strings.NewReplacer("{account_id}", cx.acct.AccountID).Replace(p)
 }
 
-// TestCrashBetweenCreateAndRecord kills the manager right after each kind's Cloudflare create,
-// before the new ID reaches the API server, restarts it, and checks that exactly one Cloudflare
-// resource exists, that it was created once, and that the object adopted it with an ownership
-// record (and no leftover create-pending record).
-func TestCrashBetweenCreateAndRecord(t *testing.T) {
+// crashCases are the kinds under the crash tests.
+func crashCases() []crashCase {
 	var cases []crashCase
 	for _, kind := range []string{"KVNamespace", "Queue", "D1Database", "VectorizeIndex", "SecretsStore", "AIGateway"} {
 		for _, tagging := range []bool{true, false} {
@@ -80,9 +78,16 @@ func TestCrashBetweenCreateAndRecord(t *testing.T) {
 			cases = append(cases, genericCrashCase(kind, tagging))
 		}
 	}
-	cases = append(cases, tunnelCrashCase(true), tunnelCrashCase(false), vpcCrashCase(),
+	return append(cases, tunnelCrashCase(true), tunnelCrashCase(false), vpcCrashCase(),
 		workerCrashCase(true, false), workerCrashCase(true, true), workerCrashCase(false, false))
-	for _, c := range cases {
+}
+
+// TestCrashBetweenCreateAndRecord kills the manager right after each kind's Cloudflare create,
+// before the new ID reaches the API server, restarts it, and checks that exactly one Cloudflare
+// resource exists, that it was created once, and that the object adopted it with an ownership
+// record (and no leftover create-pending record).
+func TestCrashBetweenCreateAndRecord(t *testing.T) {
+	for _, c := range crashCases() {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			runCrash(t, c)
@@ -90,7 +95,81 @@ func TestCrashBetweenCreateAndRecord(t *testing.T) {
 	}
 }
 
-func runCrash(t *testing.T, c crashCase) {
+// TestCrashThenDeleteBeforeRestart: the manager dies right after the Cloudflare create, the
+// object (deletionPolicy Delete) is deleted while no manager runs, and a fresh manager
+// finalizes it. The object has no ID, only its create-pending record: the finalizer must find
+// the resource through that record and delete it, not drop the finalizer and leak it.
+func TestCrashThenDeleteBeforeRestart(t *testing.T) {
+	for _, c := range crashCases() {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			cr := crashFirst(t, c)
+			if _, ok := cr.o.GetAnnotations()[reconcile.AnnotationCreatePending]; !ok {
+				t.Fatalf("no create-pending record before the delete: %v", cr.o.GetAnnotations())
+			}
+			if err := cr.e.Client.Delete(testenv.Context(t, 10*time.Second), cr.o); err != nil {
+				t.Fatal(err)
+			}
+			cr.restart(t, c)
+			testenv.Eventually(t, 60*time.Second, func() (bool, string) {
+				err := cr.e.Client.Get(testenv.Context(t, 10*time.Second), client.ObjectKeyFromObject(cr.o), cr.o)
+				if apierrors.IsNotFound(err) {
+					return true, ""
+				}
+				return false, fmt.Sprintf("%v %s", err, condString(cr.o))
+			})
+			if ids := cr.find(); len(ids) != 0 {
+				t.Errorf("LEAK: the object (deletionPolicy Delete) is gone but Cloudflare still has %v", ids)
+			}
+			j := cr.e.Journal(t)
+			if n := c.creates(cr.cx, testenv.ForAccount(j, cr.cx.acct.AccountID)); n != 1 {
+				t.Errorf("%d creates, want 1", n)
+			}
+		})
+	}
+}
+
+// TestCrashVPCServiceLaggingList: after the crash, the restarted manager's first lookup misses
+// the lost create (a list that lags the create; list lag itself is UNVERIFIED), so the create is
+// re-sent and refused as a duplicate name (400/5101, 0059). That refusal proves nothing was
+// made, but not that the name is someone else's: the create-pending record must survive it, so
+// the next reconcile adopts the service instead of reporting NameConflict for its own service.
+func TestCrashVPCServiceLaggingList(t *testing.T) {
+	c := vpcCrashCase()
+	cr := crashFirst(t, c)
+	if err := cr.e.Fake.InjectFault(fake.Fault{Method: http.MethodGet,
+		PathRegex: "^" + cr.cx.path("/accounts/{account_id}/connectivity/directory/services") + "$", Status: http.StatusOK, Times: 1,
+		FaultShape: fake.FaultShape{Body: `{"success":true,"errors":[],"messages":[],"result":[]}`}}); err != nil {
+		t.Fatal(err)
+	}
+	cr.restart(t, c)
+	waitReadySynced(t, cr.e, cr.o, 60*time.Second)
+	j := accountJournal(t, cr.e, cr.cx.acct.AccountID)
+	if n := c.creates(cr.cx, j); n != 2 {
+		t.Errorf("%d creates, want 2 (the lost one and the refused duplicate):\n%s", n, testenv.Summary(j))
+	}
+	if ids := cr.find(); len(ids) != 1 || ids[0] != cr.ids[0] {
+		t.Errorf("resources %v, want exactly %v", ids, cr.ids)
+	}
+	if got := cr.o.GetAnnotations()[commonv1alpha1.AnnotationExternalID]; got != cr.ids[0] {
+		t.Errorf("external-id annotation %q, want %q", got, cr.ids[0])
+	}
+}
+
+// crashRun is the state of one crash test after the crash.
+type crashRun struct {
+	e      *testenv.Env
+	cx     *crashCtx
+	o      reconcile.ManagedObject
+	tagger reconcile.Tagger
+	ids    []string // the resource the crash left
+	// find lists the live resources with the case's name.
+	find func() []string
+}
+
+// crashFirst runs a manager that crashes right after c's Cloudflare create, stops it, and
+// checks that exactly one resource was made and its ID lost.
+func crashFirst(t *testing.T, c crashCase) *crashRun {
 	e := testenv.Require(t, env)
 	ns := e.Namespace(t)
 	tagger := c.tagger
@@ -133,7 +212,7 @@ func runCrash(t *testing.T, c crashCase) {
 			t.Fatalf("list %s: %v", listPath, err)
 		}
 		for _, it := range items {
-			if it[nameField] == name {
+			if it[nameField] == name && it["deleted_at"] == nil { // tunnels are soft-deleted
 				id, _ := it[idField].(string)
 				ids = append(ids, id)
 			}
@@ -151,19 +230,28 @@ func runCrash(t *testing.T, c crashCase) {
 	if got := o.GetAnnotations()[commonv1alpha1.AnnotationExternalID]; got != "" {
 		t.Fatalf("the crash should have lost the ID, but the external-id annotation is %q", got)
 	}
-	restart := len(accountJournal(t, e, acct.AccountID))
+	return &crashRun{e: e, cx: cx, o: o, tagger: tagger, ids: ids, find: find}
+}
 
-	// Restart.
-	e.StartManager(t, testenv.ManagerOptions{Tagger: tagger, Namespaces: []string{ns, "kube-system"},
+// restart starts a fresh manager for c (without the crash point).
+func (cr *crashRun) restart(t *testing.T, c crashCase) {
+	cr.e.StartManager(t, testenv.ManagerOptions{Tagger: cr.tagger, Namespaces: []string{cr.cx.ns, "kube-system"},
 		Setup: []func(ctrl.Manager, controller.Deps) error{func(mgr ctrl.Manager, d controller.Deps) error {
 			return c.setup(mgr.GetClient())(mgr, d)
 		}}})
+}
+
+func runCrash(t *testing.T, c crashCase) {
+	cr := crashFirst(t, c)
+	e, cx, o, ids := cr.e, cr.cx, cr.o, cr.ids
+	restart := len(accountJournal(t, e, cx.acct.AccountID))
+	cr.restart(t, c)
 	waitReadySynced(t, e, o, 60*time.Second)
-	j := accountJournal(t, e, acct.AccountID)
+	j := accountJournal(t, e, cx.acct.AccountID)
 	if n := c.creates(cx, j); n != 1 {
 		t.Errorf("%d creates, want 1:\n%s", n, testenv.Summary(j))
 	}
-	if ids2 := find(); len(ids2) != 1 || ids2[0] != ids[0] {
+	if ids2 := cr.find(); len(ids2) != 1 || ids2[0] != ids[0] {
 		t.Errorf("after the restart: resources %v, want exactly %v", ids2, ids)
 	}
 	a := o.GetAnnotations()

@@ -2,7 +2,11 @@ package vpcservice
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
+
+	"flare.dev/operator/internal/cfclient"
 )
 
 // The observed shape is recording 0176's response (nulls included).
@@ -54,5 +58,20 @@ func TestMatches(t *testing.T) {
 	d.HTTPPort = nil
 	if !matches(d, &have) {
 		t.Error("unset http_port treated as drift")
+	}
+}
+
+func TestIsDuplicateName(t *testing.T) {
+	dup := &cfclient.APIError{Status: 400, Errors: []cfclient.ErrorDetail{{Code: 5101,
+		Message: "request contained invalid parameters: Service name 'flare-spike-vpc-3' already exists"}}} // 0059
+	other := &cfclient.APIError{Status: 400, Errors: []cfclient.ErrorDetail{{Code: 5101,
+		Message: "request contained invalid parameters: Tunnel ID Not Found"}}}
+	for _, c := range []struct {
+		err  error
+		want bool
+	}{{dup, true}, {fmt.Errorf("create: %w", dup), true}, {other, false}, {errors.New("already exists"), false}} {
+		if got := isDuplicateName(c.err); got != c.want {
+			t.Errorf("isDuplicateName(%v) = %v, want %v", c.err, got, c.want)
+		}
 	}
 }

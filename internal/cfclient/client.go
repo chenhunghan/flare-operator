@@ -236,7 +236,6 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 			MetricListCacheHits.Inc()
 			return r, nil
 		}
-		MetricListCacheMisses.Inc()
 	}
 	route := RouteTemplate(req.Path)
 	if c.cache != nil && method != http.MethodGet && method != http.MethodHead {
@@ -276,7 +275,13 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 		if apiErr == nil {
 			// Only v4 envelopes whose result is an array are list results; a raw payload (e.g. a
 			// KV value that happens to be a JSON array) is never cached.
+			// A miss is counted here, once the answer is known to be a list: item GETs, which
+			// the cache never holds, are neither hits nor misses (nor are WithoutCache reads,
+			// which refresh the cache without consulting it).
 			if c.cache != nil && method == http.MethodGet && len(req.Header) == 0 && isEnvelope && isJSONArray(out.Result) {
+				if useCache {
+					MetricListCacheMisses.Inc()
+				}
 				c.cache.put(cacheKey, req.Path, out)
 			}
 			return out, nil

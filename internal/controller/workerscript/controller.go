@@ -798,6 +798,25 @@ func (r *Reconciler) finalize(ctx context.Context, ws *workersv1alpha1.WorkerScr
 		return ctrl.Result{}, true, nil
 	}
 	logger := log.FromContext(ctx)
+	if p := pendingScript(ws); p != "" && reconcile.ExternalID(ws) == "" && reconcile.ShouldDeleteExternal(ws, commonv1alpha1.DeletionDelete) {
+		// No ID, but an upload was announced: the manager may have died between the upload and
+		// RecordCreated. Record that script, so it is deleted rather than leaked.
+		acct, err := reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, ws, "Delete",
+			fmt.Sprintf("the Worker script %s this object may have uploaded before a restart was not looked up and may be left in Cloudflare", p))
+		if err == nil && acct != nil {
+			_, err = reconcile.AdoptPendingCreate(ctx, r.Client, r.Recorder, ws, "Worker script", func(ctx context.Context, key string) (string, error) {
+				s, err := getSettings(ctx, acct.Client, acct.AccountID, p)
+				if s == nil || err != nil {
+					return "", err
+				}
+				return p, nil
+			})
+		}
+		if err != nil {
+			res, err := reconcile.DeletionResult(ws, err)
+			return res, false, err
+		}
+	}
 	name := reconcile.ExternalID(ws)
 	var del func(context.Context, string) error
 	switch {

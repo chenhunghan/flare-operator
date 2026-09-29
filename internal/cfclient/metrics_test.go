@@ -165,3 +165,32 @@ func TestMetricsClientSideThrottle(t *testing.T) {
 		t.Errorf("client-side throttles +%v, want +2", got)
 	}
 }
+
+// TestMetricsListCacheMissesCountOnlyLists: an item GET (an object result, never cached) is not
+// a list-cache miss; a list fetched from the API is one, and its repeat a hit.
+func TestMetricsListCacheMissesCountOnlyLists(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/namespaces") {
+			writeEnv(w, 200, `{"success":true,"errors":[],"messages":[],"result":[{"id":"a"}]}`)
+			return
+		}
+		writeEnv(w, 200, `{"success":true,"errors":[],"messages":[],"result":{"id":"a"}}`)
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv.URL, func(o *Options) { o.ListTTL = time.Minute })
+	const acct = "feedfacefeedfacefeedfacefeedface"
+	item, list := "/accounts/"+acct+"/storage/kv/namespaces/a", "/accounts/"+acct+"/storage/kv/namespaces"
+	hits0 := metricValue(t, "cloudflare_api_list_cache_hits_total", nil)
+	misses0 := metricValue(t, "cloudflare_api_list_cache_misses_total", nil)
+	for _, p := range []string{item, item, list, list} {
+		if _, err := c.Do(context.Background(), Request{Path: p}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := metricValue(t, "cloudflare_api_list_cache_misses_total", nil) - misses0; got != 1 {
+		t.Errorf("misses +%v, want +1 (the first list only)", got)
+	}
+	if got := metricValue(t, "cloudflare_api_list_cache_hits_total", nil) - hits0; got != 1 {
+		t.Errorf("hits +%v, want +1", got)
+	}
+}
