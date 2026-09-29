@@ -9,6 +9,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
@@ -113,4 +114,89 @@ func TestThrottled(t *testing.T) {
 	if derr != nil || res.RequeueAfter != 90*time.Second {
 		t.Errorf("DeletionResult(429) = %+v, %v; want a 90s requeue without error", res, derr)
 	}
+}
+
+// TestAdoptPendingCreate: a found resource is recorded as the object's own create; nothing to
+// look up without a record or with an ID; a lookup that can never succeed is given up with a
+// Warning event; a transient one is returned for a retry.
+func TestAdoptPendingCreate(t *testing.T) {
+	ctx := context.Background()
+	setup := func(t *testing.T, pending bool) (client.Client, *Widget) {
+		w := widget(nil, "")
+		w.UID = "uid-a"
+		kube := newKube(t, w)
+		if err := kube.Get(ctx, client.ObjectKeyFromObject(w), w); err != nil {
+			t.Fatal(err)
+		}
+		if pending {
+			if err := reconcile.MarkCreatePending(ctx, kube, w, "my-name"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return kube, w
+	}
+	lookup := func(id string, err error) func(context.Context, string) (string, error) {
+		return func(_ context.Context, key string) (string, error) {
+			if key != "my-name" {
+				t.Errorf("lookup of %q, want my-name", key)
+			}
+			return id, err
+		}
+	}
+	t.Run("found", func(t *testing.T) {
+		kube, w := setup(t, true)
+		id, err := reconcile.AdoptPendingCreate(ctx, kube, nil, w, "thing", lookup("cf-9", nil))
+		if err != nil || id != "cf-9" {
+			t.Fatalf("= %q, %v", id, err)
+		}
+		var stored Widget
+		if err := kube.Get(ctx, client.ObjectKeyFromObject(w), &stored); err != nil {
+			t.Fatal(err)
+		}
+		if a := stored.Annotations; a[commonv1alpha1.AnnotationExternalID] != "cf-9" || !reconcile.HasOwnershipProof(&stored, "cf-9") {
+			t.Errorf("stored annotations %v, want the ID and its ownership proof", a)
+		}
+		if _, ok := reconcile.PendingCreate(&stored); ok {
+			t.Error("the record was not cleared")
+		}
+	})
+	t.Run("no record", func(t *testing.T) {
+		kube, w := setup(t, false)
+		if id, err := reconcile.AdoptPendingCreate(ctx, kube, nil, w, "thing", lookup("cf-9", nil)); err != nil || id != "" {
+			t.Errorf("= %q, %v; want nothing", id, err)
+		}
+	})
+	t.Run("not found", func(t *testing.T) {
+		kube, w := setup(t, true)
+		if id, err := reconcile.AdoptPendingCreate(ctx, kube, nil, w, "thing", lookup("", nil)); err != nil || id != "" {
+			t.Errorf("= %q, %v; want nothing", id, err)
+		}
+	})
+	for name, lerr := range map[string]error{
+		"permanent": &cfclient.APIError{Status: http.StatusForbidden, Errors: []cfclient.ErrorDetail{{Code: 10000, Message: "no"}}},
+		"ambiguous": errors.Join(errors.New("2 things"), reconcile.ErrAmbiguousName),
+	} {
+		t.Run(name, func(t *testing.T) {
+			kube, w := setup(t, true)
+			rec := events.NewFakeRecorder(5)
+			if id, err := reconcile.AdoptPendingCreate(ctx, kube, rec, w, "thing", lookup("", lerr)); err != nil || id != "" {
+				t.Errorf("= %q, %v; want given up", id, err)
+			}
+			select {
+			case ev := <-rec.Events:
+				if !strings.Contains(ev, reconcile.EventReasonExternalResourceKept) {
+					t.Errorf("event %q", ev)
+				}
+			default:
+				t.Error("no Warning event")
+			}
+		})
+	}
+	t.Run("transient", func(t *testing.T) {
+		kube, w := setup(t, true)
+		lerr := &cfclient.APIError{Status: http.StatusServiceUnavailable}
+		if _, err := reconcile.AdoptPendingCreate(ctx, kube, nil, w, "thing", lookup("", lerr)); !errors.Is(err, lerr) {
+			t.Errorf("err %v, want the lookup error for a retry", err)
+		}
+	})
 }
