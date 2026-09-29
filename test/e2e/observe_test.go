@@ -181,6 +181,28 @@ func (s *suite) checkTagIndexClean(t *testing.T) {
 	}
 	stale := 0
 	for _, e := range tagged {
+		if e.Type == "worker" {
+			// A worker's resource_id is its script tag (UNVERIFIED), not an item path: look for
+			// a script that still carries it.
+			var scripts []struct {
+				ID  string `json:"id"`
+				Tag string `json:"tag"`
+			}
+			if err := s.cfGet("/workers/scripts", &scripts); err != nil {
+				t.Errorf("list Worker scripts: %v", err)
+				continue
+			}
+			exists := false
+			for _, sc := range scripts {
+				exists = exists || sc.Tag == e.ID
+			}
+			if exists {
+				t.Errorf("tag index lists worker %s (tags %v), which still exists after teardown", e.ID, e.Tags)
+			} else {
+				stale++
+			}
+			continue
+		}
 		p, ok := tagItemPaths[e.Type]
 		if !ok {
 			t.Errorf("tag index lists a %s (%s, tags %v), a type this run never tags", e.Type, e.ID, e.Tags)
