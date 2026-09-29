@@ -21,11 +21,11 @@ same Cloudflare account, so ownership tags (flare.dev/owner) don't collide.
 
 Metrics (plain HTTP, no auth): :{{ .Values.metrics.port }}/metrics{{ if .Values.metrics.service.enabled }} via Service {{ include "flare-operator.fullname" . }}-metrics{{ end }}.
 {{- end }}
-{{- if and (gt (int .Values.replicas) 1) .Values.podDisruptionBudget.enabled }}
+{{- if and (gt (int .Values.replicas) 1) (dig "enabled" false (.Values.podDisruptionBudget | default (dict))) }}
 
 PodDisruptionBudget {{ include "flare-operator.fullname" . }} limits voluntary disruptions of the {{ .Values.replicas }} manager replicas.
 {{- end }}
-{{- if .Values.networkPolicy.enabled }}
+{{- if dig "enabled" false (.Values.networkPolicy | default (dict)) }}
 
 NetworkPolicy {{ include "flare-operator.fullname" . }} restricts the manager's traffic. If CloudflareAccounts show
 Synced=False/ReconcileError with a dial or TLS timeout, check networkPolicy.cloudflareAPI.cidrs; if

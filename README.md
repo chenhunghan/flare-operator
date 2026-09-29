@@ -120,8 +120,11 @@ you are upgrading to:
 ```sh
 make crds-diff        # optional: kubectl diff --server-side against the cluster
 make crds-apply       # kubectl apply --server-side --force-conflicts --field-manager=flare-operator-crds -f charts/flare-operator/crds/
-helm upgrade flare-operator charts/flare-operator -n flare-system --reuse-values --set image.tag=<new tag>
+helm upgrade flare-operator charts/flare-operator -n flare-system --reset-then-reuse-values --set image.tag=<new tag>
 ```
+
+Use `--reset-then-reuse-values` (Helm 3.14 or later) or `-f <your values file>`, not
+`--reuse-values`: that flag drops the defaults of every value a newer chart adds.
 
 [docs/operations.md](docs/operations.md#upgrade) explains why this is a manual step, covers
 Flux and Argo CD, and describes the tested upgrade path (`make e2e-upgrade`).

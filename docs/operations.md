@@ -61,10 +61,18 @@ the version you are upgrading to:
 ```sh
 make crds-diff                        # optional: kubectl diff --server-side against the cluster
 make crds-apply                       # kubectl apply --server-side --force-conflicts -f charts/flare-operator/crds/
-helm upgrade flare-operator charts/flare-operator -n flare-system --reuse-values \
+helm upgrade flare-operator charts/flare-operator -n flare-system --reset-then-reuse-values \
   --set image.tag=<new tag>
 kubectl -n flare-system rollout status deploy/flare-operator
 ```
+
+Use `--reset-then-reuse-values` (Helm 3.14 or later), or pass your own values file with `-f`.
+**Do not use `--reuse-values`**: it replaces the new chart's defaults with the old release's
+values, so every key a newer chart adds is missing. Upgrading from chart 0.1.0 with
+`--reuse-values`, for example, dropped the 0.2.0 defaults for `reconcile`,
+`podDisruptionBudget`, `networkPolicy`, `topologySpreadConstraints` and
+`metrics.serviceMonitor`. `--reset-then-reuse-values` starts from the new chart's defaults and
+reapplies only the values you set.
 
 `--server-side --force-conflicts` takes field ownership from the Helm install that first
 created the CRDs, under the field manager `flare-operator-crds`. Apply the CRDs before the
@@ -94,6 +102,16 @@ UNVERIFIED):
   client-side apply stores the whole object in the `last-applied-configuration` annotation,
   which fails once a CRD passes the 256 KiB annotation limit. Enable the `ServerSideApply=true`
   sync option for the Application.
+- **Argo CD and deleting the Application.** Deleting an Application with cascade deletes every
+  resource it tracks, CRDs included, and deleting a CRD deletes every object of that kind. If
+  the manager is still running, it then finalizes those objects, and each `Delete`-policy
+  resource is **deleted in Cloudflare** (see the table under
+  [Uninstall](#uninstall-and-what-happens-to-cloudflare-resources)). The chart's CRDs therefore
+  carry `argocd.argoproj.io/sync-options: Delete=false,Prune=false`, so Argo CD never deletes or
+  prunes them. Keep that annotation if you apply the CRDs some other way. Better still, manage
+  the CRDs in a separate Application (for example from `charts/flare-operator/crds/`), and set
+  `skipCrds: true` in the operator Application's `helm` source. Either way, follow the uninstall
+  steps below before you delete the Application.
 
 **Tested path.** `make e2e-upgrade` installs the chart and manager of a previous git ref
 (default: the latest tag, else the merge base with `main`), creates an account, a KVNamespace,
@@ -124,6 +142,7 @@ Cloudflare by itself.
 | `helm uninstall` | Nothing. Manager, RBAC and Services go away; the CRDs, the objects and their finalizers stay. |
 | Delete the CRDs **while the manager runs** | Every object is deleted, so every `Delete`-policy resource **is deleted in Cloudflare**. |
 | Delete the CRDs or objects after `helm uninstall` | Nothing in Cloudflare. The objects hang in `Terminating` on their finalizers until you remove them. |
+| Delete a Tunnel object, whatever its `deletionPolicy` | Its cloudflared Deployment, token Secret and NetworkPolicy are owned by the Tunnel, so the garbage collector deletes them too, and **the tunnel stops serving traffic**. `Orphan` keeps the tunnel in Cloudflare, not its connectors. Delete with `--cascade=orphan` to keep the connectors running. |
 
 To remove the operator and **keep** everything in Cloudflare:
 
@@ -135,11 +154,18 @@ kubectl get cloudflare -A -o json |
     kubectl -n "$ns" patch "$kind" "$name" --type merge -p '{"spec":{"deletionPolicy":"Orphan"}}'
   done
 # 2. Delete the objects while the manager still runs (the finalizers release the owner tags).
-kubectl delete cloudflare -A --all
+#    --cascade=orphan keeps the objects the operator created in the cluster: without it, the
+#    garbage collector deletes every Tunnel's cloudflared Deployment, and the tunnels stop
+#    serving traffic even though they stay in Cloudflare.
+kubectl delete cloudflare -A --all --cascade=orphan
 # 3. Remove the release, then the CRDs.
 helm uninstall flare-operator -n flare-system
 kubectl delete -f charts/flare-operator/crds/
 ```
+
+The cloudflared Deployments, token Secrets and NetworkPolicies of the Tunnels are left running
+and unmanaged. Delete them yourself (`kubectl delete deploy,secret,networkpolicy -n <ns>
+-l cloudflare.flare.dev/tunnel=<tunnel name>`) once the tunnels are served some other way.
 
 To remove the operator and **delete** what it created, delete the objects with
 `deletionPolicy: Delete` while the manager runs, wait until they are gone, then uninstall.

@@ -154,7 +154,9 @@ env "${e2e_env[@]}" E2E_UPGRADE_PHASE=pre go test -tags e2e ./test/e2e/ -count=1
 # 5. CRDs first (Helm never upgrades crds/), then the chart.
 log "apply this checkout's CRDs, helm upgrade"
 "$MAKE" crds-apply CHART="$CHART" KUBECTL="$KUBECTL"
-"$HELM" upgrade "$E2E_RELEASE" "$CHART" "${helm_args[@]}" -f "$CHART/ci/flarefake-values.yaml" --set image.tag="$E2E_TAG"
+# The documented upgrade command (docs/operations.md#upgrade): the install's values are reused
+# on top of the new chart's defaults, not passed again.
+"$HELM" upgrade "$E2E_RELEASE" "$CHART" "${helm_args[@]}" --reset-then-reuse-values --set image.tag="$E2E_TAG"
 "$HELM" -n "$E2E_NAMESPACE" history "$E2E_RELEASE"
 
 # 6. Checks after the upgrade, then the smoke subset.

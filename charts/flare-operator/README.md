@@ -70,7 +70,7 @@ toolchain has no helm-docs generator; the test takes its place.
 | `imagePullSecrets` | array | `[]` | Pull secrets for the manager and flarefake pods. |
 | `replicas` | integer | `1` | Manager replicas. More than one requires `leaderElection.enabled`; only the leader reconciles. |
 | `leaderElection.enabled` | boolean | `true` | `--leader-elect`. The Lease lives in the release namespace (`--leader-election-namespace`). |
-| `clusterName` | string | `"default"` | `--cluster-name`: the cluster identity in ownership tags (`flare.dev/owner=<clusterName>/<ns>/<name>`). Give every cluster that manages the same Cloudflare account a distinct name. |
+| `clusterName` | string | `""` | `--cluster-name`: the cluster identity in ownership tags (`flare.dev/owner=<clusterName>/<ns>/<name>`). Required: the install fails without it. Give every cluster that manages the same Cloudflare account a distinct name. |
 | `ownershipTags` | boolean | `true` | `--ownership-tags`: tag managed Cloudflare resources through Resource Tagging. |
 | `userAgent` | string | `""` | `--user-agent` for Cloudflare API calls (empty: the binary default, `flare-operator`). |
 | `controllers` | array | `[]` | `--controller`, once per entry: run only these controllers. Empty runs all of them. |

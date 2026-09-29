@@ -53,7 +53,7 @@ spec:
             - --health-probe-bind-address=:{{ .Values.probes.port }}
             - --leader-elect={{ .Values.leaderElection.enabled }}
             - --leader-election-namespace={{ .Release.Namespace }}
-            - --cluster-name={{ required "clusterName is required" .Values.clusterName }}
+            - --cluster-name={{ required "clusterName is required: set a name unique among the clusters that manage the same Cloudflare account (--set clusterName=<name>)" .Values.clusterName }}
             - --ownership-tags={{ .Values.ownershipTags }}
             {{- with .Values.userAgent }}
             - --user-agent={{ . }}

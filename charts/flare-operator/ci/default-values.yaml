@@ -1,2 +1,3 @@
 # Rendered by `make helm-lint` (chart-testing convention: ci/*-values.yaml).
-{}
+# clusterName is required and has no default.
+clusterName: ci
