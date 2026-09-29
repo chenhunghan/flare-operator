@@ -34,7 +34,19 @@ func newTestClient(t *testing.T, srvURL string, mod func(*Options)) Client {
 	if err != nil {
 		t.Fatal(err)
 	}
+	forgetToken(t, o.Token)
 	return c
+}
+
+// forgetToken drops token's shared state (limiter and 429 back-off) from the process-wide
+// registry when t ends. Test tokens are derived from t.Name(), so without this a -count=N rerun
+// would inherit the previous run's drained limiter or "blocked until" instant.
+func forgetToken(t *testing.T, token string) {
+	t.Cleanup(func() {
+		tokensMu.Lock()
+		delete(tokens, tokenKey(token))
+		tokensMu.Unlock()
+	})
 }
 
 func writeEnv(w http.ResponseWriter, status int, body string) {
@@ -192,41 +204,73 @@ func TestRatelimitHeaderIgnored(t *testing.T) {
 	}
 }
 
+// TestLimiterSharedPerToken proves that clients built with the same token draw from one limiter
+// and that a different token has its own. It uses no wall-clock thresholds. The limiter allows a
+// burst of 1 and refills one token every ~11.6 days, and every call carries a one-hour deadline.
+// rate.Limiter.Wait fails at once, without sleeping, when the wait would pass the deadline, so a
+// call either gets a burst token or fails straight away, however loaded the machine is.
 func TestLimiterSharedPerToken(t *testing.T) {
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
 		writeEnv(w, 200, `{"success":true,"errors":[],"messages":[],"result":{}}`)
 	}))
 	defer srv.Close()
+	const rps = 1e-6 // one token per ~11.6 days: never refills during the test
 	mk := func(token string) Client {
-		c, err := New(Options{Token: token, BaseURL: srv.URL, RPS: 20, Burst: 1})
+		c, err := New(Options{Token: token, BaseURL: srv.URL, RPS: rps, Burst: 1})
 		if err != nil {
 			t.Fatal(err)
 		}
+		forgetToken(t, token)
 		return c
 	}
+	call := func(c Client) error {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+		defer cancel()
+		_, err := c.Do(ctx, Request{Path: "/x"})
+		if err != nil && ctx.Err() != nil {
+			t.Fatalf("call waited for its deadline instead of failing at once: %v", err)
+		}
+		return err
+	}
 	a, b := mk("shared-"+t.Name()), mk("shared-"+t.Name())
-	start := time.Now()
-	for i := range 6 {
-		c := a
-		if i%2 == 1 {
-			c = b
-		}
-		if _, err := c.Do(context.Background(), Request{Path: "/x"}); err != nil {
-			t.Fatal(err)
-		}
+	if a.(*client).state != b.(*client).state {
+		t.Fatal("clients with the same token got different token states")
 	}
-	// 6 requests at 20 rps with burst 1 need ≥ 5 intervals of 50 ms.
-	if d := time.Since(start); d < 200*time.Millisecond {
-		t.Errorf("shared limiter not applied across clients: %v", d)
+
+	// a takes the only burst token.
+	if err := call(a); err != nil {
+		t.Fatalf("first call on the shared token: %v", err)
 	}
-	// A different token has its own limiter.
+	// b shares a's limiter, so it has nothing left and must not reach the server.
+	if err := call(b); err == nil {
+		t.Fatal("second client with the same token was not limited: limiter not shared")
+	}
+	if err := call(a); err == nil {
+		t.Fatal("first client was not limited after its burst was spent")
+	}
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("server hits after shared-token calls = %d, want 1", n)
+	}
+
+	// A different token has its own limiter with its own burst token.
 	other := mk("other-" + t.Name())
-	start = time.Now()
-	if _, err := other.Do(context.Background(), Request{Path: "/x"}); err != nil {
-		t.Fatal(err)
+	if other.(*client).state == a.(*client).state {
+		t.Fatal("a different token got the shared token's state")
 	}
-	if d := time.Since(start); d > 40*time.Millisecond {
-		t.Errorf("independent token waited %v", d)
+	if err := call(other); err != nil {
+		t.Fatalf("independent token was limited by another token's limiter: %v", err)
+	}
+	if n := hits.Load(); n != 2 {
+		t.Fatalf("server hits after independent-token call = %d, want 2", n)
+	}
+	// The independent call left the shared limiter drained.
+	if err := call(b); err == nil {
+		t.Fatal("shared token regained capacity after another token's call")
+	}
+	if n := hits.Load(); n != 2 {
+		t.Fatalf("server hits at end = %d, want 2", n)
 	}
 }
 

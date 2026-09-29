@@ -100,7 +100,7 @@ Path prefixes are relative to `/client/v4`. `A` means `/accounts/{account_id}` a
 
 | Product | Status | API | TF | K8s analogy | Tier | Operator gotcha |
 |---|---|---|---|---|---|---|
-| Workers scripts | GA | `A/workers/scripts/{name}` (content, settings, secrets, schedules, subdomain, tails) | ✓ | Deployment | T1 | Upload is a single multipart PUT that carries metadata and bindings. Secrets are write-only. Limit is 64 MiB uncompressed. |
+| Workers scripts | GA | `A/workers/scripts/{name}` (content, settings, secrets, schedules, subdomain, tails) | ✓ | Deployment | T1 | Upload is a single multipart PUT that carries metadata and bindings. Secrets are write-only. Limit is 64 MiB uncompressed. Permissions: legacy `Workers Scripts Write`/`Read` (spec `x-api-token-group`), or the granular roles added 2026-09-15; creating or deleting a script needs Admin at Workers product scope (see the README's Workers roles section). |
 | Workers "Worker" resource API | GA; previews beta | `A/workers/workers/{id}` (+versions, previews) | ✓ | Deployment | T1 | An ID-based model that coexists with the name-based `/scripts` API. **Pick one** per CRD. |
 | Worker versions / deployments | GA | `…/versions`, `…/deployments` | ✓ | ReplicaSet / rollout | T1 | A deployment is immutable and splits across at most 2 versions. |
 | Worker Previews | Beta (2026-09-22) | `A/workers/workers/{id}/previews`, `A/builds/workers/{tag}/previews` | – | Preview namespace | T2 | KV, D1 and R2 are shared unless you bind separate ones. |
@@ -119,7 +119,7 @@ Path prefixes are relative to `/client/v4`. `A` means `/accounts/{account_id}` a
 | Workflows | GA | `A/workflows/{name}` (+instances, batch, events, versions) | ✓ | Job / CronJob | T1 | Code lives in a Worker. Declared through `exports` (2026-09). Default retention on Paid is 7 days. |
 | Agents SDK / Agent Lee | SDK v0.x / dashboard copilot | none | – | StatefulSet (via DO) / none | – | Frameworks and UI, not resources. |
 | Browser Run (ex-Browser Rendering) | GA (renamed 2026-04-15) | `A/browser-rendering/*` | – | Job | T3 | Mostly imperative. Limit is 120 concurrent browsers. |
-| Workers VPC | Beta | `A/connectivity/directory/services` | ✓ | Service ExternalName | T1 | Depends on a Tunnel, Mesh or WAN. Needs the "Connectivity Directory" permission. |
+| Workers VPC | Beta | `A/connectivity/directory/services` | ✓ | Service ExternalName | T1 | Depends on a Tunnel, Mesh or WAN. Needs the "Connectivity Directory" permission (the dashboard's name for VPC services). |
 | Snippets | GA | `Z/snippets` (+`snippet_rules`) | ✓ | – | T2 | `snippet_rules` is a single list replaced on every PUT. |
 | Zaraz | GA | `Z/settings/zaraz/*` | ✓ | ConfigMap | T2 | Changes need a separate publish step. |
 | Flagship | Public beta (2026-05-26) | `A/flagship/apps` (+flags) | ✓ | ConfigMap | T2 | |
@@ -233,8 +233,8 @@ Path prefixes are relative to `/client/v4`. `A` means `/accounts/{account_id}` a
 
 | Product | Status | API | TF | K8s analogy | Tier | Gotcha |
 |---|---|---|---|---|---|---|
-| Cloudflare Tunnel (remotely managed) | GA | `A/cfd_tunnel` (+configurations, connections, token) | ✓ | Ingress / Gateway controller | T1 | The ingress config is replace-all. The token is a secret. The `connections` field is **removed 2026-10-05**; use `/connections`. The operator also runs `cloudflared` as a Deployment. |
-| Private routes / virtual networks | GA | `A/teamnet/{routes,virtual_networks}`, `A/zerotrust/{routes/hostname,subnets}` | ✓ | – | T1 | The CIDR-encoded route endpoints are **removed 2026-10-05**. Store `route_id`. |
+| Cloudflare Tunnel (remotely managed; dashboard: "Cloudflare One Connector: cloudflared") | GA | `A/cfd_tunnel` (+configurations, connections, token) | ✓ | Ingress / Gateway controller | T1 | The ingress config is replace-all. The token is a secret. The `connections` field is **removed 2026-10-05**; use `/connections`. The operator also runs `cloudflared` as a Deployment. |
+| Private routes / virtual networks (dashboard: "Cloudflare One Networks") | GA | `A/teamnet/{routes,virtual_networks}`, `A/zerotrust/{routes/hostname,subnets}` | ✓ | – | T1 | The CIDR-encoded route endpoints are **removed 2026-10-05**. Store `route_id`. |
 | Cloudflare Mesh (ex-WARP Connector) | GA (2026-04-14) | `A/warp_connector` | ✓ | CNI / mesh | T2 | Limit is 50 nodes. |
 | Access for Infrastructure | GA | `A/infrastructure/targets` | ✓ | – | T2 | |
 
@@ -282,7 +282,7 @@ Path prefixes are relative to `/client/v4`. `A` means `/accounts/{account_id}` a
 | Product | Status | API | TF | K8s analogy | Tier | Gotcha |
 |---|---|---|---|---|---|---|
 | Account API tokens | GA | `A/tokens` | ✓ | ServiceAccount + Secret | T1 | Limit is 500 per account. |
-| Resource Tagging | Public beta (2026-04-27) | `{A,Z}/tags` | – | labels | T1 | Replace-all. Reading tags on a never-tagged resource returns 500. |
+| Resource Tagging (dashboard: "Tag") | Public beta (2026-04-27) | `{A,Z}/tags` | – | labels | T1 | Replace-all. Reading tags on a never-tagged resource returns 500. |
 | IAM / members | GA | `A/iam/*`, `A/members` (`A/roles` is deprecated) | ✓ | RBAC | T2 | |
 | Resource sharing | Beta (unverified) | `A/shares` | – | ReferenceGrant | T2 | Async. |
 | Notifications | GA | `A/alerting/v3/*` | ✓ | Alertmanager config | T2 | |

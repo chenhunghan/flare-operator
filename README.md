@@ -134,17 +134,57 @@ account ID. Never enable flarefake in a cluster that manages a real Cloudflare a
 
 Give the token only what the kinds you use need. For an `Observe`-only object, the Read variant
 is enough. The permission-group names below come from the `x-api-token-group` extension of the
-pinned OpenAPI spec. Rows marked UNVERIFIED are ones where the spec lists no group.
+pinned OpenAPI spec. Rows marked UNVERIFIED are ones where the spec lists no group. Some
+dashboard names differ from the spec's; see [Workers roles](#workers-roles-legacy-and-granular)
+and [Renamed products](#renamed-products-in-the-dashboard) below.
 
 | Kind | Permission group (spec `x-api-token-group`) |
 |---|---|
 | `CloudflareAccount` | None listed for `tokens/verify` (UNVERIFIED: the spec gives no group for `/accounts/{id}/tokens/verify` or `/user/tokens/verify`). A **user** token also calls `GET /accounts/{id}`. The spec lists a fixed set of 29 groups for it, among them `Account Settings Read`, `Workers KV Storage Read`/`Write` and `Workers Scripts Read`/`Write`, but not the D1, Queues or Cloudflare Tunnel groups, so give a user token `Account Settings Read` (UNVERIFIED against the live API). |
 | `KVNamespace` | `Workers KV Storage Write` (`… Read` for Observe) |
-| `Queue` | `Queues Write` (`Queues Read` for Observe); the spec also accepts `Workers Scripts Write` |
+| `Queue` | `Queues Write` (`Queues Read` for Observe); the spec also accepts `Workers Scripts Write` (legacy; see [Workers roles](#workers-roles-legacy-and-granular)) |
 | `D1Database` | `D1 Write` (`D1 Read` for Observe) |
-| `Tunnel` | `Cloudflare Tunnel Write` (`Cloudflare Tunnel Read` for Observe); the spec also accepts `Cloudflare One Connector: cloudflared Write`. Fetching the connector token needs Write. |
-| `VPCService` | UNVERIFIED: the spec lists no group for `/connectivity/directory/services`. [docs/cloudflare-service-catalog.md](docs/cloudflare-service-catalog.md) calls it the "Connectivity Directory" permission. |
-| Ownership tags (on by default) | UNVERIFIED: the spec lists no group for `/accounts/{id}/tags`. Grant Resource Tagging access, or install with `ownershipTags=false`. |
+| `Tunnel` | `Cloudflare Tunnel Write` (`Cloudflare Tunnel Read` for Observe); the spec also accepts `Cloudflare One Connector: cloudflared Write`, the dashboard's current name. Fetching the connector token needs Write. |
+| Workers scripts (planned `WorkerScript` kind) | Legacy `Workers Scripts Write` (dashboard: "Workers Scripts Edit"; `Workers Scripts Read` for Observe). The spec also accepts `Workers Tail Read` for `GET …/workers/scripts/{name}`. With the granular roles, creating or deleting scripts needs **Admin at Workers product scope**, because Editor cannot. Per-Worker Editor is enough only for an adopted (already existing) Worker. Content Read-Only is enough for Observe. |
+| `VPCService` | UNVERIFIED: the spec lists no group for `/connectivity/directory/services`. The dashboard lists VPC services under "Connectivity Directory", so grant that product's permission. |
+| Ownership tags (on by default) | UNVERIFIED: the spec lists no group for `/accounts/{id}/tags`. Grant the Resource Tagging permission (shown as "Tag" in the dashboard), or install with `ownershipTags=false`. |
+
+#### Workers roles: legacy and granular
+
+On 2026-09-15 Cloudflare added granular Workers roles: **Metadata Read-Only**, **Content
+Read-Only**, **Editor** and **Admin**. Each can be granted for the whole Workers product or for
+one Worker
+([Workers authorization](https://developers.cloudflare.com/workers/authorization/workers/),
+[changelog](https://developers.cloudflare.com/changelog/post/2026-09-15-granular-worker-permissions/)).
+The account-level legacy permissions still work, and Cloudflare has announced no deprecation date.
+The pinned spec only knows the legacy names, so the table above and flarefake use those. The
+legacy permissions map to the new roles at Workers product scope:
+
+| Legacy permission (dashboard name; spec `x-api-token-group`) | Granular role at Workers product scope |
+|---|---|
+| Workers Scripts Edit (`Workers Scripts Write`) | Editor |
+| Workers Scripts Read (`Workers Scripts Read`) | Content Read-Only |
+| Workers Tail Read (`Workers Tail Read`) | Metadata Read-Only |
+
+Editor can't create or delete Workers. If you use the granular roles and the operator creates
+or deletes scripts, give the token **Admin at Workers product scope**. A per-Worker Editor grant
+only works when the Worker already exists and the object adopts it.
+
+#### Renamed products in the dashboard
+
+The dashboard now uses new names for some products this operator manages. The API paths haven't
+changed.
+
+| Former name | Current dashboard name | API path |
+|---|---|---|
+| Cloudflare Tunnel | Cloudflare One Connector: cloudflared | `/accounts/{id}/cfd_tunnel` |
+| Virtual networks | Cloudflare One Networks | `/accounts/{id}/teamnet/virtual_networks` |
+| VPC services | Connectivity Directory | `/accounts/{id}/connectivity/directory/services` |
+| Resource Tagging | Tag | `/accounts/{id}/tags` |
+
+The pinned spec carries both `Cloudflare Tunnel …` and `Cloudflare One Connector: cloudflared …`
+groups for tunnel routes, and both `Cloudflare Tunnel …` and `Cloudflare One Networks …` for
+virtual networks.
 
 ## Concepts
 
