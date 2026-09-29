@@ -1,4 +1,4 @@
-.PHONY: test test-short fake conformance classify spec-check fmt vet generate manifests envtest controller-gen setup-envtest run tools
+.PHONY: test test-race test-short fake conformance classify spec-check fmt vet generate manifests envtest controller-gen setup-envtest run tools
 
 # Operator binaries and tests build without cgo, as the container image does. This also avoids
 # linking prometheus/client_golang's darwin cgo files, which fails with toolchains whose ld
@@ -16,12 +16,17 @@ SETUP_ENVTEST ?= $(LOCALBIN)/setup-envtest
 CONTROLLER_TOOLS_VERSION ?= v0.22.0
 SETUP_ENVTEST_VERSION ?= v0.25.1
 ENVTEST_K8S_VERSION ?= 1.37.0
+# envtest assets live outside the checkout so every git worktree shares one download.
+ENVTEST_DIR ?= $(HOME)/.cache/flare-operator/envtest
 
 # envtest assets for tests: installed copy first, download if missing.
-ENVTEST_ASSETS = $$($(SETUP_ENVTEST) use -i $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path 2>/dev/null || $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)
+ENVTEST_ASSETS = $$($(SETUP_ENVTEST) use -i $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_DIR) -p path 2>/dev/null || $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_DIR) -p path)
 
 test: envtest     ## all tests (loads the pinned 26 MB spec once; runs envtest suites)
 	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test ./... -count=1
+
+test-race: envtest ## all tests with the race detector (works without cgo on darwin)
+	CGO_ENABLED=0 KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test -race ./... -count=1
 
 test-short: envtest ## skip spec-loading tests
 	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test ./... -short -count=1
@@ -48,7 +53,7 @@ manifests: controller-gen ## CRDs into config/crd/bases, RBAC into config/rbac
 	$(CONTROLLER_GEN) rbac:roleName=flare-operator-manager crd paths="./api/..." paths="./internal/controller/..." \
 		output:crd:artifacts:config=config/crd/bases output:rbac:artifacts:config=config/rbac
 
-envtest: setup-envtest ## fetch envtest assets (kube-apiserver, etcd) into ./bin/k8s
+envtest: setup-envtest ## fetch envtest assets (kube-apiserver, etcd) into $(ENVTEST_DIR)/k8s
 	@echo "envtest assets: $(ENVTEST_ASSETS)"
 
 tools: controller-gen setup-envtest

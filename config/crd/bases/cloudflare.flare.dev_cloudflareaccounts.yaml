@@ -68,8 +68,10 @@ spec:
                 pattern: ^[0-9a-f]{32}$
                 type: string
               baseURL:
-                description: BaseURL overrides the API base URL, e.g. http://flarefake:8787/client/v4
-                  in tests.
+                description: |-
+                  BaseURL overrides the API base URL, e.g. http://flarefake:8787/client/v4 in tests. The
+                  operator ignores overrides unless it runs with --allow-base-url-override or lists this URL
+                  in --allowed-base-url; otherwise the account reports Ready=False, reason BaseURLNotAllowed.
                 pattern: ^https?://
                 type: string
               rateLimit:

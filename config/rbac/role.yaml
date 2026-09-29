@@ -75,6 +75,18 @@ rules:
   - update
   - watch
 - apiGroups:
+  - d1.cloudflare.flare.dev
+  - kv.cloudflare.flare.dev
+  - queues.cloudflare.flare.dev
+  - tunnels.cloudflare.flare.dev
+  - workersvpc.cloudflare.flare.dev
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - networking.k8s.io
   resources:
   - networkpolicies

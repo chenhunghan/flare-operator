@@ -7,17 +7,23 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
+	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	"flare.dev/operator/internal/fake"
 	"flare.dev/operator/internal/testenv"
 )
 
 var env *testenv.Env
 
-func TestMain(m *testing.M) { testenv.Main(m, &env, testenv.Options{}) }
+// The KV kind stands in for any managed kind in the usage-protection tests (no KV controller
+// runs here).
+func TestMain(m *testing.M) {
+	testenv.Main(m, &env, testenv.Options{AddToScheme: []func(*runtime.Scheme) error{kvv1alpha1.AddToScheme}})
+}
 
 func TestAccountReady(t *testing.T) {
 	e := testenv.Require(t, env)

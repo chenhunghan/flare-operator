@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/time/rate"
 )
@@ -227,7 +229,8 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 
 	u := c.url(req.Path, req.Query)
 	cacheKey := req.Path + "?" + req.Query.Encode()
-	useCache := c.cache != nil && method == http.MethodGet && ctx.Value(ctxNoCache) == nil
+	// Conditional or otherwise header-dependent GETs are not served from (or stored in) the cache.
+	useCache := c.cache != nil && method == http.MethodGet && ctx.Value(ctxNoCache) == nil && len(req.Header) == 0
 	if useCache {
 		if r, ok := c.cache.get(cacheKey); ok {
 			return r, nil
@@ -251,7 +254,7 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 		if err := c.waitTurn(ctx); err != nil {
 			return nil, err
 		}
-		resp, err := c.send(ctx, method, u, body, contentType)
+		resp, err := c.send(ctx, method, u, body, contentType, req.Header)
 		if err != nil {
 			if ctx.Err() != nil || !idempotent || attempt >= maxRetries {
 				return nil, err
@@ -262,9 +265,11 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 			}
 			continue
 		}
-		out, apiErr := decode(resp)
+		out, isEnvelope, apiErr := decode(resp)
 		if apiErr == nil {
-			if c.cache != nil && method == http.MethodGet && isJSONArray(out.Result) {
+			// Only v4 envelopes whose result is an array are list results; a raw payload (e.g. a
+			// KV value that happens to be a JSON array) is never cached.
+			if c.cache != nil && method == http.MethodGet && len(req.Header) == 0 && isEnvelope && isJSONArray(out.Result) {
 				c.cache.put(cacheKey, req.Path, out)
 			}
 			return out, nil
@@ -312,20 +317,34 @@ func (c *client) waitTurn(ctx context.Context) error {
 	return c.state.lim.Wait(ctx)
 }
 
+// url joins the base URL, p and q. p may carry percent-escaped segments (e.g. a KV key
+// "a%2Fb" built with url.PathEscape); they are sent as-is, not double-encoded, so an escaped
+// '/' stays inside its segment. A p that is not a valid escaping (a bare '%') is taken
+// literally and encoded.
 func (c *client) url(p string, q url.Values) string {
 	if !strings.HasPrefix(p, "/") {
 		p = "/" + p
 	}
 	u := *c.base
-	u.Path = c.base.Path + p
-	u.RawPath = ""
+	if dec, err := url.PathUnescape(p); err == nil {
+		u.Path = c.base.Path + dec
+		// URL.String uses RawPath only when it is a valid encoding of Path; otherwise (e.g. p
+		// has a space) it re-encodes Path, which is also correct.
+		u.RawPath = c.base.EscapedPath() + p
+	} else {
+		u.Path = c.base.Path + p
+		u.RawPath = ""
+	}
 	if len(q) > 0 {
 		u.RawQuery = q.Encode()
 	}
 	return u.String()
 }
 
-func (c *client) send(ctx context.Context, method, u string, body []byte, contentType string) (*http.Response, error) {
+// ownedHeaders are set by the client and never taken from Request.Header.
+var ownedHeaders = map[string]bool{"Authorization": true, "User-Agent": true, "Content-Type": true}
+
+func (c *client) send(ctx context.Context, method, u string, body []byte, contentType string, extra http.Header) (*http.Response, error) {
 	var rd io.Reader
 	if body != nil {
 		rd = bytes.NewReader(body)
@@ -334,9 +353,19 @@ func (c *client) send(ctx context.Context, method, u string, body []byte, conten
 	if err != nil {
 		return nil, fmt.Errorf("cfclient: %w", err)
 	}
+	hreq.Header.Set("Accept", "application/json")
+	for k, vs := range extra {
+		ck := http.CanonicalHeaderKey(k)
+		if ownedHeaders[ck] {
+			continue
+		}
+		hreq.Header.Del(ck)
+		for _, v := range vs {
+			hreq.Header.Add(ck, v)
+		}
+	}
 	hreq.Header.Set("Authorization", "Bearer "+c.token)
 	hreq.Header.Set("User-Agent", c.ua)
-	hreq.Header.Set("Accept", "application/json")
 	if contentType != "" {
 		hreq.Header.Set("Content-Type", contentType)
 	}
@@ -347,9 +376,10 @@ func (c *client) send(ctx context.Context, method, u string, body []byte, conten
 	return resp, nil
 }
 
-// decode reads the v4 envelope. The Ratelimit/Ratelimit-Policy headers are deliberately ignored:
+// decode reads the v4 envelope; isEnvelope reports whether the 2xx body was one (false for raw
+// payloads handed back as Result). The Ratelimit/Ratelimit-Policy headers are deliberately ignored:
 // the real API does not track usage in them (recordings 0001, 0161; see internal/fake).
-func decode(resp *http.Response) (*Response, *APIError) {
+func decode(resp *http.Response) (_ *Response, isEnvelope bool, _ *APIError) {
 	defer resp.Body.Close()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	status := resp.StatusCode
@@ -365,33 +395,86 @@ func decode(resp *http.Response) (*Response, *APIError) {
 		if ok2xx {
 			status = http.StatusBadGateway
 		}
-		return nil, fail([]ErrorDetail{{Message: "flare-operator: reading response body: " + readErr.Error()}})
+		return nil, false, fail([]ErrorDetail{{Message: "flare-operator: reading response body: " + readErr.Error()}})
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		if ok2xx { // e.g. 204 No Content (DELETE /accounts/{id}/tags)
-			return &Response{Status: status, Header: resp.Header.Clone()}, nil
+			return &Response{Status: status, Header: resp.Header.Clone()}, false, nil
 		}
-		return nil, fail(nil)
+		return nil, false, fail(nil)
 	}
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
 		if ok2xx {
 			// Not an envelope (e.g. a raw download). Hand the body to the caller as Result.
-			return &Response{Status: status, Result: json.RawMessage(raw), Header: resp.Header.Clone()}, nil
+			return &Response{Status: status, Result: json.RawMessage(raw), Header: resp.Header.Clone()}, false, nil
 		}
-		return nil, fail([]ErrorDetail{{Message: "non-JSON response: " + truncate(string(raw), 200)}})
+		return nil, false, fail([]ErrorDetail{{Message: "non-JSON response: " + Sanitize(string(raw), maxBodySnippet)}})
+	}
+	if ok2xx && env.Success == nil {
+		// A JSON document that is not a v4 envelope (no "success" field), e.g. a KV value whose
+		// content is a JSON object: it is the payload itself.
+		return &Response{Status: status, Result: json.RawMessage(raw), Header: resp.Header.Clone()}, false, nil
 	}
 	if !ok2xx || (env.Success != nil && !*env.Success) {
-		return nil, fail(env.Errors)
+		return nil, false, fail(sanitizeDetails(env.Errors))
 	}
-	return &Response{Status: status, Result: env.Result, ResultInfo: env.ResultInfo, Header: resp.Header.Clone()}, nil
+	return &Response{Status: status, Result: env.Result, ResultInfo: env.ResultInfo, Header: resp.Header.Clone()}, true, nil
 }
 
+// Limits for server-supplied text copied into errors (which end up in status conditions): a
+// base URL may point at a server that is not Cloudflare, so its bodies are untrusted.
+const (
+	maxBodySnippet   = 120
+	maxErrorMessage  = 300
+	maxErrorsKept    = 10
+	truncationSuffix = "…"
+)
+
+func sanitizeDetails(in []ErrorDetail) []ErrorDetail {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]ErrorDetail, 0, min(len(in), maxErrorsKept))
+	for i, d := range in {
+		if i == maxErrorsKept {
+			out = append(out, ErrorDetail{Message: fmt.Sprintf("flare-operator: %d more errors omitted", len(in)-maxErrorsKept)})
+			break
+		}
+		out = append(out, ErrorDetail{Code: d.Code, Message: Sanitize(d.Message, maxErrorMessage)})
+	}
+	return out
+}
+
+// Sanitize makes server-supplied text safe to show in a status message: control characters
+// (newlines included) and invalid UTF-8 become spaces, runs of whitespace collapse, and the
+// result is cut to at most n bytes (on a rune boundary) with "…" appended when cut.
+func Sanitize(s string, n int) string {
+	var b strings.Builder
+	space := false
+	for _, r := range s {
+		if r == utf8.RuneError || unicode.IsControl(r) || unicode.IsSpace(r) || !unicode.IsPrint(r) {
+			if !space && b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			space = true
+			continue
+		}
+		space = false
+		b.WriteRune(r)
+	}
+	return truncate(strings.TrimRight(b.String(), " "), n)
+}
+
+// truncate cuts s to at most n bytes on a rune boundary, appending "…" when it cuts.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + truncationSuffix
 }
 
 // parseRetryAfter accepts delta-seconds or an HTTP date.
