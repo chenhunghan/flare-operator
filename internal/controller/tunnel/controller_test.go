@@ -3,6 +3,7 @@ package tunnel_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -10,11 +11,13 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
 	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
+	"flare.dev/operator/internal/cfclient"
 	"flare.dev/operator/internal/testenv"
 )
 
@@ -100,6 +103,25 @@ func TestTunnelLifecycle(t *testing.T) {
 	if np2 := h.networkPolicy("web"); np2.ResourceVersion != np.ResourceVersion {
 		t.Errorf("NetworkPolicy rewritten by a no-op reconcile")
 	}
+	if !contains(tun.Status.NetworkPolicy.Warnings, "excludeCIDRs is empty") {
+		t.Errorf("no warning about the empty excludeCIDRs: %q", tun.Status.NetworkPolicy.Warnings)
+	}
+
+	// Manual edits of the owned objects are reverted.
+	dep.Spec.Template.Spec.Containers[0].Image = "example.com/hand-edited:1"
+	if err := h.e.Client.Update(h.ctx(), dep); err != nil {
+		t.Fatal(err)
+	}
+	np.Spec.Egress = append(np.Spec.Egress, networkingv1.NetworkPolicyEgressRule{}) // allow everything
+	if err := h.e.Client.Update(h.ctx(), np); err != nil {
+		t.Fatal(err)
+	}
+	testenv.Eventually(t, 30e9, func() (bool, string) {
+		d, p := h.deployment("web"), h.networkPolicy("web")
+		img := d.Spec.Template.Spec.Containers[0].Image
+		return img == tunnelsv1alpha1.DefaultCloudflaredImage && len(p.Spec.Egress) == len(np.Spec.Egress)-1,
+			fmt.Sprintf("image %s, %d egress rules", img, len(p.Spec.Egress))
+	})
 
 	// Connector update: Kubernetes only, no Cloudflare writes.
 	m = h.mark()
@@ -270,6 +292,38 @@ func TestTunnelOrphan(t *testing.T) {
 	// The ownership tag is released.
 	if got := h.ownerTag(id); got != "" {
 		t.Errorf("owner tag kept on an orphaned tunnel: %q", got)
+	}
+}
+
+// TestTunnelForeignOwnerNotDeleted: a pinned tunnel tagged for another owner is never managed
+// and, on deletion with the Delete policy, never deleted.
+func TestTunnelForeignOwnerNotDeleted(t *testing.T) {
+	h := start(t)
+	id, _ := h.apiCreateTunnel("foreign")
+	if _, err := h.cf.Do(h.ctx(), cfclient.Request{Method: http.MethodPut, Path: "/accounts/" + h.acct.AccountID + "/tags",
+		Body: map[string]any{"resource_type": "cloudflared_tunnel", "resource_id": id, "tags": map[string]string{"flare.dev/owner": "other-cluster/ns/x"}}}); err != nil {
+		t.Fatal(err)
+	}
+	h.newTunnel("pin", func(tun *tunnelsv1alpha1.Tunnel) {
+		tun.Annotations = map[string]string{commonv1alpha1.AnnotationExternalID: id}
+	})
+	tun := h.waitTunnel("pin", func(t *tunnelsv1alpha1.Tunnel) bool {
+		c := reconcileCond(t)
+		return c != nil && c.Reason == commonv1alpha1.ReasonUnavailable && strings.Contains(c.Message, "other-cluster/ns/x")
+	})
+	m := h.mark()
+	if err := h.e.Client.Delete(h.ctx(), tun); err != nil {
+		t.Fatal(err)
+	}
+	h.waitGone(tun)
+	if n := testenv.Count(h.since(m), http.MethodDelete, "/cfd_tunnel"); n != 0 {
+		t.Errorf("DELETE sent for a tunnel owned by another cluster:\n%s", testenv.Summary(h.since(m)))
+	}
+	if got := h.cfTunnel(id); got.DeletedAt != nil {
+		t.Error("deleted a tunnel owned by another cluster")
+	}
+	if got := h.ownerTag(id); got != "other-cluster/ns/x" {
+		t.Errorf("foreign owner tag changed to %q", got)
 	}
 }
 

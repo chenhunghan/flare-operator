@@ -62,7 +62,8 @@ type TunnelNetworkPolicy struct {
 	Disabled bool `json:"disabled,omitempty"`
 	// ExcludeCIDRs are removed from the 0.0.0.0/0 rules (the Cloudflare edge on port 7844 and
 	// external backends). Set them to the cluster's pod and service CIDRs so those rules do not
-	// open in-cluster destinations.
+	// open in-cluster destinations; while it is empty, status.networkPolicy.warnings says so
+	// (the controller does not discover the cluster's CIDRs).
 	// +optional
 	// +kubebuilder:validation:MaxItems=32
 	// +kubebuilder:validation:items:MaxLength=18
@@ -142,6 +143,10 @@ type NetworkPolicyStatus struct {
 	// "web: pods of Service ns/marker TCP/8080" or "db: external 0.0.0.0/0 TCP/5432".
 	// +optional
 	Backends []string `json:"backends,omitempty"`
+	// Warnings lists what makes the policy wider than intended, e.g. 0.0.0.0/0 rules without
+	// excludeCIDRs (they also reach in-cluster pods on those ports).
+	// +optional
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // TunnelStatus defines the observed state of a Tunnel.

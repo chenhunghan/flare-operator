@@ -9,7 +9,10 @@ import (
 // VPCServiceNetwork is host.network of an IP host.
 type VPCServiceNetwork struct {
 	// UUID of the tunnel that reaches the host. Leave unset when forProvider.tunnelRef is set
-	// (the controller fills it in from the Tunnel's status.id).
+	// (the controller fills it in from the Tunnel's status.id). A raw tunnel_id is not linked
+	// to a Tunnel object even when it equals one's ID: that Tunnel's egress NetworkPolicy does
+	// not allow this backend and its deletion does not wait for this service. Use tunnelRef
+	// for tunnels managed in this cluster.
 	// +optional
 	TunnelID *string `json:"tunnel_id,omitempty"`
 }
@@ -17,7 +20,8 @@ type VPCServiceNetwork struct {
 // VPCServiceResolverNetwork is host.resolver_network of a hostname host.
 type VPCServiceResolverNetwork struct {
 	// UUID of the tunnel whose cloudflared resolves and reaches the host. Leave unset when
-	// forProvider.tunnelRef is set.
+	// forProvider.tunnelRef is set. As for network.tunnel_id, a raw ID is not linked to a
+	// Tunnel object (no NetworkPolicy egress, no deletion ordering); prefer tunnelRef.
 	// +optional
 	TunnelID *string `json:"tunnel_id,omitempty"`
 	// DNS servers cloudflared queries for the hostname. When unset the controller sends the
@@ -79,7 +83,12 @@ type VPCServiceTLSSettings struct {
 // +kubebuilder:validation:XValidation:rule="self.type == 'http' || (!has(self.http_port) && !has(self.https_port))",message="http_port and https_port are only valid for type http"
 // +kubebuilder:validation:XValidation:rule="has(self.tunnelRef) != ((has(self.host.network) && has(self.host.network.tunnel_id)) || (has(self.host.resolver_network) && has(self.host.resolver_network.tunnel_id)))",message="set exactly one of tunnelRef or the host's network/resolver_network tunnel_id"
 type VPCServiceParameters struct {
-	// Name of the service, unique in the account. Defaults to metadata.name.
+	// Name of the service, unique in the account. Defaults to metadata.name. An existing
+	// service of the same name is never adopted by a managing object (VPC services carry no
+	// ownership tag, so two objects could otherwise manage, and delete, one service): the
+	// object reports Synced=False, reason NameConflict. To adopt it, set the
+	// cloudflare.flare.dev/external-id annotation to its service_id. Observe-only objects do
+	// look services up by name.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=255

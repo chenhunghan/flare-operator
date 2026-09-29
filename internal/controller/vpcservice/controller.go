@@ -5,6 +5,12 @@
 //
 //   - Hostnames are FQDN-only (CRD validation; cloudflared never applies search domains). An
 //     unset resolver_ips defaults to the cluster DNS Service's ClusterIP, discovered at runtime.
+//   - Adoption: the external-id annotation pins a service. VPC services carry no ownership
+//     tag (Resource Tagging has no resource_type for them), so a managing object never adopts
+//     a same-named service: it reports Synced=False, reason NameConflict. Only observe-only
+//     objects look a service up by name. Known gap: if the create succeeds but persisting the
+//     new ID fails (API server unavailable), the next reconcile reports NameConflict for the
+//     object's own service and the annotation must be set by hand.
 //   - The desired body is compared with the observed service; only a difference sends a PUT,
 //     which is always the full body (PUT is a full replace).
 //   - Cloudflare does not check dependencies on delete (0099), so the delete order is enforced
@@ -52,8 +58,14 @@ const (
 	DependencyRetry       = 30 * time.Second
 )
 
-// ReasonInvalidHostname marks a hostname that looks like a short in-cluster name.
-const ReasonInvalidHostname = "InvalidHostname"
+// Condition reasons of this controller.
+const (
+	// ReasonInvalidHostname marks a hostname that looks like a short in-cluster name.
+	ReasonInvalidHostname = "InvalidHostname"
+	// ReasonNameConflict marks a managing object whose service name is taken by a service it
+	// does not manage (it is adopted only through the external-id annotation).
+	ReasonNameConflict = "NameConflict"
+)
 
 func init() {
 	controller.Register(controller.Registration{
@@ -370,14 +382,23 @@ func (r *Reconciler) sync(ctx context.Context, vs *workersvpcv1alpha1.VPCService
 	}
 
 	if cur == nil {
-		if cur, err = findServiceByName(ctx, cf, accountID, body.Name); err != nil {
+		existing, err := findServiceByName(ctx, cf, accountID, body.Name)
+		if err != nil {
 			return syncErr(err)
 		}
 		switch {
-		case cur != nil:
-			if err := reconcile.PersistExternalID(ctx, r.Client, vs, cur.ServiceID); err != nil {
-				return ctrl.Result{}, err
-			}
+		case existing != nil:
+			// Never adopt by name: nothing marks which object owns a VPC service, so a
+			// same-named object (another namespace, or the same forProvider.name) would
+			// manage — and on deletion delete — a service someone else uses. Adoption is
+			// explicit, through the external-id annotation.
+			msg := fmt.Sprintf("a VPC service named %q already exists (service_id %s) and this object does not manage it; "+
+				"set the %s annotation to that ID to adopt it, or choose another forProvider.name",
+				body.Name, existing.ServiceID, commonv1alpha1.AnnotationExternalID)
+			vs.Status.AtProvider = workersvpcv1alpha1.VPCServiceObservation{}
+			reconcile.SetReady(vs, metav1.ConditionFalse, ReasonNameConflict, msg)
+			reconcile.SetSynced(vs, metav1.ConditionFalse, ReasonNameConflict, msg)
+			return ctrl.Result{RequeueAfter: DependencyRetry}, nil
 		case pol.CanCreate():
 			if cur, err = createService(ctx, cf, accountID, body); err != nil {
 				return syncErr(err)

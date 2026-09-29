@@ -37,7 +37,9 @@ import (
 //     - an IP that is a Service ClusterIP → that Service's pods, likewise; any other IP → an
 //       ipBlock /32 (/128) on the service ports (pod IPs work, spike §2.1).
 //     - any other hostname (outside the cluster) → 0.0.0.0/0 minus excludeCIDRs on the
-//       service ports; the policy cannot name a DNS name.
+//       service ports; the policy cannot name a DNS name. Without a known port (type tcp with
+//       neither tcp_port nor a known app_protocol) nothing is allowed: the policy never opens
+//       every port to 0.0.0.0/0.
 //     - an in-cluster name whose Service does not exist yet, has no selector or is an
 //       ExternalName → nothing (reported as pending/unsupported in status); the Tunnel is
 //       re-reconciled when the Service changes.
@@ -45,7 +47,13 @@ import (
 //       resolver, resolved like an IP host.
 //
 // Service ports: http_port / https_port (80 and 443 when neither is set), tcp_port (5432 for
-// app_protocol postgresql and 3306 for mysql when unset, otherwise every port of the backend).
+// app_protocol postgresql and 3306 for mysql when unset). A tcp service with no known port
+// allows every TCP port of the backing Service (its target ports), every port of a single
+// address, and nothing for an external hostname; the non-Service cases add a warning.
+//
+// status.networkPolicy.warnings also reports an empty excludeCIDRs: the controller does not
+// discover the cluster's pod and Service CIDRs, so the 0.0.0.0/0 rules then reach in-cluster
+// pods on those ports too (the spike's policy excluded them, §2.1).
 
 func npPort(proto corev1.Protocol, port intstr.IntOrString) networkingv1.NetworkPolicyPort {
 	p := proto
@@ -81,27 +89,51 @@ func hostCIDR(ip string) string {
 	return ip + "/32"
 }
 
-// servicePorts maps wanted service ports to the Service's target ports (named target ports
-// stay named; NetworkPolicy resolves them on the pod). A wanted port the Service does not
-// expose is used as is.
+// targetPort is a Service port's target (named target ports stay named; NetworkPolicy resolves
+// them on the pod), defaulting to the port itself.
+func targetPort(sp corev1.ServicePort) intstr.IntOrString {
+	switch {
+	case sp.TargetPort.Type == intstr.String && sp.TargetPort.StrVal != "":
+		return sp.TargetPort
+	case sp.TargetPort.Type == intstr.Int && sp.TargetPort.IntVal != 0:
+		return intstr.FromInt32(sp.TargetPort.IntVal)
+	}
+	return intstr.FromInt32(sp.Port)
+}
+
+func protocolOf(sp corev1.ServicePort) corev1.Protocol {
+	if sp.Protocol == "" {
+		return corev1.ProtocolTCP
+	}
+	return sp.Protocol
+}
+
+// servicePorts maps wanted service ports to the Service's target ports. A wanted port the
+// Service does not expose is used as is. No wanted ports means every port of the Service for
+// proto (nil, i.e. all ports, only when the Service has none).
 func servicePorts(svc *corev1.Service, proto corev1.Protocol, wanted []int32) []networkingv1.NetworkPolicyPort {
 	var out []networkingv1.NetworkPolicyPort
+	if len(wanted) == 0 {
+		seen := map[string]bool{}
+		for _, sp := range svc.Spec.Ports {
+			if protocolOf(sp) != proto {
+				continue
+			}
+			tp := targetPort(sp)
+			if !seen[tp.String()] {
+				seen[tp.String()] = true
+				out = append(out, npPort(proto, tp))
+			}
+		}
+		return out
+	}
 	for _, w := range wanted {
 		target := intstr.FromInt32(w)
 		for _, sp := range svc.Spec.Ports {
-			spProto := sp.Protocol
-			if spProto == "" {
-				spProto = corev1.ProtocolTCP
+			if sp.Port == w && protocolOf(sp) == proto {
+				target = targetPort(sp)
+				break
 			}
-			if sp.Port != w || spProto != proto {
-				continue
-			}
-			if sp.TargetPort.Type == intstr.String && sp.TargetPort.StrVal != "" {
-				target = sp.TargetPort
-			} else if sp.TargetPort.IntVal != 0 {
-				target = intstr.FromInt32(sp.TargetPort.IntVal)
-			}
-			break
 		}
 		out = append(out, npPort(proto, target))
 	}
@@ -190,6 +222,7 @@ func selectable(svc *corev1.Service) bool {
 }
 
 // ipRule allows ports on ip: the pods behind it when it is a Service ClusterIP, else the address.
+// No wanted ports allows every port (see servicePorts; for a plain address, every port).
 func (r *Reconciler) ipRule(ctx context.Context, ip string, proto corev1.Protocol, wanted []int32) (networkingv1.NetworkPolicyEgressRule, string, error) {
 	svc, err := r.serviceForIP(ctx, ip)
 	if err != nil {
@@ -206,16 +239,23 @@ func (r *Reconciler) ipRule(ctx context.Context, ip string, proto corev1.Protoco
 }
 
 // networkPolicySpec builds the policy for t from the VPCServices that reference it and
-// returns it with one status line per backend.
-func (r *Reconciler) networkPolicySpec(ctx context.Context, t *tunnelsv1alpha1.Tunnel, vpcs []workersvpcv1alpha1.VPCService) (networkingv1.NetworkPolicySpec, []string, error) {
+// returns it with one status line per backend and the warnings (see the package comment).
+func (r *Reconciler) networkPolicySpec(ctx context.Context, t *tunnelsv1alpha1.Tunnel, vpcs []workersvpcv1alpha1.VPCService) (networkingv1.NetworkPolicySpec, []string, []string, error) {
 	dns := r.DNS.WithDefaults()
 	var b npBuilder
-	var backends []string
+	var backends, warnings []string
+	fail := func(err error) (networkingv1.NetworkPolicySpec, []string, []string, error) {
+		return networkingv1.NetworkPolicySpec{}, nil, nil, err
+	}
+	if len(t.Spec.NetworkPolicy.ExcludeCIDRs) == 0 {
+		warnings = append(warnings, "spec.networkPolicy.excludeCIDRs is empty: the 0.0.0.0/0 rules (Cloudflare edge on port 7844"+
+			" and external backends) also allow in-cluster pods and Services on those ports; set it to the cluster's pod and Service CIDRs")
+	}
 
 	// 1. DNS.
 	dnsSvc, err := dns.Service(ctx, r.Client)
 	if err != nil {
-		return networkingv1.NetworkPolicySpec{}, nil, err
+		return fail(err)
 	}
 	dnsIP := ""
 	if selectable(dnsSvc) {
@@ -261,7 +301,7 @@ func (r *Reconciler) networkPolicySpec(ctx context.Context, t *tunnelsv1alpha1.T
 				for _, proto := range []corev1.Protocol{corev1.ProtocolUDP, corev1.ProtocolTCP} {
 					rule, desc, err := r.ipRule(ctx, ip, proto, ports)
 					if err != nil {
-						return networkingv1.NetworkPolicySpec{}, nil, err
+						return fail(err)
 					}
 					b.add(rule)
 					if proto == corev1.ProtocolUDP {
@@ -275,6 +315,12 @@ func (r *Reconciler) networkPolicySpec(ctx context.Context, t *tunnelsv1alpha1.T
 			host := *h.Hostname
 			ns, name, inCluster := tunnelnet.ParseServiceFQDN(host, dns.Domain)
 			if !inCluster {
+				if len(wanted) == 0 {
+					msg := fmt.Sprintf("%s: not allowed, external host %s has no known port (set tcp_port); every port to 0.0.0.0/0 is never opened", vs.Name, host)
+					backends = append(backends, msg)
+					warnings = append(warnings, msg)
+					continue
+				}
 				ports := plainPorts(corev1.ProtocolTCP, wanted)
 				b.add(networkingv1.NetworkPolicyEgressRule{To: []networkingv1.NetworkPolicyPeer{ipv4Everywhere(t.Spec.NetworkPolicy.ExcludeCIDRs)}, Ports: ports})
 				backends = append(backends, fmt.Sprintf("%s: external host %s via 0.0.0.0/0 %s", vs.Name, host, describePorts(corev1.ProtocolTCP, ports)))
@@ -283,7 +329,7 @@ func (r *Reconciler) networkPolicySpec(ctx context.Context, t *tunnelsv1alpha1.T
 			var svc corev1.Service
 			if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &svc); err != nil {
 				if !apierrors.IsNotFound(err) {
-					return networkingv1.NetworkPolicySpec{}, nil, err
+					return fail(err)
 				}
 				backends = append(backends, fmt.Sprintf("%s: pending, Service %s/%s not found", vs.Name, ns, name))
 				continue
@@ -302,10 +348,13 @@ func (r *Reconciler) networkPolicySpec(ctx context.Context, t *tunnelsv1alpha1.T
 				}
 				rule, desc, err := r.ipRule(ctx, *ip, corev1.ProtocolTCP, wanted)
 				if err != nil {
-					return networkingv1.NetworkPolicySpec{}, nil, err
+					return fail(err)
 				}
 				b.add(rule)
 				backends = append(backends, vs.Name+": "+desc)
+				if len(rule.Ports) == 0 {
+					warnings = append(warnings, fmt.Sprintf("%s: no known port (set tcp_port), so every port of %s is allowed", vs.Name, *ip))
+				}
 			}
 		}
 	}
@@ -313,5 +362,5 @@ func (r *Reconciler) networkPolicySpec(ctx context.Context, t *tunnelsv1alpha1.T
 		PodSelector: metav1.LabelSelector{MatchLabels: selectorLabels(t)},
 		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
 		Egress:      b.rules,
-	}, backends, nil
+	}, backends, warnings, nil
 }

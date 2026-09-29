@@ -15,7 +15,10 @@
 //     the Tunnel, because Cloudflare lets a referenced tunnel be deleted (0099). With the Delete
 //     policy it then scales cloudflared to zero, waits until the pods are gone and the tunnel
 //     reports no active connections (a connected tunnel refuses deletion with 400/1022, 0095),
-//     and soft-deletes it.
+//     and soft-deletes it. A tunnel whose ownership tag names another owner is never deleted
+//     (it is released as with Orphan).
+//   - Owned objects (Deployment, NetworkPolicy) are rewritten when the desired spec changes or
+//     a field the controller sets drifted (see drifted).
 //   - A reconcile without spec changes makes no Cloudflare writes (only GETs).
 package tunnel
 
@@ -444,8 +447,8 @@ func mergeLabels(have, want map[string]string) map[string]string {
 	return out
 }
 
-// ensureDeployment keeps the cloudflared Deployment. The spec is rewritten only when the
-// desired spec's hash or the replica count differs from what is stored.
+// ensureDeployment keeps the cloudflared Deployment. The spec is rewritten when the desired
+// spec's hash differs from the stored one or the live spec drifted from it.
 func (r *Reconciler) ensureDeployment(ctx context.Context, t *tunnelsv1alpha1.Tunnel, id string) (*appsv1.Deployment, error) {
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: t.Namespace, Name: DeploymentName(t)}}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(dep), dep); err != nil && !apierrors.IsNotFound(err) {
@@ -458,7 +461,7 @@ func (r *Reconciler) ensureDeployment(ctx context.Context, t *tunnelsv1alpha1.Tu
 	hash := specHash(spec)
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
 		dep.Labels = mergeLabels(dep.Labels, objectLabels(t))
-		if dep.Annotations[AnnotationSpecHash] != hash || dep.Spec.Replicas == nil || *dep.Spec.Replicas != *spec.Replicas {
+		if dep.Annotations[AnnotationSpecHash] != hash || drifted(spec, dep.Spec) {
 			if dep.Annotations == nil {
 				dep.Annotations = map[string]string{}
 			}
@@ -490,14 +493,14 @@ func (r *Reconciler) ensureNetworkPolicy(ctx context.Context, t *tunnelsv1alpha1
 	if err != nil {
 		return err
 	}
-	spec, backends, err := r.networkPolicySpec(ctx, t, vpcs)
+	spec, backends, warnings, err := r.networkPolicySpec(ctx, t, vpcs)
 	if err != nil {
 		return err
 	}
 	hash := specHash(spec)
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, np, func() error {
 		np.Labels = mergeLabels(np.Labels, objectLabels(t))
-		if np.Annotations[AnnotationSpecHash] != hash {
+		if np.Annotations[AnnotationSpecHash] != hash || drifted(spec, np.Spec) {
 			if np.Annotations == nil {
 				np.Annotations = map[string]string{}
 			}
@@ -508,7 +511,7 @@ func (r *Reconciler) ensureNetworkPolicy(ctx context.Context, t *tunnelsv1alpha1
 	}); err != nil {
 		return err
 	}
-	t.Status.NetworkPolicy = tunnelsv1alpha1.NetworkPolicyStatus{Name: np.Name, Backends: backends}
+	t.Status.NetworkPolicy = tunnelsv1alpha1.NetworkPolicyStatus{Name: np.Name, Backends: backends, Warnings: warnings}
 	return nil
 }
 
@@ -597,6 +600,18 @@ func (r *Reconciler) deleteExternal(ctx context.Context, t *tunnelsv1alpha1.Tunn
 		return true, ctrl.Result{}, nil
 	}
 	t.Status.AtProvider = tun.observation()
+	// Delete only a tunnel this object owns. sync refuses to manage a (pinned) tunnel tagged
+	// for another owner; deleting it would break that owner, and waiting for its connectors
+	// to drain would never end. Such a tunnel is released as with Orphan.
+	if err := r.tagger().EnsureOwner(ctx, cf, accountID, reconcile.TagTarget{Type: tagResourceType, ID: id}, r.owner(t)); err != nil {
+		var conflict *reconcile.OwnershipConflictError
+		if errors.As(err, &conflict) {
+			log.FromContext(ctx).Info("not deleting a tunnel owned by someone else", "tunnel", id, "owner", conflict.Owner)
+			return true, ctrl.Result{}, nil
+		}
+		reconcile.MarkDeleting(t, err.Error())
+		return false, ctrl.Result{}, err
+	}
 	if tun.connected() {
 		return wait(fmt.Sprintf("waiting for the tunnel's connections to drain (status %s)", tun.Status))
 	}

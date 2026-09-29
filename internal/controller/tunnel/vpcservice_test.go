@@ -17,6 +17,7 @@ import (
 	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
 	"flare.dev/operator/internal/cfclient"
+	"flare.dev/operator/internal/controller/vpcservice"
 	"flare.dev/operator/internal/testenv"
 )
 
@@ -162,17 +163,32 @@ func TestNetworkPolicyBackends(t *testing.T) {
 	h.newVPC("c-podip", &workersvpcv1alpha1.VPCServiceParameters{Type: "http",
 		Host: workersvpcv1alpha1.VPCServiceHost{IPv4: str("10.244.1.7")}, TunnelRef: ref}, nil)
 	h.newVPC("d-later", hostnameParams("later."+h.ns+".svc.cluster.local", 80, "np"), nil)
+	// tcp without tcp_port: never every port to 0.0.0.0/0; a Service's own ports; a plain
+	// address on every port (with a warning).
+	h.newVPC("e-noport", &workersvpcv1alpha1.VPCServiceParameters{Type: "tcp",
+		Host: workersvpcv1alpha1.VPCServiceHost{Hostname: str("db.example.com")}, TunnelRef: ref}, nil)
+	h.newVPC("f-anyport", &workersvpcv1alpha1.VPCServiceParameters{Type: "tcp",
+		Host: workersvpcv1alpha1.VPCServiceHost{IPv4: str(db.Spec.ClusterIP)}, TunnelRef: ref}, nil)
+	h.newVPC("g-anyport", &workersvpcv1alpha1.VPCServiceParameters{Type: "tcp",
+		Host: workersvpcv1alpha1.VPCServiceHost{IPv4: str("10.244.1.8")}, TunnelRef: ref}, nil)
 
-	tun := h.waitTunnel("np", func(t *tunnelsv1alpha1.Tunnel) bool { return len(t.Status.NetworkPolicy.Backends) == 5 })
+	tun := h.waitTunnel("np", func(t *tunnelsv1alpha1.Tunnel) bool { return len(t.Status.NetworkPolicy.Backends) == 8 })
 	want := []string{
 		"a-db: pods of Service " + h.ns + "/db (ClusterIP " + db.Spec.ClusterIP + ") TCP/postgres",
 		"b-ext: resolver address 192.0.2.53/32 UDP/53",
 		"b-ext: external host api.example.com via 0.0.0.0/0 TCP/443",
 		"c-podip: address 10.244.1.7/32 TCP/80,TCP/443",
 		"d-later: pending, Service " + h.ns + "/later not found",
+		"e-noport: not allowed, external host db.example.com has no known port (set tcp_port); every port to 0.0.0.0/0 is never opened",
+		"f-anyport: pods of Service " + h.ns + "/db (ClusterIP " + db.Spec.ClusterIP + ") TCP/postgres",
+		"g-anyport: address 10.244.1.8/32 all ports",
 	}
 	if !reflect.DeepEqual(tun.Status.NetworkPolicy.Backends, want) {
 		t.Errorf("backends\n got %q\nwant %q", tun.Status.NetworkPolicy.Backends, want)
+	}
+	wantWarnings := []string{want[5], "g-anyport: no known port (set tcp_port), so every port of 10.244.1.8 is allowed"}
+	if !reflect.DeepEqual(tun.Status.NetworkPolicy.Warnings, wantWarnings) {
+		t.Errorf("warnings\n got %q\nwant %q", tun.Status.NetworkPolicy.Warnings, wantWarnings)
 	}
 	np := h.networkPolicy("np")
 	if !metav1.IsControlledBy(np, tun) || !reflect.DeepEqual(np.Spec.PolicyTypes, []networkingv1.PolicyType{networkingv1.PolicyTypeEgress}) ||
@@ -191,14 +207,15 @@ func TestNetworkPolicyBackends(t *testing.T) {
 		{"external hostname", world, []networkingv1.NetworkPolicyPort{tcp(intstr.FromInt32(443))}},
 		{"custom resolver", ipPeer("192.0.2.53/32"), []networkingv1.NetworkPolicyPort{udp(intstr.FromInt32(53))}},
 		{"pod IP", ipPeer("10.244.1.7/32"), []networkingv1.NetworkPolicyPort{tcp(intstr.FromInt32(80)), tcp(intstr.FromInt32(443))}},
+		{"address without a port", ipPeer("10.244.1.8/32"), nil},
 	}
 	for _, c := range checks {
 		if !hasRule(np, c.peer, c.ports...) {
 			t.Errorf("missing %s rule:\n%s", c.name, dumpNP(np))
 		}
 	}
-	if len(np.Spec.Egress) != 7 {
-		t.Errorf("%d egress rules, want 7:\n%s", len(np.Spec.Egress), dumpNP(np))
+	if len(np.Spec.Egress) != 8 {
+		t.Errorf("%d egress rules, want 8:\n%s", len(np.Spec.Egress), dumpNP(np))
 	}
 
 	// The Service appearing later is picked up through the Service watch.
@@ -265,13 +282,24 @@ func TestVPCServiceObserveOnlyAndOrphan(t *testing.T) {
 		t.Fatalf("observe-only wrote:\n%s", testenv.Summary(w))
 	}
 
-	// Adopt by name with a raw tunnel_id (no tunnelRef), Orphan on delete.
+	// A managing object never adopts a same-named service (no ownership tag exists for VPC
+	// services): NameConflict, no writes. Adoption is explicit, by annotation.
 	h.newVPC("outside", &workersvpcv1alpha1.VPCServiceParameters{Type: "tcp", TCPPort: i32(5432),
 		Host: workersvpcv1alpha1.VPCServiceHost{IPv4: str("10.0.0.5"), Network: &workersvpcv1alpha1.VPCServiceNetwork{TunnelID: str(id)}}},
 		func(vs *workersvpcv1alpha1.VPCService) { vs.Spec.DeletionPolicy = commonv1alpha1.DeletionOrphan })
+	vs = h.waitVPC("outside", func(v *workersvpcv1alpha1.VPCService) bool {
+		return hasCond(v.Status.Conditions, v.Generation, "Synced", metav1.ConditionFalse, vpcservice.ReasonNameConflict) &&
+			hasCond(v.Status.Conditions, v.Generation, "Ready", metav1.ConditionFalse, vpcservice.ReasonNameConflict)
+	})
+	if vs.Status.ID != "" || vs.Annotations[commonv1alpha1.AnnotationExternalID] != "" {
+		t.Errorf("same-named service adopted without the annotation: id %q", vs.Status.ID)
+	}
+	h.updateVPC("outside", func(vs *workersvpcv1alpha1.VPCService) {
+		vs.Annotations = map[string]string{commonv1alpha1.AnnotationExternalID: created.ServiceID}
+	})
 	vs = h.waitVPC("outside", vpcReady)
 	if vs.Status.ID != created.ServiceID || vs.Status.TunnelID != id {
-		t.Errorf("adopt by name: id %q tunnel %q", vs.Status.ID, vs.Status.TunnelID)
+		t.Errorf("adopt by annotation: id %q tunnel %q", vs.Status.ID, vs.Status.TunnelID)
 	}
 	if w := testenv.Writes(h.since(m)); len(w) != 0 {
 		t.Errorf("adopting an identical service wrote:\n%s", testenv.Summary(w))
@@ -283,6 +311,45 @@ func TestVPCServiceObserveOnlyAndOrphan(t *testing.T) {
 	var still map[string]any
 	if err := h.apiGet("/connectivity/directory/services/"+created.ServiceID, &still); err != nil {
 		t.Errorf("orphaned service deleted: %v", err)
+	}
+}
+
+// TestVPCServiceNameConflict: two objects with the same service name never share (and so
+// never delete each other's) service.
+func TestVPCServiceNameConflict(t *testing.T) {
+	h := start(t)
+	h.newTunnel("tun", nil)
+	params := func(p int32) *workersvpcv1alpha1.VPCServiceParameters {
+		fp := hostnameParams("api.example.com", p, "tun")
+		fp.Name = "shared"
+		return fp
+	}
+	h.newVPC("first", params(80), nil)
+	first := h.waitVPC("first", func(v *workersvpcv1alpha1.VPCService) bool { return v.Status.ID != "" && v.Status.TunnelID != "" })
+	m := h.mark()
+	h.newVPC("second", params(8080), nil)
+	second := h.waitVPC("second", func(v *workersvpcv1alpha1.VPCService) bool {
+		return hasCond(v.Status.Conditions, v.Generation, "Synced", metav1.ConditionFalse, vpcservice.ReasonNameConflict)
+	})
+	if second.Status.ID != "" {
+		t.Errorf("second object took over service %s", second.Status.ID)
+	}
+	if w := testenv.Writes(h.since(m)); len(w) != 0 {
+		t.Errorf("the conflicting object wrote:\n%s", testenv.Summary(w))
+	}
+	var svc struct {
+		HTTPPort int32 `json:"http_port"`
+	}
+	if err := h.apiGet("/connectivity/directory/services/"+first.Status.ID, &svc); err != nil || svc.HTTPPort != 80 {
+		t.Errorf("first service changed: %+v %v", svc, err)
+	}
+	// Deleting the conflicting object leaves the first object's service alone.
+	if err := h.e.Client.Delete(h.ctx(), second); err != nil {
+		t.Fatal(err)
+	}
+	h.waitGone(second)
+	if err := h.apiGet("/connectivity/directory/services/"+first.Status.ID, &svc); err != nil {
+		t.Errorf("first service deleted by the conflicting object: %v", err)
 	}
 }
 

@@ -126,7 +126,10 @@ spec:
                           tunnel_id:
                             description: |-
                               UUID of the tunnel that reaches the host. Leave unset when forProvider.tunnelRef is set
-                              (the controller fills it in from the Tunnel's status.id).
+                              (the controller fills it in from the Tunnel's status.id). A raw tunnel_id is not linked
+                              to a Tunnel object even when it equals one's ID: that Tunnel's egress NetworkPolicy does
+                              not allow this backend and its deletion does not wait for this service. Use tunnelRef
+                              for tunnels managed in this cluster.
                             type: string
                         type: object
                       resolver_network:
@@ -148,7 +151,8 @@ spec:
                           tunnel_id:
                             description: |-
                               UUID of the tunnel whose cloudflared resolves and reaches the host. Leave unset when
-                              forProvider.tunnelRef is set.
+                              forProvider.tunnelRef is set. As for network.tunnel_id, a raw ID is not linked to a
+                              Tunnel object (no NetworkPolicy egress, no deletion ordering); prefer tunnelRef.
                             type: string
                         type: object
                     type: object
@@ -172,8 +176,13 @@ spec:
                     minimum: 1
                     type: integer
                   name:
-                    description: Name of the service, unique in the account. Defaults
-                      to metadata.name.
+                    description: |-
+                      Name of the service, unique in the account. Defaults to metadata.name. An existing
+                      service of the same name is never adopted by a managing object (VPC services carry no
+                      ownership tag, so two objects could otherwise manage, and delete, one service): the
+                      object reports Synced=False, reason NameConflict. To adopt it, set the
+                      cloudflare.flare.dev/external-id annotation to its service_id. Observe-only objects do
+                      look services up by name.
                     maxLength: 255
                     minLength: 1
                     type: string
