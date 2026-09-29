@@ -35,6 +35,9 @@ type ManagerOptions struct {
 	AccountDependencyRequeue time.Duration
 	// BaseURLPolicy defaults to allowing every spec.baseURL (accounts point at flarefake).
 	BaseURLPolicy *reconcile.BaseURLPolicy
+	// AccountsOptions are appended to the options of the shared reconcile.Accounts, e.g.
+	// reconcile.WithHTTPClient to observe or record every Cloudflare request (test/live).
+	AccountsOptions []reconcile.AccountsOption
 }
 
 // Manager is a running controller manager.
@@ -74,8 +77,10 @@ func (e *Env) StartManager(t testing.TB, o ManagerOptions) *Manager {
 	if o.BaseURLPolicy != nil {
 		policy = *o.BaseURLPolicy
 	}
+	aopts := append([]reconcile.AccountsOption{reconcile.WithUserAgent("flare-operator-testenv"), reconcile.WithBaseURLPolicy(policy)},
+		o.AccountsOptions...)
 	deps := controller.Deps{
-		Accounts:    reconcile.NewAccounts(mgr.GetClient(), reconcile.WithUserAgent("flare-operator-testenv"), reconcile.WithBaseURLPolicy(policy)),
+		Accounts:    reconcile.NewAccounts(mgr.GetClient(), aopts...),
 		Tagger:      o.Tagger,
 		ClusterName: o.ClusterName,
 	}
