@@ -399,3 +399,83 @@ func TestVPCServiceStatusIDIsNoProof(t *testing.T) {
 		t.Errorf("service deleted without proof of ownership: %v", err)
 	}
 }
+
+// TestNamespaceTerminatingQuietRequeue: during namespace teardown the namespace controller (or
+// the garbage collector) can delete the Tunnel's owned objects before the Tunnel gets its
+// deletionTimestamp. envtest runs no namespace controller, so a deleted namespace stays
+// Terminating with the Tunnel live in it, which is exactly that window. A create of the
+// Deployment, NetworkPolicy or token Secret is refused there (NamespaceTerminating); the
+// controller must requeue quietly instead of retrying on error backoff, and must not fetch the
+// connector token (GET …/token) to recreate a Secret it cannot create.
+func TestNamespaceTerminatingQuietRequeue(t *testing.T) {
+	h := start(t)
+	h.newTunnel("tun", nil)
+	h.setDeploymentStatus("tun", 2, 2)
+	tun := h.waitTunnel("tun", tunnelReady)
+	id := tun.Status.ID
+	if tun.Status.Connector.TokenSecretName == "" {
+		t.Fatalf("no token Secret in status.connector: %+v", tun.Status.Connector)
+	}
+	if err := h.e.Client.Delete(h.ctx(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: h.ns}}); err != nil {
+		t.Fatal(err)
+	}
+	testenv.Eventually(t, 10*time.Second, func() (bool, string) {
+		var ns corev1.Namespace
+		err := h.e.Client.Get(h.ctx(), client.ObjectKey{Name: h.ns}, &ns)
+		return err == nil && ns.Status.Phase == corev1.NamespaceTerminating, fmt.Sprintf("namespace phase %q (err %v)", ns.Status.Phase, err)
+	})
+	tokenGETs := func(j []fake.JournalEntry) int { return testenv.Count(j, http.MethodGet, "/cfd_tunnel/"+id+"/token") }
+	tunnelGETs := func(j []fake.JournalEntry) int {
+		return testenv.Count(j, http.MethodGet, "/cfd_tunnel/"+id) - tokenGETs(j)
+	}
+	notFound := func(objs ...client.Object) {
+		t.Helper()
+		for _, o := range objs {
+			if err := h.e.Client.Get(h.ctx(), client.ObjectKeyFromObject(o), o); !apierrors.IsNotFound(err) {
+				t.Errorf("%T %s: want NotFound in a terminating namespace, got %v", o, o.GetName(), err)
+			}
+		}
+	}
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: "tun-cloudflared"}}
+	np := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: "tun-cloudflared"}}
+	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: "tun-cloudflared-token"}}
+
+	// 1. The Deployment and NetworkPolicy go first: their re-creation is refused. On error
+	// backoff (5 ms, 10 ms, ...) that would re-read the tunnel about ten times in 3 s; a quiet
+	// requeue (DependencyRetry) reads it once per delete event.
+	m := h.mark()
+	for _, o := range []client.Object{dep, np} {
+		if err := h.e.Client.Delete(h.ctx(), o); err != nil {
+			t.Fatalf("delete %T: %v", o, err)
+		}
+	}
+	time.Sleep(3 * time.Second)
+	j := h.since(m)
+	if n := tunnelGETs(j); n > 3 {
+		t.Errorf("tunnel read %d times in 3 s after its Deployment was removed from a terminating namespace (error backoff?):\n%s", n, testenv.Summary(j))
+	}
+	if n := tokenGETs(j); n != 0 {
+		t.Errorf("GET token %d times while the token Secret still exists", n)
+	}
+	notFound(dep, np)
+
+	// 2. The token Secret goes: no Cloudflare request at all, in particular no GET …/token.
+	m = h.mark()
+	if err := h.e.Client.Delete(h.ctx(), sec); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+	if j := h.since(m); len(j) != 0 {
+		t.Errorf("Cloudflare requests after the token Secret was removed from a terminating namespace:\n%s", testenv.Summary(j))
+	}
+	notFound(dep, np, sec)
+
+	// The Tunnel's own deletion (the namespace controller's next step) still cleans up.
+	if err := h.e.Client.Delete(h.ctx(), tun); err != nil {
+		t.Fatal(err)
+	}
+	h.waitGone(tun)
+	if got := h.cfTunnel(id); got.DeletedAt == nil {
+		t.Errorf("tunnel not deleted after the Tunnel was: %+v", got)
+	}
+}

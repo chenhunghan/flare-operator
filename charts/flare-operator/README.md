@@ -33,7 +33,9 @@ manages a real Cloudflare account.
 
 `make e2e-images e2e-install e2e e2e-uninstall` builds the images (plus the cloudflared stand-in
 `test/e2e/cloudflared-stub`), installs this chart with flarefake, runs `test/e2e` and removes the
-release, its CRDs and the namespace again; see the Makefile and `test/e2e/doc.go`.
+release, its CRDs and the namespace again. The images are loaded into the node's container
+runtime with `E2E_IMAGE_LOAD` and removed again by `e2e-uninstall` with `E2E_IMAGE_REMOVE` (for
+k0s: `sudo k0s ctr -n k8s.io images rm`); see the Makefile and `test/e2e/doc.go`.
 
 ## Values
 

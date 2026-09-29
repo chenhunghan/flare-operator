@@ -174,7 +174,7 @@ helm-lint: chart-check ## helm lint + helm template (default and flarefake value
 ## Example for the Lima k0s VM:
 ##   export KUBECONFIG=~/.lima/<instance>/kubeconfig.yaml DOCKER_HOST=unix://$HOME/.lima/<instance>/docker.sock
 ##   make e2e-images E2E_IMAGE_LOAD='limactl shell <instance> sudo k0s ctr -n k8s.io images import -'
-##   make e2e-install e2e e2e-uninstall
+##   make e2e-install e2e e2e-uninstall E2E_IMAGE_REMOVE='limactl shell <instance> sudo k0s ctr -n k8s.io images rm'
 .PHONY: e2e e2e-images e2e-install e2e-uninstall
 
 E2E_TAG ?= e2e
@@ -185,6 +185,14 @@ E2E_PULL_POLICY ?= Never
 # A command that reads `docker save` output on stdin and imports it into the cluster's container
 # runtime (empty: skip, e.g. for kind use `kind load` by hand or push to a registry).
 E2E_IMAGE_LOAD ?=
+# The counterpart of E2E_IMAGE_LOAD for e2e-uninstall: a command that removes the image
+# references given as its arguments from the cluster's container runtime (empty: skip). It gets
+# E2E_IMAGE_REFS, the names containerd records for the `docker save` archive that
+# E2E_IMAGE_LOAD imported (docker.io/library/<name>:<tag>); `ctr images rm` only warns about a
+# reference it does not have.
+E2E_IMAGE_REMOVE ?=
+E2E_IMAGES = flare-operator:$(E2E_TAG) flarefake:$(E2E_TAG) cloudflared-stub:$(E2E_TAG)
+E2E_IMAGE_REFS = $(addprefix docker.io/library/,$(E2E_IMAGES))
 E2E_CLUSTER_NAME ?= flare-e2e
 
 e2e-images:      ## build flare-operator, flarefake and the cloudflared stub as :$(E2E_TAG) and load them (E2E_IMAGE_LOAD)
@@ -193,7 +201,7 @@ e2e-images:      ## build flare-operator, flarefake and the cloudflared stub as 
 	$(CONTAINER_TOOL) build --platform=$(PLATFORM) -t cloudflared-stub:$(E2E_TAG) test/e2e/cloudflared-stub
 	@if [ -n "$(E2E_IMAGE_LOAD)" ]; then \
 		echo "loading images with: $(E2E_IMAGE_LOAD)"; \
-		$(CONTAINER_TOOL) save flare-operator:$(E2E_TAG) flarefake:$(E2E_TAG) cloudflared-stub:$(E2E_TAG) | $(E2E_IMAGE_LOAD); \
+		$(CONTAINER_TOOL) save $(E2E_IMAGES) | $(E2E_IMAGE_LOAD); \
 	else echo "E2E_IMAGE_LOAD is empty: images were not loaded into the cluster"; fi
 
 e2e-install:     ## helm install the chart with flarefake into $(E2E_NAMESPACE) (CRDs from the chart)
@@ -206,10 +214,14 @@ e2e:             ## run test/e2e against the installed chart (skips without KUBE
 	E2E_OPERATOR_NAMESPACE=$(E2E_NAMESPACE) E2E_RELEASE=$(E2E_RELEASE) E2E_STUB_IMAGE=cloudflared-stub:$(E2E_TAG) \
 		E2E_STUB_PULL_POLICY=$(E2E_PULL_POLICY) go test -tags e2e ./test/e2e/ -count=1 -v -timeout 20m
 
-e2e-uninstall:   ## helm uninstall, then delete the chart's CRDs (Helm keeps them) and $(E2E_NAMESPACE)
+e2e-uninstall:   ## helm uninstall, delete the chart's CRDs (Helm keeps them) and $(E2E_NAMESPACE), then remove the e2e images (E2E_IMAGE_REMOVE)
 	-$(HELM) uninstall $(E2E_RELEASE) -n $(E2E_NAMESPACE) --wait
 	kubectl delete -f $(CHART)/crds/ --ignore-not-found
-	kubectl delete namespace $(E2E_NAMESPACE) --ignore-not-found
+	kubectl delete namespace $(E2E_NAMESPACE) --ignore-not-found --wait
+	@if [ -n "$(E2E_IMAGE_REMOVE)" ]; then \
+		echo "removing images with: $(E2E_IMAGE_REMOVE) $(E2E_IMAGE_REFS)"; \
+		$(E2E_IMAGE_REMOVE) $(E2E_IMAGE_REFS); \
+	else echo "E2E_IMAGE_REMOVE is empty: the images e2e-images loaded were left in the cluster ($(E2E_IMAGE_REFS))"; fi
 
 ## Live smoke test (test/live): the real controllers in envtest against the Cloudflare API.
 ## Needs FLARE_LIVE=1, CLOUDFLARE_ACCOUNT_ID and FLARE_LIVE_TOKEN_FILE; writes RAW cassettes to

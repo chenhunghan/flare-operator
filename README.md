@@ -138,7 +138,7 @@ pinned OpenAPI spec. Rows marked UNVERIFIED are ones where the spec lists no gro
 
 | Kind | Permission group (spec `x-api-token-group`) |
 |---|---|
-| `CloudflareAccount` | None needed for `tokens/verify` (UNVERIFIED: the spec lists no group). A **user** token also calls `GET /accounts/{id}`, which accepts any account-level group, for example `Account Settings Read`. |
+| `CloudflareAccount` | None listed for `tokens/verify` (UNVERIFIED: the spec gives no group for `/accounts/{id}/tokens/verify` or `/user/tokens/verify`). A **user** token also calls `GET /accounts/{id}`. The spec lists a fixed set of 29 groups for it, among them `Account Settings Read`, `Workers KV Storage Read`/`Write` and `Workers Scripts Read`/`Write`, but not the D1, Queues or Cloudflare Tunnel groups, so give a user token `Account Settings Read` (UNVERIFIED against the live API). |
 | `KVNamespace` | `Workers KV Storage Write` (`… Read` for Observe) |
 | `Queue` | `Queues Write` (`Queues Read` for Observe); the spec also accepts `Workers Scripts Write` |
 | `D1Database` | `D1 Write` (`D1 Read` for Observe) |
@@ -202,6 +202,10 @@ Even with `Delete`, the operator deletes only resources it can **prove** it owns
   `cloudflare.flare.dev/ownership-proof` annotation, value `<uid>/<id>`);
 - a readable owner tag names the object; or
 - ownership tagging is off and the object pins the ID with the external-id annotation.
+
+`VPCService` has no owner tag (Resource Tagging has no resource type for VPC services), so it
+deletes a service when the object created it (the `ownership-proof` annotation) or pins it with
+the external-id annotation, whether or not ownership tagging is on.
 
 If none of these holds, the finalizer is removed, the resource is kept, and a Warning event
 (`ExternalResourceKept`) says why.
