@@ -1,0 +1,11 @@
+# Build context: only what the Dockerfiles COPY.
+*
+!go.mod
+!go.sum
+!api/
+!cmd/
+!internal/
+!spec/openapi.json.gz
+!spec/LOCK
+**/*_test.go
+**/testdata/

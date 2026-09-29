@@ -1,0 +1,4 @@
+# e2e profile: run the flarefake emulator next to the manager and allow its Service URL as a
+# CloudflareAccount spec.baseURL (and nothing else).
+flarefake:
+  enabled: true

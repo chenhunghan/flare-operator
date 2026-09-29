@@ -93,3 +93,42 @@ generate-crds:   ## regenerate api/<product>/v1alpha1, config/crd/bases and inte
 
 generate-check:  ## fail if the generated CRD files are not up to date
 	go run ./cmd/flaregen -check
+
+## Packaging: images and the Helm chart (charts/flare-operator)
+.PHONY: docker-build docker-build-fake chart-sync chart-check helm-lint
+
+# Container CLI (docker, or nerdctl/podman with a compatible `build`).
+CONTAINER_TOOL ?= docker
+IMG ?= flare-operator:dev
+FAKE_IMG ?= flarefake:dev
+# One platform loads into the local image store; for several, use `docker buildx build --push`.
+PLATFORM ?= linux/$(shell go env GOARCH)
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+CHART ?= charts/flare-operator
+HELM ?= helm
+KUBECONFORM ?= $(shell command -v kubeconform 2>/dev/null)
+
+docker-build:    ## manager image $(IMG) for $(PLATFORM)
+	$(CONTAINER_TOOL) build --platform=$(PLATFORM) --build-arg VERSION=$(VERSION) -f Dockerfile -t $(IMG) .
+
+docker-build-fake: ## flarefake image $(FAKE_IMG) for $(PLATFORM), with the pinned spec baked in
+	$(CONTAINER_TOOL) build --platform=$(PLATFORM) --build-arg VERSION=$(VERSION) -f Dockerfile.flarefake -t $(FAKE_IMG) .
+
+chart-sync:      ## copy config/crd/bases into the chart and render config/rbac/role.yaml into its ClusterRole
+	go run ./hack/chartsync
+
+chart-check:     ## fail if the chart's CRDs or ClusterRoles are out of sync with config/
+	go run ./hack/chartsync -check
+
+helm-lint: chart-check ## helm lint + helm template (default and flarefake values); kubeconform if installed
+	$(HELM) lint --strict $(CHART)
+	$(HELM) lint --strict $(CHART) -f $(CHART)/ci/flarefake-values.yaml
+	@for v in $(CHART)/ci/*-values.yaml; do \
+		echo "helm template -f $$v"; \
+		$(HELM) template flare-operator $(CHART) -n flare-system --include-crds -f $$v > /dev/null || exit 1; \
+		if [ -n "$(KUBECONFORM)" ]; then \
+			$(HELM) template flare-operator $(CHART) -n flare-system --include-crds -f $$v \
+				| $(KUBECONFORM) -strict -summary -ignore-missing-schemas || exit 1; \
+		fi; \
+	done
+	@[ -n "$(KUBECONFORM)" ] || echo "kubeconform not installed; skipped schema validation"
