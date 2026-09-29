@@ -48,11 +48,6 @@ type crashCase struct {
 	faults func(cx *crashCtx) []fake.Fault
 	// rateLimit for the account (optional).
 	rateLimit *cloudflarev1alpha1.RateLimitSpec
-	// pinOnly: the adoption only pins the ID (external-id annotation) and records no
-	// ownership proof. The generic reconciler adopts by name or client-chosen ID whether or not
-	// it created the resource; without an owner tag the pin is what lets it delete it
-	// (reconcile.MayDeleteExternal).
-	pinOnly bool
 	// kind is the generated kind of a generic case ("" for the hand-written controllers).
 	kind string
 }
@@ -386,7 +381,7 @@ func runCrash(t *testing.T, c crashCase) {
 	if a[commonv1alpha1.AnnotationExternalID] != ids[0] || o.GetResourceStatus().ID != ids[0] {
 		t.Errorf("external-id annotation %q, status.id %q, want %q", a[commonv1alpha1.AnnotationExternalID], o.GetResourceStatus().ID, ids[0])
 	}
-	if want := string(o.GetUID()) + "/" + ids[0]; !c.pinOnly && a[reconcile.AnnotationOwnershipProof] != want {
+	if want := string(o.GetUID()) + "/" + ids[0]; a[reconcile.AnnotationOwnershipProof] != want {
 		t.Errorf("ownership proof %q, want %q", a[reconcile.AnnotationOwnershipProof], want)
 	}
 	if v, ok := a[reconcile.AnnotationCreatePending]; ok {
@@ -413,10 +408,9 @@ func tagSuffix(tagging bool) string {
 
 func genericCrashCase(kind string, tagging bool) crashCase {
 	return crashCase{
-		name:    kind + "/" + tagSuffix(tagging),
-		kind:    kind,
-		tagger:  taggerFor(tagging),
-		pinOnly: !tagging || entryByKind(kind).TagResourceType == "",
+		name:   kind + "/" + tagSuffix(tagging),
+		kind:   kind,
+		tagger: taggerFor(tagging),
 		setup: func(c client.Client) func(ctrl.Manager, controller.Deps) error {
 			return func(mgr ctrl.Manager, d controller.Deps) error {
 				en := entryByKind(kind)

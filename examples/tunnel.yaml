@@ -9,7 +9,7 @@ spec:
   accountRef:
     name: main
   forProvider:
-    name: private-backends # defaults to metadata.name; an existing tunnel of this name is adopted
+    name: private-backends # defaults to metadata.name; an existing tunnel of this name is adopted only if its owner tag names this object (else NameConflict)
   connector:
     replicas: 2 # the default; each replica opens 4 connections to the edge
     # image: cloudflare/cloudflared:2026.9.3 # the default

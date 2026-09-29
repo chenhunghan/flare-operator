@@ -340,10 +340,13 @@ Even with `Delete`, the operator deletes only resources it can **prove** it owns
   the external-id annotation.
 
 The last case matters for the kinds without an owner tag (`VectorizeIndex`, `SecretsStore`,
-`AIGateway` and `VPCService`). The generated ones among them adopt an existing resource with
-the same name (or, for `AIGateway`, the same `id`) and pin it, so with `Delete` deleting the
-object deletes a resource that existed before. `VPCService` never adopts by name (see
+`AIGateway` and `VPCService`). None of them adopts an existing resource by name: only a pin you
+set yourself, or the operator's record of its own create, lets `Delete` delete the resource (see
 [Adoption](#adoption-cloudflareflaredevexternal-id)).
+
+Tagged kinds (`KVNamespace`, `Queue`, `D1Database`) with tagging on still adopt an untagged
+resource of the same name and tag it, so with `Delete` deleting the object deletes that
+resource too. They default to `Orphan`.
 
 If none of these holds, the finalizer is removed, the resource is kept, and a Warning event
 (`ExternalResourceKept`) says why.
@@ -378,9 +381,18 @@ and the status write cannot orphan or duplicate a resource ([Crash consistency](
 
 Without the annotation, what happens depends on the kind:
 
-- **Generated kinds and `Tunnel`** adopt a resource whose name matches `forProvider` (`title`,
-  `queue_name` or `name`). If several resources match, the object reports an error.
-  `AIGateway` has no name field: it adopts a gateway whose `id` equals `forProvider.id`.
+- **Generated kinds with an owner tag** (`KVNamespace`, `Queue`, `D1Database`, with tagging on)
+  adopt a resource whose name matches `forProvider` (`title`, `queue_name` or `name`) unless
+  its owner tag names another object. If several resources match, the object reports an error.
+- **Generated kinds without an owner tag** (`VectorizeIndex`, `SecretsStore`, `AIGateway`, and
+  every generated kind with `--ownership-tags=false`) never adopt by name (or, for
+  `AIGateway`, by `id`): a match gives `Synced=False` with reason `NameConflict` until you set
+  the annotation, unless the create-pending record shows it is the object's own lost create.
+  Nothing else could prove that the object owns the resource, and `Delete` would delete it.
+- **`Tunnel`** adopts a same-named tunnel only when its owner tag already names this object
+  (with tagging on), or when the create-pending record shows it is the object's own lost create.
+  A tunnel without that tag, such as one made with `cloudflared` or the dashboard, gives
+  `NameConflict`: running connectors on it would take a share of its traffic.
 - **`VPCService`** never adopts by name. VPC services carry no ownership tag, so a name match
   gives `Synced=False` with reason `NameConflict` until you set the annotation (unless the
   create-pending record shows it is the object's own lost create).

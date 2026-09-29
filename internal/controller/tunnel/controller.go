@@ -374,39 +374,51 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 			reconcile.MarkAvailable(t)
 			reconcile.MarkSynced(t)
 			return ctrl.Result{RequeueAfter: r.resync()}, nil
-		case tun != nil && !tagging && pol.CanCreate() && pendingName(t) == t.TunnelName():
+		case tun != nil && pol.CanCreate() && pendingName(t) == t.TunnelName():
 			// This object announced a create of this name (MarkCreatePending, after a lookup
 			// found none) and has no record of its result: the manager died, or the API server
 			// refused the write, between the create and RecordCreated. The tunnel is this
 			// object's own lost create; adopt it (docs/resilience.md). Its token is read below.
+			// With tagging, the owner tag is claimed first: a tunnel another object has tagged
+			// in the meantime is not taken.
+			if tagging {
+				if err := r.tagger().EnsureOwner(ctx, cf, accountID, reconcile.TagTarget{Type: tagResourceType, ID: tun.ID}, r.owner(t)); err != nil {
+					return r.ownershipError(t, err)
+				}
+				tagged = true
+			}
 			if err := reconcile.RecordCreated(ctx, r.Client, t, tun.ID); err != nil {
 				return syncErr(fmt.Errorf("record the tunnel %s created before a restart: %w", tun.ID, err))
 			}
 			log.FromContext(ctx).Info("adopted the tunnel of an interrupted create", "id", tun.ID, "name", tun.Name)
-		case tun != nil && !tagging:
+		case tun != nil && tagging:
+			// Adopt by name only a tunnel whose owner tag already names this object (its own
+			// tunnel, whose ID the object lost). A tunnel without an owner tag may have been
+			// made with cloudflared or the dashboard and serve traffic elsewhere: running
+			// connectors on it would take a share of that traffic, and deletionPolicy Delete
+			// would delete it. Adoption is explicit, through the external-id annotation.
+			owner, _, err := r.tagger().Owner(ctx, cf, accountID, reconcile.TagTarget{Type: tagResourceType, ID: tun.ID})
+			switch {
+			case err != nil:
+				return syncErr(fmt.Errorf("read the owner tag of tunnel %s: %w", tun.ID, err))
+			case owner == r.owner(t):
+				tagged = true // recorded below
+			case owner != "":
+				return r.ownershipError(t, &reconcile.OwnershipConflictError{
+					Target: reconcile.TagTarget{Type: tagResourceType, ID: tun.ID}, Owner: owner, Wanted: r.owner(t)})
+			default:
+				return r.nameConflict(ctx, t, fmt.Sprintf("a tunnel named %q already exists (id %s) and carries no %s tag naming this object, "+
+					"so this object cannot prove that it owns it; set the %s annotation to that ID to adopt it, or choose another forProvider.name",
+					t.TunnelName(), tun.ID, reconcile.OwnerTagKey, commonv1alpha1.AnnotationExternalID))
+			}
+		case tun != nil:
 			// Without an ownership tag nothing proves that this object owns a same-named
 			// tunnel: it may be another cluster's, and running connectors on it would take a
 			// share of that tunnel's traffic. Adoption is explicit, through the external-id
 			// annotation (as for VPCService).
-			msg := fmt.Sprintf("a tunnel named %q already exists (id %s) and ownership tagging is disabled, so this object cannot prove "+
+			return r.nameConflict(ctx, t, fmt.Sprintf("a tunnel named %q already exists (id %s) and ownership tagging is disabled, so this object cannot prove "+
 				"that it owns it; set the %s annotation to that ID to adopt it, or choose another forProvider.name",
-				t.TunnelName(), tun.ID, commonv1alpha1.AnnotationExternalID)
-			t.Status.ID = ""
-			t.Status.AtProvider = tunnelsv1alpha1.TunnelObservation{}
-			// An older build may have run connectors on it (an untagged adoption through
-			// status.id): stop them and drop that tunnel's token.
-			if err := r.stopConnector(ctx, t); err != nil {
-				return syncErr(fmt.Errorf("stop the connector of an unproven tunnel: %w", err))
-			}
-			reconcile.SetReady(t, metav1.ConditionFalse, reconcile.ReasonNameConflict, msg)
-			reconcile.SetSynced(t, metav1.ConditionFalse, reconcile.ReasonNameConflict, msg)
-			return ctrl.Result{RequeueAfter: DependencyRetry}, nil
-		case tun != nil:
-			// Adopt by name once the owner tag is ours (recorded below).
-			if err := r.tagger().EnsureOwner(ctx, cf, accountID, reconcile.TagTarget{Type: tagResourceType, ID: tun.ID}, r.owner(t)); err != nil {
-				return r.ownershipError(t, err)
-			}
-			tagged = true
+				t.TunnelName(), tun.ID, commonv1alpha1.AnnotationExternalID))
 		case pol.CanCreate():
 			// Announce the create first. Without an owner tag, a same-named tunnel found after a
 			// crash could not be told from someone else's (the case above adopts it); with or
@@ -495,6 +507,21 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 		reconcile.MarkSynced(t)
 	}
 	return ctrl.Result{RequeueAfter: r.resync()}, nil
+}
+
+// nameConflict reports that a same-named tunnel exists that t cannot prove it owns
+// (Ready=False and Synced=False, reason NameConflict). An older build may have run connectors on
+// it (an untagged adoption through status.id): they are stopped and that tunnel's token dropped.
+func (r *Reconciler) nameConflict(ctx context.Context, t *tunnelsv1alpha1.Tunnel, msg string) (ctrl.Result, error) {
+	t.Status.ID = ""
+	t.Status.AtProvider = tunnelsv1alpha1.TunnelObservation{}
+	if err := r.stopConnector(ctx, t); err != nil {
+		reconcile.MarkSyncError(t, "", fmt.Errorf("stop the connector of an unproven tunnel: %w", err))
+		return ctrl.Result{}, err
+	}
+	reconcile.SetReady(t, metav1.ConditionFalse, reconcile.ReasonNameConflict, msg)
+	reconcile.SetSynced(t, metav1.ConditionFalse, reconcile.ReasonNameConflict, msg)
+	return ctrl.Result{RequeueAfter: DependencyRetry}, nil
 }
 
 func (r *Reconciler) ownershipError(t *tunnelsv1alpha1.Tunnel, err error) (ctrl.Result, error) {

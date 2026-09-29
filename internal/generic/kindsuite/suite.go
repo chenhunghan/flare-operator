@@ -300,11 +300,79 @@ func (k *kindTest) run() {
 		k.mustAPI(http.MethodDelete, item2)
 	}
 
+	// 9. Untaggable kinds: a same-named resource made outside the operator is not adopted.
+	if en.TagResourceType == "" && (en.NameField != "" || k.clientID) {
+		k.foreignNamesake()
+	}
+
 	// 8. Spec conformance of every request.
 	for _, j := range testenv.ForAccount(k.e.Journal(t), k.acct.AccountID) {
 		if j.SchemaViolation != "" && !knownDefect(j) {
 			t.Errorf("request violates the pinned spec: %s %s: %s", j.Method, j.Path, j.SchemaViolation)
 		}
+	}
+}
+
+// foreignNamesake: for a kind that cannot carry an owner tag, a resource another tool made
+// with the object's name (or client-chosen ID) proves nothing about ownership. The object
+// (deletionPolicy Delete) reports NameConflict, writes nothing, pins nothing, and its deletion
+// leaves the resource. Pinned through the external-id annotation, it is adopted.
+func (k *kindTest) foreignNamesake() {
+	t, en := k.t, k.en
+	name := "flare-spike-" + testenv.RandomHex(4)
+	fp := k.createFP(name)
+	body := map[string]any{}
+	for _, f := range en.CreateFields {
+		if v, ok := fp[f]; ok {
+			body[f] = v
+		}
+	}
+	resp, err := k.cf.Do(testenv.Context(t, 30*time.Second), cfclient.Request{Method: http.MethodPost, Path: k.path(en.CreatePath, ""), Body: body})
+	if err != nil {
+		t.Fatalf("create the foreign resource: %v", err)
+	}
+	var created map[string]any
+	if err := json.Unmarshal(resp.Result, &created); err != nil {
+		t.Fatalf("create the foreign resource: %v", err)
+	}
+	id, _ := created[en.IDField].(string)
+	if id == "" {
+		t.Fatalf("create the foreign resource: no %s in %s", en.IDField, resp.Result)
+	}
+	item := k.path(en.ItemPath, id)
+
+	mark := k.mark()
+	obj := k.newObj("namesake", map[string]any{"deletionPolicy": "Delete", "forProvider": fp})
+	k.create(obj)
+	k.waitFor(obj, "NameConflict", func() (bool, string) {
+		return condIs(obj, commonv1alpha1.ConditionReady, metav1.ConditionFalse, reconcile.ReasonNameConflict) &&
+			condIs(obj, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, reconcile.ReasonNameConflict), "no NameConflict"
+	})
+	if a, s := obj.GetAnnotations()[commonv1alpha1.AnnotationExternalID], obj.GetResourceStatus().ID; a != "" || s != "" {
+		t.Errorf("namesake pinned the foreign resource: annotation %q, status.id %q", a, s)
+	}
+	k.delete(obj)
+	k.waitGone(obj)
+	if w := k.writesSince(mark); len(w) != 0 {
+		t.Errorf("namesake of a foreign resource: %d Cloudflare writes, want 0:\n%s", len(w), testenv.Summary(w))
+	}
+	if _, err := k.api(http.MethodGet, item); err != nil {
+		t.Fatalf("the foreign resource after deleting its namesake (deletionPolicy Delete): GET %s: %v", item, err)
+	}
+
+	// Explicit adoption through the annotation: the user's pin is the proof.
+	pinned := k.newObj("pinned", map[string]any{"deletionPolicy": "Delete", "forProvider": fp})
+	pinned.SetAnnotations(map[string]string{commonv1alpha1.AnnotationExternalID: id})
+	k.create(pinned)
+	k.waitSynced(pinned, "pinned")
+	if got := pinned.GetResourceStatus().ID; got != id {
+		t.Errorf("pinned: status.id %q, want %q", got, id)
+	}
+	mark = k.mark()
+	k.delete(pinned)
+	k.waitGone(pinned)
+	if n := testenv.Count(k.writesSince(mark), http.MethodDelete, item); n != 1 {
+		t.Errorf("pinned, deletionPolicy Delete: %d DELETEs of %s, want 1:\n%s", n, item, testenv.Summary(k.writesSince(mark)))
 	}
 }
 

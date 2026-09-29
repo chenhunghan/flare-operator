@@ -46,7 +46,12 @@ const accountRefIndex = ".spec.accountRef.name"
 // Per object:
 //   - The account is resolved through reconcile.Accounts (AccountNotReady otherwise).
 //   - The external ID is the external-id annotation, else status.id. Without one, a resource
-//     whose NameField equals forProvider's is adopted from ListPath.
+//     whose NameField equals forProvider's is adopted from ListPath, but only where an owner
+//     tag decides ownership (a tagged kind with tagging on; EnsureOwner refuses another
+//     object's resource) or the resource is the object's own lost create (its create-pending
+//     record). Otherwise (an untaggable kind, or tagging off) a same-named resource is a
+//     NameConflict until the external-id annotation pins it: nothing else could prove that
+//     the object owns it, and deletion would delete it.
 //   - Missing resource: created from forProvider ∩ CreateFields (unless the policies forbid
 //     Create); set fields of UpdateFields \ CreateFields are applied by an update right after.
 //     The new ID and the ownership record (reconcile.RecordCreated) are written to the
@@ -345,6 +350,13 @@ func (r *Reconciler) observe(ctx context.Context, obj reconcile.ManagedObject) (
 				return errResult(obj, err)
 			}
 		}
+		if foundID != "" && pol.CanWrite() && !r.tagging() && !r.ownLostCreate(obj, desired) {
+			// No ownership tag can prove that this object owns a same-named resource (the kind
+			// cannot be tagged, or tagging is off): it may be another object's or another
+			// tool's, and managing it would let this object's deletion delete it. Adoption is
+			// explicit, through the external-id annotation (as for VPCService and Tunnel).
+			return r.nameConflict(obj, desired, foundID)
+		}
 		if foundID != "" {
 			if observed, err = r.get(ctx, sc, foundID); err != nil {
 				return errResult(obj, err)
@@ -371,6 +383,39 @@ func (r *Reconciler) observe(ctx context.Context, obj reconcile.ManagedObject) (
 		return r.create(ctx, obj, sc, desired)
 	}
 	return r.sync(ctx, obj, sc, desired, id, observed, adopted)
+}
+
+// ownLostCreate reports whether obj's create-pending record names the resource desired
+// describes (pendingKey): obj announced that create and never recorded its result, so a
+// resource found by that name or client-chosen ID is obj's own lost create
+// (docs/resilience.md).
+func (r *Reconciler) ownLostCreate(obj reconcile.ManagedObject, desired map[string]any) bool {
+	key := r.pendingKey(desired)
+	pending, ok := reconcile.PendingCreate(obj)
+	return ok && key != "" && pending == key
+}
+
+// nameConflict reports that a resource with obj's name (or client-chosen ID) exists and obj
+// cannot prove that it owns it: Ready=False and Synced=False with reason NameConflict. Nothing
+// is written to Cloudflare and no ID is pinned.
+func (r *Reconciler) nameConflict(obj reconcile.ManagedObject, desired map[string]any, foundID string) (ctrl.Result, error) {
+	d := r.Descriptor
+	field := d.NameField
+	if field == "" {
+		field = d.IDField
+	}
+	why := "ownership tagging is disabled"
+	if d.TagResourceType == "" {
+		why = "this resource type cannot carry an ownership tag"
+	}
+	msg := fmt.Sprintf("a %s with %s %v already exists (id %s) and this object cannot prove that it owns it (%s); "+
+		"set the %s annotation to that ID to adopt it, or choose another forProvider.%s",
+		d.Kind, field, desired[field], foundID, why, commonv1alpha1.AnnotationExternalID, field)
+	ClearAtProvider(obj)
+	obj.GetResourceStatus().ID = ""
+	reconcile.SetReady(obj, metav1.ConditionFalse, reconcile.ReasonNameConflict, msg)
+	reconcile.SetSynced(obj, metav1.ConditionFalse, reconcile.ReasonNameConflict, msg)
+	return ctrl.Result{RequeueAfter: r.poll()}, nil
 }
 
 func (r *Reconciler) get(ctx context.Context, sc scope, id string) (json.RawMessage, error) {
@@ -562,12 +607,17 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 			return errResult(obj, fmt.Errorf("ownership tag: %w", err))
 		}
 		// With tagging, our owner tag is now on the resource: record that proof of ownership
-		// (and pin the ID) durably. Without tagging, only an adopted ID is pinned.
-		persist := reconcile.PersistExternalID
-		if r.tagging() {
+		// (and pin the ID) durably. Without tagging, observe adopts only this object's own lost
+		// create (ownLostCreate), which is recorded as created by it; an ID the object already
+		// knows (the external-id annotation, or its own create) needs no write.
+		var persist func(context.Context, client.Client, reconcile.ManagedObject, string) error
+		switch {
+		case r.tagging():
 			persist = reconcile.RecordOwnership
+		case adopted:
+			persist = reconcile.RecordCreated
 		}
-		if adopted || r.tagging() {
+		if persist != nil {
 			if err := persist(ctx, r.Client, obj, id); err != nil {
 				return errResult(obj, fmt.Errorf("record external ID %s: %w", id, err))
 			}
