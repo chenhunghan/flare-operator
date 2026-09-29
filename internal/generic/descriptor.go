@@ -31,6 +31,10 @@ type Descriptor struct {
 	// update immediately after create (e.g. Queue settings).
 	CreateFields, UpdateFields []string
 
+	// TagResourceType is the Resource Tagging resource_type for ownership tags
+	// (/accounts/{id}/tags); "" means the kind cannot be tagged.
+	TagResourceType string
+
 	// DefaultDeletionPolicy applies when spec.deletionPolicy is empty:
 	// "Orphan" for data-bearing kinds, else "Delete".
 	DefaultDeletionPolicy string
