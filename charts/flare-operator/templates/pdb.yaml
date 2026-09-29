@@ -2,7 +2,8 @@
 Rendered only with more than one replica: a minAvailable 1 budget over a single replica would
 block every node drain (see values.yaml podDisruptionBudget).
 */}}
-{{- if and .Values.podDisruptionBudget.enabled (gt (int .Values.replicas) 1) }}
+{{- /* dig: values reused from a chart version without podDisruptionBudget (helm upgrade --reuse-values) lack the map. */}}
+{{- if and (dig "enabled" false (.Values.podDisruptionBudget | default (dict))) (gt (int .Values.replicas) 1) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

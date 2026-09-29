@@ -319,6 +319,29 @@ func (h *harness) ownerTag(id string) string {
 	return out.Tags["flare.dev/owner"]
 }
 
+// setOwnerTag sets the tunnel's flare.dev/owner tag through the API (as another cluster, or an
+// earlier run of this object, would have).
+func (h *harness) setOwnerTag(id, owner string) {
+	h.t.Helper()
+	if _, err := h.cf.Do(h.ctx(), cfclient.Request{Method: http.MethodPut, Path: "/accounts/" + h.acct.AccountID + "/tags",
+		Body: map[string]any{"resource_type": "cloudflared_tunnel", "resource_id": id, "tags": map[string]string{"flare.dev/owner": owner}}}); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// deleteTunnel deletes the Tunnel object and waits until it is gone.
+func (h *harness) deleteTunnel(name string) {
+	h.t.Helper()
+	tun := &tunnelsv1alpha1.Tunnel{}
+	if err := h.e.Client.Get(h.ctx(), client.ObjectKey{Namespace: h.ns, Name: name}, tun); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := h.e.Client.Delete(h.ctx(), tun); err != nil {
+		h.t.Fatal(err)
+	}
+	h.waitGone(tun)
+}
+
 func (h *harness) apiCreateTunnel(name string) (id, token string) {
 	h.t.Helper()
 	resp, err := h.cf.Do(h.ctx(), cfclient.Request{Method: http.MethodPost, Path: "/accounts/" + h.acct.AccountID + "/cfd_tunnel",

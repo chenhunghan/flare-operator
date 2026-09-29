@@ -2,3 +2,6 @@
 # CloudflareAccount spec.baseURL (and nothing else).
 flarefake:
   enabled: true
+
+# clusterName is required and has no default.
+clusterName: ci

@@ -39,8 +39,12 @@ type RateLimitSpec struct {
 
 // CloudflareAccountSpec binds a Cloudflare account ID to an API token.
 type CloudflareAccountSpec struct {
-	// AccountID is the 32-character Cloudflare account identifier.
+	// AccountID is the 32-character Cloudflare account identifier. It is immutable: the objects
+	// that reference this CloudflareAccount manage resources in that account, and pointing it at
+	// another account would make them create new resources there and leave the old ones
+	// unmanaged. Create another CloudflareAccount for another account.
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{32}$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="accountID is immutable: create another CloudflareAccount for another account"
 	AccountID string `json:"accountID"`
 	// TokenSecretRef names the Secret (same namespace) holding the API token.
 	TokenSecretRef SecretKeySelector `json:"tokenSecretRef"`

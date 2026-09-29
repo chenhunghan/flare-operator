@@ -91,10 +91,11 @@ conditions:
   - reason: NameConflict
     condition: Ready, Synced
     status: "False"
-    kinds: Tunnel, VPCService, WorkerScript
+    kinds: Tunnel, VPCService, WorkerScript, generated kinds without an owner tag (VectorizeIndex, SecretsStore, AIGateway; every generated kind with --ownership-tags=false)
     meaning: >-
-      The Cloudflare name is taken by a resource this object cannot prove it owns; it is not
-      adopted by name. Set the cloudflare.flare.dev/external-id annotation to adopt it.
+      The Cloudflare name (or client-chosen ID) is taken by a resource this object cannot prove
+      it owns: no owner tag names this object and it is not the object's own lost create. It is
+      not adopted by name. Set the cloudflare.flare.dev/external-id annotation to adopt it.
   - reason: InvalidHostname
     condition: Ready, Synced
     status: "False"

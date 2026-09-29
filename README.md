@@ -120,8 +120,11 @@ you are upgrading to:
 ```sh
 make crds-diff        # optional: kubectl diff --server-side against the cluster
 make crds-apply       # kubectl apply --server-side --force-conflicts --field-manager=flare-operator-crds -f charts/flare-operator/crds/
-helm upgrade flare-operator charts/flare-operator -n flare-system --reuse-values --set image.tag=<new tag>
+helm upgrade flare-operator charts/flare-operator -n flare-system --reset-then-reuse-values --set image.tag=<new tag>
 ```
+
+Use `--reset-then-reuse-values` (Helm 3.14 or later) or `-f <your values file>`, not
+`--reuse-values`: that flag drops the defaults of every value a newer chart adds.
 
 [docs/operations.md](docs/operations.md#upgrade) explains why this is a manual step, covers
 Flux and Argo CD, and describes the tested upgrade path (`make e2e-upgrade`).
@@ -308,6 +311,12 @@ still needed:
 
 Because of these, deleting a namespace still cleans up in Cloudflare before the token disappears.
 
+`spec.accountRef` cannot change once the resource exists (`status.id` is set), and a
+CloudflareAccount's `spec.accountID` cannot change at all: the resource lives in that account,
+and a switch would create a second, empty one in the new account and leave the first one
+unmanaged. To move a resource between accounts, delete the object (with `deletionPolicy:
+Orphan` to keep the old resource) and create a new one. The token Secret can be changed.
+
 Every CloudflareAccount that uses the same token shares one client-side rate limiter:
 `spec.rateLimit`, default 1080 requests per 5 minutes with a burst of 20. Cloudflare's limit is
 1200 requests per 5 minutes per token.
@@ -337,10 +346,13 @@ Even with `Delete`, the operator deletes only resources it can **prove** it owns
   the external-id annotation.
 
 The last case matters for the kinds without an owner tag (`VectorizeIndex`, `SecretsStore`,
-`AIGateway` and `VPCService`). The generated ones among them adopt an existing resource with
-the same name (or, for `AIGateway`, the same `id`) and pin it, so with `Delete` deleting the
-object deletes a resource that existed before. `VPCService` never adopts by name (see
+`AIGateway` and `VPCService`). None of them adopts an existing resource by name: only a pin you
+set yourself, or the operator's record of its own create, lets `Delete` delete the resource (see
 [Adoption](#adoption-cloudflareflaredevexternal-id)).
+
+Tagged kinds (`KVNamespace`, `Queue`, `D1Database`) with tagging on still adopt an untagged
+resource of the same name and tag it, so with `Delete` deleting the object deletes that
+resource too. They default to `Orphan`.
 
 If none of these holds, the finalizer is removed, the resource is kept, and a Warning event
 (`ExternalResourceKept`) says why.
@@ -375,9 +387,18 @@ and the status write cannot orphan or duplicate a resource ([Crash consistency](
 
 Without the annotation, what happens depends on the kind:
 
-- **Generated kinds and `Tunnel`** adopt a resource whose name matches `forProvider` (`title`,
-  `queue_name` or `name`). If several resources match, the object reports an error.
-  `AIGateway` has no name field: it adopts a gateway whose `id` equals `forProvider.id`.
+- **Generated kinds with an owner tag** (`KVNamespace`, `Queue`, `D1Database`, with tagging on)
+  adopt a resource whose name matches `forProvider` (`title`, `queue_name` or `name`) unless
+  its owner tag names another object. If several resources match, the object reports an error.
+- **Generated kinds without an owner tag** (`VectorizeIndex`, `SecretsStore`, `AIGateway`, and
+  every generated kind with `--ownership-tags=false`) never adopt by name (or, for
+  `AIGateway`, by `id`): a match gives `Synced=False` with reason `NameConflict` until you set
+  the annotation, unless the create-pending record shows it is the object's own lost create.
+  Nothing else could prove that the object owns the resource, and `Delete` would delete it.
+- **`Tunnel`** adopts a same-named tunnel only when its owner tag already names this object
+  (with tagging on), or when the create-pending record shows it is the object's own lost create.
+  A tunnel without that tag, such as one made with `cloudflared` or the dashboard, gives
+  `NameConflict`: running connectors on it would take a share of its traffic.
 - **`VPCService`** never adopts by name. VPC services carry no ownership tag, so a name match
   gives `Synced=False` with reason `NameConflict` until you set the annotation (unless the
   create-pending record shows it is the object's own lost create).
@@ -434,7 +455,10 @@ Kubernetes Service.
   `queue_name`, `database_id`, `service_id`, `service`) or a reference to an object in the same
   namespace (`kvNamespaceRef`, `queueRef`, `d1DatabaseRef`, `vpcServiceRef`, `serviceRef`).
   Until every referenced object is Ready, nothing is uploaded and `Synced` is `False` with
-  reason `DependencyNotReady`.
+  reason `DependencyNotReady`. A `secret_text` Secret must carry the label
+  `cloudflare.flare.dev/worker-binding=true` and must not be a service account token: the
+  Worker's code can return the value, so only Secrets opted in for Workers are read (see
+  [SECURITY.md](SECURITY.md#api-tokens)).
 - **Updates.** Cloudflare does not return script content, so the operator stores a hash of the
   modules in `status.contentHash`. A content change is one multipart upload, which creates a new
   version and deploys it at 100%. A change that only touches settings (bindings, compatibility

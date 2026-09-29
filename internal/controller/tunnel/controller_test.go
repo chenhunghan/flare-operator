@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -20,6 +21,7 @@ import (
 	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
 	"flare.dev/operator/internal/cfclient"
 	"flare.dev/operator/internal/controller/tunnel"
+	"flare.dev/operator/internal/reconcile"
 	"flare.dev/operator/internal/testenv"
 )
 
@@ -214,11 +216,38 @@ func TestTunnelAdopt(t *testing.T) {
 		t.Errorf("token secret %v %v", sec.Data, err)
 	}
 
-	// By name.
+	// By name: a tunnel made outside the operator (cloudflared, the dashboard) carries no owner
+	// tag, which proves nothing. It is neither adopted nor tagged, no connector runs on it, and
+	// deleting the object (deletionPolicy Delete, the default) leaves it.
 	id2, _ := h.apiCreateTunnel("by-name")
 	m = h.mark()
 	h.newTunnel("by-name", nil)
-	tun = h.waitTunnel("by-name", func(t *tunnelsv1alpha1.Tunnel) bool { return t.Status.ID != "" })
+	tun = h.waitTunnel("by-name", func(t *tunnelsv1alpha1.Tunnel) bool {
+		return hasCond(t.Status.Conditions, t.Generation, "Ready", metav1.ConditionFalse, reconcile.ReasonNameConflict)
+	})
+	if tun.Status.ID != "" || tun.Annotations[commonv1alpha1.AnnotationExternalID] != "" || tun.Annotations[reconcile.AnnotationOwnershipProof] != "" {
+		t.Errorf("namesake: id %q annotations %v", tun.Status.ID, tun.Annotations)
+	}
+	if w := testenv.Writes(h.since(m)); len(w) != 0 {
+		t.Errorf("namesake of an untagged tunnel wrote:\n%s", testenv.Summary(w))
+	}
+	if o := h.ownerTag(id2); o != "" {
+		t.Errorf("untagged tunnel was tagged %q", o)
+	}
+	var dep appsv1.Deployment
+	if err := h.e.Client.Get(h.ctx(), client.ObjectKey{Namespace: h.ns, Name: "by-name-cloudflared"}, &dep); !apierrors.IsNotFound(err) {
+		t.Errorf("connector Deployment for an unproven tunnel: %v", err)
+	}
+	h.deleteTunnel("by-name")
+	if n := testenv.Count(h.since(m), http.MethodDelete, "/cfd_tunnel/"+id2); n != 0 {
+		t.Errorf("deleting the namesake deleted the untagged tunnel")
+	}
+
+	// The same tunnel, tagged as this object's own (it lost the ID), is adopted by name.
+	h.setOwnerTag(id2, reconcile.OwnerValue("testenv", h.ns, "by-name2"))
+	m = h.mark()
+	h.newTunnel("by-name2", func(tun *tunnelsv1alpha1.Tunnel) { tun.Spec.ForProvider.Name = "by-name" })
+	tun = h.waitTunnel("by-name2", func(t *tunnelsv1alpha1.Tunnel) bool { return t.Status.ID != "" })
 	if tun.Status.ID != id2 || tun.Annotations[commonv1alpha1.AnnotationExternalID] != id2 {
 		t.Errorf("adopt by name: id %q annotation %q, want %q", tun.Status.ID, tun.Annotations[commonv1alpha1.AnnotationExternalID], id2)
 	}

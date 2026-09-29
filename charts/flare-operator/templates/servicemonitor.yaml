@@ -1,4 +1,5 @@
-{{- if .Values.metrics.serviceMonitor.enabled }}
+{{- /* dig: values reused from a chart version without metrics.serviceMonitor (helm upgrade --reuse-values) lack the map. */}}
+{{- if dig "serviceMonitor" "enabled" false (.Values.metrics | default (dict)) }}
 {{- if not (and .Values.metrics.enabled .Values.metrics.service.enabled) }}
 {{- fail "metrics.serviceMonitor.enabled requires metrics.enabled and metrics.service.enabled" }}
 {{- end }}

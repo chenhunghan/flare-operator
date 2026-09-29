@@ -296,7 +296,7 @@ chart-check:     ## fail if the chart's CRDs or ClusterRoles are out of sync wit
 	go run ./hack/chartsync -check
 
 helm-lint: chart-check ## helm lint + helm template (default and flarefake values); kubeconform if installed
-	$(HELM) lint --strict $(CHART)
+	$(HELM) lint --strict $(CHART) -f $(CHART)/ci/default-values.yaml
 	$(HELM) lint --strict $(CHART) -f $(CHART)/ci/flarefake-values.yaml
 	@mkdir -p $(KUBECONFORM_CACHE)
 	@for v in $(CHART)/ci/*-values.yaml; do \

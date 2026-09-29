@@ -465,8 +465,8 @@
         },
         "timeout": {
           "type": "string",
-          "pattern": "^$|^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
-          "description": "Context deadline of one reconcile; 0 disables."
+          "pattern": "^$|^0$|^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Context deadline of one reconcile; \"0\" (a string) or 0s disables; empty keeps the manager default (5m)."
         },
         "cloudflareRequestTimeout": {
           "type": "string",

@@ -302,9 +302,10 @@ func TestDescriptorsMatchEmulator(t *testing.T) {
 		"D1Database": {"/accounts/{account_id}/d1/database", "/accounts/{account_id}/d1/database/{id}", "uuid", "name", "PATCH",
 			[]string{"jurisdiction", "name", "primary_location_hint"}, []string{"primary_location_hint"}, "Orphan"},
 		// Generic-profile kinds (emulate: generic): spec-derived, UNVERIFIED until recorded.
-		// Vectorize v2 has no update; the index name is the item path parameter.
+		// Vectorize v2 has no update; the index name is the item path parameter. The GET
+		// result's config has dimensions and metric only, so a preset is never read back.
 		"VectorizeIndex": {"/accounts/{account_id}/vectorize/v2/indexes", "/accounts/{account_id}/vectorize/v2/indexes/{id}", "name", "name", "",
-			[]string{"config", "description", "name"}, nil, "Delete"},
+			[]string{"config", "description", "name"}, []string{"config.preset"}, "Delete"},
 		"SecretsStore": {"/accounts/{account_id}/secrets_store/stores", "/accounts/{account_id}/secrets_store/stores/{id}", "id", "name", "",
 			[]string{"name"}, nil, "Delete"},
 		// The client chooses the gateway id; PUT is the only update.

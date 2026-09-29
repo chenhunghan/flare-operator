@@ -1,8 +1,8 @@
 // Command chartsync keeps charts/flare-operator in step with the generated manifests, so the chart
 // is never maintained by hand:
 //
-//   - config/crd/bases/*.yaml are copied verbatim into charts/flare-operator/crds/ (stale files
-//     there are removed);
+//   - config/crd/bases/*.yaml are copied into charts/flare-operator/crds/ (stale files there are
+//     removed), each with the annotation ArgoCDSyncOptions added (protectCRD);
 //   - the rules of the ClusterRole in config/rbac/role.yaml (controller-gen output) are rendered
 //     into charts/flare-operator/templates/clusterrole-manager.yaml;
 //   - the CRD groups and plurals are rendered into aggregated view/edit ClusterRoles
@@ -89,7 +89,11 @@ func Render(root string) (Files, error) {
 		if err != nil {
 			return nil, err
 		}
-		out[filepath.Join(crdDstDir, filepath.Base(p))] = b
+		pb, err := protectCRD(b)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		out[filepath.Join(crdDstDir, filepath.Base(p))] = pb
 		infos, err := parseCRDs(b)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
@@ -112,6 +116,28 @@ func Render(root string) (Files, error) {
 	out[roleDst] = role
 	out[aggregateTo] = renderAggregateRoles(crds)
 	return out, nil
+}
+
+// ArgoCDSyncOptions is the annotation on every chart CRD that keeps Argo CD from deleting or
+// pruning it (with the Application, or when it leaves the rendered manifests). Deleting a CRD
+// deletes every object of the kind, and while the manager runs each deletionPolicy Delete object
+// then deletes its Cloudflare resource (docs/operations.md, "Uninstall").
+const ArgoCDSyncOptions = "argocd.argoproj.io/sync-options: Delete=false,Prune=false"
+
+// protectCRD adds ArgoCDSyncOptions to the metadata.annotations of the single CRD document b
+// (controller-gen and flaregen write a top-level metadata block, with or without annotations).
+func protectCRD(b []byte) ([]byte, error) {
+	const meta, annotations = "\nmetadata:\n", "\nmetadata:\n  annotations:\n"
+	if bytes.Count(b, []byte(meta)) != 1 {
+		return nil, fmt.Errorf("want exactly one top-level metadata block in the CRD file")
+	}
+	if bytes.Contains(b, []byte("argocd.argoproj.io/sync-options")) {
+		return b, nil
+	}
+	if bytes.Contains(b, []byte(annotations)) {
+		return bytes.Replace(b, []byte(annotations), []byte(annotations+"    "+ArgoCDSyncOptions+"\n"), 1), nil
+	}
+	return bytes.Replace(b, []byte(meta), []byte(annotations+"    "+ArgoCDSyncOptions+"\n"), 1), nil
 }
 
 // Diff lists the managed files whose content differs from want, plus stale chart CRDs.

@@ -6,6 +6,8 @@ package chart
 
 import (
 	"bytes"
+	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -29,14 +31,28 @@ func chartDir(t *testing.T) string {
 
 // render runs helm template with --set args and returns the documents by kind, or the error
 // output when helm fails.
+// clusterName is required and has no default, so render sets one unless sets name it.
 func render(t *testing.T, sets ...string) (map[string][][]byte, string, error) {
+	t.Helper()
+	if !slices.ContainsFunc(sets, func(s string) bool { return strings.HasPrefix(s, "clusterName=") }) {
+		sets = append([]string{"clusterName=test"}, sets...)
+	}
+	return renderDir(t, chartDir(t), sets...)
+}
+
+// renderDir is render for the chart in dir, with exactly the given --set args.
+func renderDir(t *testing.T, dir string, sets ...string) (map[string][][]byte, string, error) {
 	t.Helper()
 	helm, err := exec.LookPath("helm")
 	if err != nil {
 		t.Skip("helm not on PATH")
 	}
-	args := []string{"template", "flare-operator", chartDir(t), "-n", "flare-system"}
+	args := []string{"template", "flare-operator", dir, "-n", "flare-system"}
 	for _, s := range sets {
+		if v, ok := strings.CutPrefix(s, "string:"); ok {
+			args = append(args, "--set-string", v)
+			continue
+		}
 		args = append(args, "--set", s)
 	}
 	var out, stderr bytes.Buffer
@@ -130,6 +146,11 @@ func TestDefaults(t *testing.T) {
 	}
 	if c.LivenessProbe == nil || c.ReadinessProbe == nil {
 		t.Error("probes missing")
+	}
+	if !slices.ContainsFunc(c.Env, func(e corev1.EnvVar) bool {
+		return e.Name == "GOMEMLIMIT" && e.ValueFrom != nil && e.ValueFrom.ResourceFieldRef != nil && e.ValueFrom.ResourceFieldRef.Resource == "limits.memory"
+	}) {
+		t.Errorf("env %v: no GOMEMLIMIT from limits.memory", c.Env)
 	}
 	if !slices.Contains(c.Args, "--leader-elect=true") {
 		t.Errorf("args %v lack --leader-elect=true", c.Args)
@@ -301,4 +322,72 @@ func TestSchemaRejects(t *testing.T) {
 	}
 	// Values the schema must keep accepting.
 	mustRender(t, "clusterName=Prod_eu-1.example", "podDisruptionBudget.maxUnavailable=1", "global.foo=bar", "logging.level=2")
+	// reconcile.timeout "0" disables the deadline, as documented.
+	for _, set := range []string{"string:reconcile.timeout=0", "reconcile.timeout=0s"} {
+		d := manager(t, mustRender(t, set))
+		want := "--reconcile-timeout=" + strings.SplitN(set, "=", 2)[1]
+		if !slices.Contains(d.Spec.Template.Spec.Containers[0].Args, want) {
+			t.Errorf("--set %s: args %v lack %s", set, d.Spec.Template.Spec.Containers[0].Args, want)
+		}
+	}
+}
+
+// TestClusterNameRequired checks that an install without clusterName fails. With a shared
+// default, two clusters would write the same owner tags and adopt, overwrite and delete each
+// other's resources in a shared Cloudflare account.
+func TestClusterNameRequired(t *testing.T) {
+	for _, sets := range [][]string{nil, {"image.tag=x"}, {"clusterName="}} {
+		if _, stderr, err := renderDir(t, chartDir(t), sets...); err == nil {
+			t.Errorf("helm template %v without a clusterName rendered; want an error", sets)
+		} else if !strings.Contains(stderr, "clusterName") {
+			t.Errorf("helm template %v: error does not name clusterName: %s", sets, stderr)
+		}
+	}
+	d := manager(t, mustRender(t, "clusterName=prod-eu"))
+	if !slices.Contains(d.Spec.Template.Spec.Containers[0].Args, "--cluster-name=prod-eu") {
+		t.Errorf("manager args %v lack --cluster-name=prod-eu", d.Spec.Template.Spec.Containers[0].Args)
+	}
+}
+
+// TestReuseValuesFrom010 renders this chart's templates with the values of chart 0.1.0 in place
+// of its own defaults, which is what `helm upgrade --reuse-values` does. Keys added after 0.1.0
+// (metrics.serviceMonitor, podDisruptionBudget, networkPolicy, reconcile,
+// topologySpreadConstraints) are then missing, and the templates must not dereference them.
+func TestReuseValuesFrom010(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "flare-operator")
+	src := chartDir(t)
+	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		if d.IsDir() {
+			return os.MkdirAll(filepath.Join(dir, rel), 0o755)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dir, rel), b, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.ReadFile(filepath.Join("testdata", "values-0.1.0.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "values.yaml"), old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	docs, stderr, err := renderDir(t, dir, "image.tag=0.2.0", "clusterName=prod")
+	if err != nil {
+		t.Fatalf("render with 0.1.0 values (helm upgrade --reuse-values): %v\n%s", err, stderr)
+	}
+	for _, k := range []string{"PodDisruptionBudget", "NetworkPolicy", "ServiceMonitor"} {
+		if len(docs[k]) != 0 {
+			t.Errorf("0.1.0 values rendered a %s", k)
+		}
+	}
+	manager(t, docs)
 }

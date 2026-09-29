@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestManagerOptionsControllerDefaults(t *testing.T) {
@@ -16,6 +19,21 @@ func TestManagerOptionsControllerDefaults(t *testing.T) {
 	}
 	if opts := managerOptions(Options{}, nil); opts.Controller.MaxConcurrentReconciles != 1 {
 		t.Errorf("zero MaxConcurrentReconciles gave %d workers, want 1", opts.Controller.MaxConcurrentReconciles)
+	}
+}
+
+// TestManagerOptionsCacheTransform: the cluster-wide cache drops what the operator never reads
+// (managedFields, Helm release Secret data), so large clusters do not run the manager out of
+// memory at cache sync.
+func TestManagerOptionsCacheTransform(t *testing.T) {
+	tr := managerOptions(Options{}, nil).Cache.DefaultTransform
+	if tr == nil {
+		t.Fatal("no cache DefaultTransform")
+	}
+	s := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "helm"}}},
+		Type: "helm.sh/release.v1", Data: map[string][]byte{"release": []byte("x")}}
+	if _, err := tr(s); err != nil || s.Data != nil || s.ManagedFields != nil {
+		t.Errorf("Helm release Secret kept data %v / managedFields %v (err %v)", s.Data, s.ManagedFields, err)
 	}
 }
 

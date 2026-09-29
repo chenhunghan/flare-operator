@@ -61,10 +61,18 @@ the version you are upgrading to:
 ```sh
 make crds-diff                        # optional: kubectl diff --server-side against the cluster
 make crds-apply                       # kubectl apply --server-side --force-conflicts -f charts/flare-operator/crds/
-helm upgrade flare-operator charts/flare-operator -n flare-system --reuse-values \
+helm upgrade flare-operator charts/flare-operator -n flare-system --reset-then-reuse-values \
   --set image.tag=<new tag>
 kubectl -n flare-system rollout status deploy/flare-operator
 ```
+
+Use `--reset-then-reuse-values` (Helm 3.14 or later), or pass your own values file with `-f`.
+**Do not use `--reuse-values`**: it replaces the new chart's defaults with the old release's
+values, so every key a newer chart adds is missing. Upgrading from chart 0.1.0 with
+`--reuse-values`, for example, dropped the 0.2.0 defaults for `reconcile`,
+`podDisruptionBudget`, `networkPolicy`, `topologySpreadConstraints` and
+`metrics.serviceMonitor`. `--reset-then-reuse-values` starts from the new chart's defaults and
+reapplies only the values you set.
 
 `--server-side --force-conflicts` takes field ownership from the Helm install that first
 created the CRDs, under the field manager `flare-operator-crds`. Apply the CRDs before the
@@ -94,10 +102,22 @@ UNVERIFIED):
   client-side apply stores the whole object in the `last-applied-configuration` annotation,
   which fails once a CRD passes the 256 KiB annotation limit. Enable the `ServerSideApply=true`
   sync option for the Application.
+- **Argo CD and deleting the Application.** Deleting an Application with cascade deletes every
+  resource it tracks, CRDs included, and deleting a CRD deletes every object of that kind. If
+  the manager is still running, it then finalizes those objects, and each `Delete`-policy
+  resource is **deleted in Cloudflare** (see the table under
+  [Uninstall](#uninstall-and-what-happens-to-cloudflare-resources)). The chart's CRDs therefore
+  carry `argocd.argoproj.io/sync-options: Delete=false,Prune=false`, so Argo CD never deletes or
+  prunes them. Keep that annotation if you apply the CRDs some other way. Better still, manage
+  the CRDs in a separate Application (for example from `charts/flare-operator/crds/`), and set
+  `skipCrds: true` in the operator Application's `helm` source. Either way, follow the uninstall
+  steps below before you delete the Application.
 
 **Tested path.** `make e2e-upgrade` installs the chart and manager of a previous git ref
-(default: the latest tag, else the merge base with `main`), creates an account, a KVNamespace,
-a Queue, a D1Database and a Tunnel, runs `make crds-apply` and `helm upgrade` to the current
+(default: the latest tag; without one, the merge base with `main` when HEAD is on another
+branch, else `HEAD~1`, so on `main` it tests an upgrade from the previous commit only), creates
+an account, a KVNamespace, a Queue, a D1Database and a Tunnel, runs `make crds-apply` and the
+documented `helm upgrade --reset-then-reuse-values` to the current
 checkout, and checks:
 
 - the objects stay Ready with the same Cloudflare IDs;
@@ -124,6 +144,7 @@ Cloudflare by itself.
 | `helm uninstall` | Nothing. Manager, RBAC and Services go away; the CRDs, the objects and their finalizers stay. |
 | Delete the CRDs **while the manager runs** | Every object is deleted, so every `Delete`-policy resource **is deleted in Cloudflare**. |
 | Delete the CRDs or objects after `helm uninstall` | Nothing in Cloudflare. The objects hang in `Terminating` on their finalizers until you remove them. |
+| Delete a Tunnel object, whatever its `deletionPolicy` | Its cloudflared Deployment, token Secret and NetworkPolicy are owned by the Tunnel, so the garbage collector deletes them too, and **the tunnel stops serving traffic**. `Orphan` keeps the tunnel in Cloudflare, not its connectors. Delete with `--cascade=orphan` to keep the connectors running. |
 
 To remove the operator and **keep** everything in Cloudflare:
 
@@ -135,11 +156,18 @@ kubectl get cloudflare -A -o json |
     kubectl -n "$ns" patch "$kind" "$name" --type merge -p '{"spec":{"deletionPolicy":"Orphan"}}'
   done
 # 2. Delete the objects while the manager still runs (the finalizers release the owner tags).
-kubectl delete cloudflare -A --all
+#    --cascade=orphan keeps the objects the operator created in the cluster: without it, the
+#    garbage collector deletes every Tunnel's cloudflared Deployment, and the tunnels stop
+#    serving traffic even though they stay in Cloudflare.
+kubectl delete cloudflare -A --all --cascade=orphan
 # 3. Remove the release, then the CRDs.
 helm uninstall flare-operator -n flare-system
 kubectl delete -f charts/flare-operator/crds/
 ```
+
+The cloudflared Deployments, token Secrets and NetworkPolicies of the Tunnels are left running
+and unmanaged. Delete them yourself (`kubectl delete deploy,secret,networkpolicy -n <ns>
+-l cloudflare.flare.dev/tunnel=<tunnel name>`) once the tunnels are served some other way.
 
 To remove the operator and **delete** what it created, delete the objects with
 `deletionPolicy: Delete` while the manager runs, wait until they are gone, then uninstall.
@@ -193,7 +221,11 @@ selects with `metrics.serviceMonitor.labels`.
 Logs are zap JSON on stderr (`logging.encoder=console` for development). `logging.level=debug`
 adds the controllers' debug messages. Reconcile log lines carry `controller`, `namespace`,
 `name` and `reconcileID`, so `kubectl logs deploy/flare-operator | jq 'select(.name=="sessions")'` follows
-one object. Events are the other half: `kubectl get events -n <ns> --field-selector
+one object. With `replicas` above 1, `kubectl logs deploy/…` picks an arbitrary pod, often the
+standby, which logs nothing but leader election. Read the leader's logs instead: its pod name
+is the Lease holder (`kubectl -n flare-system get lease flare-operator.cloudflare.flare.dev -o
+jsonpath='{.spec.holderIdentity}'`, up to the first `_`), or use
+`kubectl -n flare-system logs -l app.kubernetes.io/component=manager --prefix`. Events are the other half: `kubectl get events -n <ns> --field-selector
 involvedObject.name=<name>` shows `ExternalResourceKept` and `ForeignOwnerTunnelKept` warnings.
 
 ## High availability and leader election
@@ -396,7 +428,7 @@ Tunnel, VPCService, WorkerScript):**
 | `Synced=False` `RateLimited` | Cloudflare answered 429 with a long `Retry-After`, or the token is still backing off. The object is requeued after the wait. | Nothing, if it clears. If it persists, lower the load: [Reconcile tuning](#reconcile-tuning-and-the-api-budget). |
 | `Synced=False` `ReconcileError` | The last API call failed; the message has the Cloudflare code. 5xx and transport errors are retried with back-off. It also covers a difference the policies or the API do not allow to fix (no update operation, `Update` not in `managementPolicies`). | 403 → [token permissions](../README.md#token-permissions). 400 → a spec value the API rejects. Timeouts → egress, or `reconcile.cloudflareRequestTimeout`. |
 | `Synced=False` `Immutable` | A create-only field changed; nothing was written. | Revert the field, or delete and recreate the object. |
-| `Synced=False` `NameConflict` (Tunnel, VPCService, WorkerScript) | A same-named resource exists and cannot be proven to be this object's. | Set `cloudflare.flare.dev/external-id` to adopt it, or rename. |
+| `Synced=False` `NameConflict` (Tunnel, VPCService, WorkerScript; VectorizeIndex, SecretsStore, AIGateway; any generated kind with tagging off) | A same-named resource exists and cannot be proven to be this object's. | Set `cloudflare.flare.dev/external-id` to adopt it, or rename. |
 | `Synced=False` `InvalidHostname` (VPCService) | `host.hostname` looks like a short in-cluster name; `cloudflared` never applies DNS search domains. | Use the fully qualified name. |
 | `Synced=False` `InvalidScriptName` (WorkerScript) | `forProvider.script_name` (or `metadata.name`) is not a valid Workers script name. | Set a valid `script_name`. |
 | `Synced=False` `InvalidSpec` (WorkerScript) | The modules cannot be uploaded: a bad module name or type, content that is not base64 for `wasm-base64`, a `main_module` that is not a module, an unusable `sourceRef` ConfigMap. | Fix `forProvider` or the ConfigMap. |

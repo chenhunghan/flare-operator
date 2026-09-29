@@ -23,8 +23,10 @@ leaderElection:
   enabled: true
 
 # -- Cluster identity written into ownership tags (flare.dev/owner=<clusterName>/<ns>/<name>).
-# Give every cluster that manages the same Cloudflare account a distinct name.
-clusterName: default
+# Required, and empty by default so an install that omits it fails: two clusters with the same
+# name that manage the same Cloudflare account would adopt, overwrite and delete each other's
+# resources. Give every cluster that manages the same Cloudflare account a distinct name.
+clusterName: ""
 
 # -- Tag managed Cloudflare resources with flare.dev/owner through Resource Tagging (--ownership-tags).
 ownershipTags: true
@@ -199,7 +201,10 @@ securityContext:
     drop:
       - ALL
 
-# The manager caches Secrets cluster-wide (CloudflareAccount token refs); size memory for that.
+# The manager caches Secrets, ConfigMaps, Deployments and Services cluster-wide (token and
+# binding references, Tunnel connectors). managedFields and the data of Helm release Secrets and
+# service account tokens are dropped from the cache, but every other Secret and ConfigMap is kept
+# in full: on a cluster with many or large ones, raise limits.memory (GOMEMLIMIT follows it).
 resources:
   requests:
     cpu: 50m

@@ -53,7 +53,7 @@ spec:
             - --health-probe-bind-address=:{{ .Values.probes.port }}
             - --leader-elect={{ .Values.leaderElection.enabled }}
             - --leader-election-namespace={{ .Release.Namespace }}
-            - --cluster-name={{ required "clusterName is required" .Values.clusterName }}
+            - --cluster-name={{ required "clusterName is required: set a name unique among the clusters that manage the same Cloudflare account (--set clusterName=<name>)" .Values.clusterName }}
             - --ownership-tags={{ .Values.ownershipTags }}
             {{- with .Values.userAgent }}
             - --user-agent={{ . }}
@@ -91,10 +91,17 @@ spec:
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
-          {{- with .Values.extraEnv }}
           env:
+            # The Go runtime collects garbage harder as the heap nears the container's memory
+            # limit, instead of being OOM-killed (without a limit: the node's allocatable).
+            - name: GOMEMLIMIT
+              valueFrom:
+                resourceFieldRef:
+                  containerName: manager
+                  resource: limits.memory
+            {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- end }}
           ports:
             {{- if .Values.metrics.enabled }}
             - name: metrics

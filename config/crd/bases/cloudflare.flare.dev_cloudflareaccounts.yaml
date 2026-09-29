@@ -71,9 +71,17 @@ spec:
               API token.
             properties:
               accountID:
-                description: AccountID is the 32-character Cloudflare account identifier.
+                description: |-
+                  AccountID is the 32-character Cloudflare account identifier. It is immutable: the objects
+                  that reference this CloudflareAccount manage resources in that account, and pointing it at
+                  another account would make them create new resources there and leave the old ones
+                  unmanaged. Create another CloudflareAccount for another account.
                 pattern: ^[0-9a-f]{32}$
                 type: string
+                x-kubernetes-validations:
+                - message: 'accountID is immutable: create another CloudflareAccount
+                    for another account'
+                  rule: self == oldSelf
               baseURL:
                 description: |-
                   BaseURL overrides the API base URL, e.g. http://flarefake:8787/client/v4 in tests. The

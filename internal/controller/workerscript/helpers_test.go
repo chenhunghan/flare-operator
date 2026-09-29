@@ -392,7 +392,7 @@ func (h *harness) ownerTag(tag string) string {
 
 func (h *harness) secret(name string, data map[string]string) *corev1.Secret {
 	h.t.Helper()
-	s := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name}, StringData: data}
+	s := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{workerscript.LabelWorkerBinding: "true"}}, StringData: data}
 	h.create(s)
 	return s
 }

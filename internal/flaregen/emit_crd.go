@@ -202,7 +202,7 @@ func BuildCRD(m *KindModel) *apiextensionsv1.CustomResourceDefinition {
 			"spec":       spec,
 			"status":     status,
 		},
-		XValidations: immutableRules(m),
+		XValidations: rootRules(m),
 	}
 	var cols []apiextensionsv1.CustomResourceColumnDefinition
 	for _, c := range printerColumns(m) {
@@ -259,6 +259,26 @@ func specRules(m *KindModel) apiextensionsv1.ValidationRules {
 // ExistsCEL is true (in a CEL rule on the object root, oldSelf being the stored object) once
 // the Cloudflare resource exists: the controller has recorded its ID in status.id.
 const ExistsCEL = "has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0"
+
+// AccountRefImmutableRule is the transition rule on the object root that every managed kind
+// (generated or hand-written) carries: spec.accountRef cannot change once the resource exists.
+// The resource lives in the old account. After a switch, a 404 on its ID in the new account
+// would make the controller create a second resource there, leaving the first unmanaged (and
+// deletionPolicy Delete would never delete it).
+const AccountRefImmutableRule = "!(" + ExistsCEL + ") || self.spec.accountRef.name == oldSelf.spec.accountRef.name"
+
+// AccountRefImmutableMessage is the message of AccountRefImmutableRule.
+const AccountRefImmutableMessage = "spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. " +
+	"To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one"
+
+// rootRules are the transition rules on the object root: AccountRefImmutableRule, then
+// immutableRules.
+func rootRules(m *KindModel) apiextensionsv1.ValidationRules {
+	return append(apiextensionsv1.ValidationRules{{
+		Rule: AccountRefImmutableRule, Message: AccountRefImmutableMessage,
+		FieldPath: ".spec.accountRef.name", Reason: ptr(apiextensionsv1.FieldValueInvalid),
+	}}, immutableRules(m)...)
+}
 
 // immutableRules returns one transition rule (on the object root) per Immutable top-level
 // forProvider field: once the resource exists (status.id is set), a value that is set in both

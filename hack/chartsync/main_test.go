@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"sigs.k8s.io/yaml"
 )
 
 const testRole = `---
@@ -76,6 +78,23 @@ func TestSyncThenCheck(t *testing.T) {
 	}
 	if diffs, _ := Diff(root, want); len(diffs) != 0 {
 		t.Fatalf("diffs after sync = %v", diffs)
+	}
+
+	// Chart CRDs are protected from Argo CD deletion and pruning, and still parse.
+	crd := want[filepath.Join(crdDstDir, "kv.yaml")]
+	var obj struct {
+		Metadata struct{ Annotations map[string]string }
+	}
+	if err := yaml.Unmarshal(splitDocs(crd)[0], &obj); err != nil {
+		t.Fatal(err)
+	}
+	if got := obj.Metadata.Annotations["argocd.argoproj.io/sync-options"]; got != "Delete=false,Prune=false" {
+		t.Errorf("chart CRD sync-options annotation %q:\n%s", got, crd)
+	}
+	withAnn := strings.Replace(testCRD, "metadata:\n", "metadata:\n  annotations:\n    a: b\n", 1)
+	pb, err := protectCRD([]byte(withAnn))
+	if err != nil || !strings.Contains(string(pb), "  annotations:\n    "+ArgoCDSyncOptions+"\n    a: b\n") {
+		t.Errorf("protectCRD with annotations: %v\n%s", err, pb)
 	}
 
 	role := string(want[roleDst])

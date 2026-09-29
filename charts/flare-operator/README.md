@@ -70,7 +70,7 @@ toolchain has no helm-docs generator; the test takes its place.
 | `imagePullSecrets` | array | `[]` | Pull secrets for the manager and flarefake pods. |
 | `replicas` | integer | `1` | Manager replicas. More than one requires `leaderElection.enabled`; only the leader reconciles. |
 | `leaderElection.enabled` | boolean | `true` | `--leader-elect`. The Lease lives in the release namespace (`--leader-election-namespace`). |
-| `clusterName` | string | `"default"` | `--cluster-name`: the cluster identity in ownership tags (`flare.dev/owner=<clusterName>/<ns>/<name>`). Give every cluster that manages the same Cloudflare account a distinct name. |
+| `clusterName` | string | `""` | `--cluster-name`: the cluster identity in ownership tags (`flare.dev/owner=<clusterName>/<ns>/<name>`). Required: the install fails without it. Give every cluster that manages the same Cloudflare account a distinct name. |
 | `ownershipTags` | boolean | `true` | `--ownership-tags`: tag managed Cloudflare resources through Resource Tagging. |
 | `userAgent` | string | `""` | `--user-agent` for Cloudflare API calls (empty: the binary default, `flare-operator`). |
 | `controllers` | array | `[]` | `--controller`, once per entry: run only these controllers. Empty runs all of them. |
@@ -78,7 +78,7 @@ toolchain has no helm-docs generator; the test takes its place.
 | `baseURLOverride.allowed` | array | `[]` | `--allowed-base-url`, once per entry: honour exactly these `spec.baseURL` values. |
 | `reconcile.pollInterval` | string | `""` | `--poll-interval`, a Go duration, minimum `10s`. Empty keeps the controller defaults (5m for generated kinds, 10m for Tunnel, VPCService and WorkerScript). |
 | `reconcile.maxConcurrentReconciles` | integer | `1` | `--max-concurrent-reconciles`: parallel reconciles per controller. All workers of a token share its rate limit. |
-| `reconcile.timeout` | string | `"5m"` | `--reconcile-timeout`: context deadline of one reconcile (`0` disables it). |
+| `reconcile.timeout` | string | `"5m"` | `--reconcile-timeout`: context deadline of one reconcile. `"0"` (quoted, or `--set-string`) or `0s` disables it; empty keeps the manager default (5m). |
 | `reconcile.cloudflareRequestTimeout` | string | `"60s"` | `--cloudflare-request-timeout`: timeout of one Cloudflare API HTTP request. |
 | `logging.level` | string or integer | `"info"` | `--zap-log-level`: `debug`, `info`, `error`, `panic`, or an integer verbosity. |
 | `logging.encoder` | string | `"json"` | `--zap-encoder`: `json` or `console`. |

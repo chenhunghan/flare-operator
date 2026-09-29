@@ -98,7 +98,10 @@ type WorkerBinding struct {
 	// +optional
 	Text *string `json:"text,omitempty"`
 	// SecretKeyRef is the value of a secret_text binding. It is write-only in Cloudflare: a
-	// change of the Secret's value is detected through status.writeOnlyHash.
+	// change of the Secret's value is detected through status.writeOnlyHash. The Secret must
+	// carry the label cloudflare.flare.dev/worker-binding=true (and not be a service account
+	// token): the Worker's code can return the value, so only Secrets opted in for Workers are
+	// read.
 	// +optional
 	SecretKeyRef *SecretKeyRef `json:"secretKeyRef,omitempty"`
 	// JSON value of a json binding (required for, and only valid with, type json; checked by
@@ -335,6 +338,7 @@ type WorkerScriptStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=cfworker;cfscript,categories={cloudflare,managed,workers}
+// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || self.spec.accountRef.name == oldSelf.spec.accountRef.name",message="spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one",fieldPath=".spec.accountRef.name",reason="FieldValueInvalid"
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
 // +kubebuilder:printcolumn:name="EXTERNAL-ID",type="string",JSONPath=".status.id",description="The Cloudflare script name"

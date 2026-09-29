@@ -144,6 +144,10 @@ type Reconciler struct {
 	// DefaultDependencyRetry).
 	DependencyRetry time.Duration
 
+	// createLocks serializes the existence check and first upload per "<account>/<script>"
+	// (a *sync.Mutex per key): the upload is an upsert, so two workers must not both create.
+	createLocks sync.Map
+
 	// applied remembers what was last uploaded per object: the next reconcile may read the object
 	// from a cache that does not have the status patch yet and must not upload again because of
 	// that. Entries are dropped when the object is finalized or the script is found missing.
@@ -166,6 +170,14 @@ type appliedState struct {
 // +kubebuilder:rbac:groups="",resources=configmaps;secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+
+// lockCreate locks the create of script key ("<account>/<script>") and returns the unlock.
+func (r *Reconciler) lockCreate(key string) func() {
+	v, _ := r.createLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
 
 func (r *Reconciler) resync() time.Duration {
 	if r.ResyncInterval > 0 {
@@ -472,6 +484,18 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 		return ctrl.Result{}, nil
 	}
 
+	if cur == nil && pol.CanCreate() {
+		// The upload is a PUT, which replaces a script someone else made in the meantime. Creates
+		// of one script name are serialized across this manager's workers, and existence is
+		// checked again under the lock: of two objects with the same script_name reconciled at
+		// once, the second finds the first's script and goes through claim (NameConflict)
+		// instead of overwriting its code.
+		unlock := r.lockCreate(accountID + "/" + name)
+		defer unlock()
+		if cur, err = getSettings(ctx, cf, accountID, name); err != nil {
+			return r.fail(ws, err)
+		}
+	}
 	wrote, pending := false, ""
 	if cur == nil {
 		if !pol.CanCreate() {
@@ -502,6 +526,21 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 		r.remember(ws, appliedState{name: name, content: des.contentHash, settings: des.settingsHash, secrets: des.secretsHash})
 		// Tag first, then record: either proves ownership on the next reconcile if the other fails.
 		tagErr := r.tagger().EnsureOwner(ctx, cf, accountID, reconcile.TagTarget{Type: TagResourceType, ID: up.Tag}, r.owner(ws))
+		var oc *reconcile.OwnershipConflictError
+		if errors.As(tagErr, &oc) {
+			// Another object (another cluster) tagged the script between the existence check and
+			// the upload: it is not this object's, so no ownership is recorded and the
+			// create-pending record is dropped (its finalizer must not adopt the script).
+			if err := reconcile.ClearCreatePending(ctx, r.Client, ws); err != nil {
+				return r.fail(ws, err)
+			}
+			r.forget(ws)
+			msg := fmt.Sprintf("the Worker script %q was created concurrently by another object: %v; choose another forProvider.script_name", name, tagErr)
+			ws.Status.AtProvider, ws.Status.ID = workersv1alpha1.WorkerScriptObservation{}, ""
+			reconcile.SetReady(ws, metav1.ConditionFalse, ReasonNameConflict, msg)
+			reconcile.SetSynced(ws, metav1.ConditionFalse, ReasonNameConflict, msg)
+			return ctrl.Result{RequeueAfter: r.depRetry()}, nil
+		}
 		if err := reconcile.RecordCreated(ctx, r.Client, ws, name); err != nil {
 			return r.fail(ws, fmt.Errorf("record the new Worker script %s: %w", name, err))
 		}

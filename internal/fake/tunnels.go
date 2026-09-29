@@ -54,6 +54,7 @@ type virtualNetwork struct {
 
 // tunnelConnectionsFieldSunset: from this date the "connections" field is no longer returned by
 // tunnel list/get (Cloudflare changelog 2026-07-09); clients must use /connections instead.
+// UNVERIFIED: no recording after the sunset. Tests that read the field pin the clock before it.
 var tunnelConnectionsFieldSunset = time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
 
 func (t *tunnel) status() string {

@@ -89,6 +89,11 @@ func TestCRDConventions(t *testing.T) {
 			if !slices.ContainsFunc(spec.XValidations, func(r apiextensionsv1.ValidationRule) bool { return r.Rule == flaregen.AccountRefRule }) {
 				t.Errorf("spec lacks the accountRef rule %q", flaregen.AccountRefRule)
 			}
+			if !slices.ContainsFunc(root.XValidations, func(r apiextensionsv1.ValidationRule) bool {
+				return r.Rule == flaregen.AccountRefImmutableRule && r.Message == flaregen.AccountRefImmutableMessage
+			}) {
+				t.Errorf("the object root lacks the accountRef transition rule %q", flaregen.AccountRefImmutableRule)
+			}
 			if dp := spec.Properties["deletionPolicy"]; len(dp.Enum) != 2 {
 				t.Errorf("deletionPolicy enum %v", dp.Enum)
 			}
