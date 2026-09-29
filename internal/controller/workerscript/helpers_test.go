@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -361,5 +360,3 @@ func (h *harness) secret(name string, data map[string]string) *corev1.Secret {
 	h.create(s)
 	return s
 }
-
-func contains(s, sub string) bool { return strings.Contains(s, sub) }

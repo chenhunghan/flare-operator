@@ -118,3 +118,13 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- range . }}
+        {{- $c := deepCopy . }}
+        {{- if not (hasKey $c "labelSelector") }}
+        {{- $_ := set $c "labelSelector" (dict "matchLabels" (include "flare-operator.selectorLabels" $ | fromYaml)) }}
+        {{- end }}
+        - {{ toYaml $c | nindent 10 | trim }}
+        {{- end }}
+      {{- end }}

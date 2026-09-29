@@ -177,7 +177,3 @@ type CloudflareAccountList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []CloudflareAccount `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&CloudflareAccount{}, &CloudflareAccountList{})
-}

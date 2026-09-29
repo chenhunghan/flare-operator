@@ -115,7 +115,7 @@ func kubeSchema(t *testing.T, p *apiextensionsv1.JSONSchemaProps) *spec.Schema {
 func filler(seed int64) *randfill.Filler {
 	return randfill.NewWithSeed(seed).NilChance(0).NumElements(1, 2).Funcs(
 		func(j *apiextensionsv1.JSON, c randfill.Continue) { j.Raw = []byte(`{"any":["thing",1]}`) },
-		func(f *metav1.FieldsV1, c randfill.Continue) { f.Raw = []byte(`{}`) },
+		func(f *metav1.FieldsV1, c randfill.Continue) { f.SetRawBytes([]byte(`{}`)) },
 	)
 }
 

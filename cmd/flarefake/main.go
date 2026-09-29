@@ -4,10 +4,12 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 
 	"flare.dev/operator/internal/fake"
+	"flare.dev/operator/internal/version"
 )
 
 func main() {
@@ -16,7 +18,13 @@ func main() {
 	reject := flag.Bool("reject-schema-violations", false, "answer schema-invalid requests with 400 instead of only journaling them")
 	generic := flag.Bool("generic", true, "emulate the generator.yaml kinds marked 'emulate: generic' with the generic profile (UNVERIFIED; needs -spec)")
 	validateResponses := flag.Bool("validate-responses", true, "with -spec, also check every emulated response against the spec's response schema; violations are journaled, logged and listed at GET /_fake/response_violations, never answered")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(version.Get().String("flarefake"))
+		return
+	}
+	log.Print(version.Get().String("flarefake"))
 
 	opts := fake.Options{RejectSchemaViolations: *reject, ValidateResponses: *validateResponses}
 	opts.OnResponseViolation = func(v fake.ResponseViolation) {

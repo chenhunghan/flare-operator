@@ -21,10 +21,17 @@ LOCALBIN ?= $(CURDIR)/bin
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 SETUP_ENVTEST ?= $(LOCALBIN)/setup-envtest
 
+STATICCHECK ?= $(LOCALBIN)/staticcheck
+GOVULNCHECK ?= $(LOCALBIN)/govulncheck
+
 # controller-tools v0.22 / controller-runtime v0.25 match k8s.io/* v0.37 in go.mod
 # (controller-gen@latest failed with a klog error against apimachinery v0.37).
 CONTROLLER_TOOLS_VERSION ?= v0.22.0
 SETUP_ENVTEST_VERSION ?= v0.25.1
+# Static analysis and vulnerability scanning (make lint-static vulncheck). staticcheck
+# v0.8.1 = 2026.1.1; both need Go >= 1.26.
+STATICCHECK_VERSION ?= v0.8.1
+GOVULNCHECK_VERSION ?= v1.8.0
 ENVTEST_K8S_VERSION ?= 1.37.0
 # envtest assets live outside the checkout so every git worktree shares one download.
 ENVTEST_DIR ?= $(HOME)/.cache/flare-operator/envtest
@@ -66,7 +73,27 @@ manifests: controller-gen ## CRDs into config/crd/bases, RBAC into config/rbac
 envtest: setup-envtest ## fetch envtest assets (kube-apiserver, etcd) into $(ENVTEST_DIR)/k8s
 	@echo "envtest assets: $(ENVTEST_ASSETS)"
 
-tools: controller-gen setup-envtest
+tools: controller-gen setup-envtest staticcheck govulncheck
+
+staticcheck: | $(LOCALBIN)
+	$(call go-install-tool,$(STATICCHECK),honnef.co/go/tools/cmd/staticcheck,$(STATICCHECK_VERSION))
+
+govulncheck: | $(LOCALBIN)
+	$(call go-install-tool,$(GOVULNCHECK),golang.org/x/vuln/cmd/govulncheck,$(GOVULNCHECK_VERSION))
+
+.PHONY: staticcheck govulncheck lint-static vulncheck
+
+# Build tags that select extra packages (test/e2e, test/live): both linters see them.
+LINT_TAGS ?= e2e,live
+
+lint-static: staticcheck ## staticcheck (default checks) over every package, including the e2e/live-tagged tests
+	$(STATICCHECK) -tags $(LINT_TAGS) ./...
+
+# govulncheck reads the Go vulnerability database (vuln.go.dev), so it needs network access.
+# It reports only vulnerabilities reachable from our code; stdlib findings are fixed by the
+# toolchain directive in go.mod (and GO_VERSION in the Dockerfiles).
+vulncheck: govulncheck ## govulncheck over every package (needs network: vuln.go.dev)
+	$(GOVULNCHECK) -tags $(LINT_TAGS) ./...
 
 controller-gen: | $(LOCALBIN)
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
@@ -99,17 +126,21 @@ verify-generated: ## regenerate deepcopy/CRDs/RBAC, run flaregen -check and api-
 	@git diff --exit-code -- $(GENERATED_PATHS) || { echo "generated files differ from HEAD: run make generate manifests generate-crds and commit"; exit 1; }
 	@untracked="$$(git ls-files --others --exclude-standard -- $(GENERATED_PATHS))"; if [ -n "$$untracked" ]; then echo "untracked generated files:"; echo "$$untracked"; exit 1; fi; echo "generated files OK"
 
-# ci runs the checks of .github/workflows/ci.yml in the same order (lint, test, race,
-# generate-check, conformance). verify-generated compares against HEAD, so commit local edits
-# under GENERATED_PATHS first.
+# ci runs the checks of .github/workflows/ci.yml in the same order (lint, static analysis,
+# test, race, generate-check, chart, conformance). verify-generated compares against HEAD, so
+# commit local edits under GENERATED_PATHS first. vulncheck needs network access (vuln.go.dev),
+# helm-lint needs helm.
 ci:
 	$(MAKE) fmt-check
 	$(MAKE) vet
 	$(MAKE) spec-check
+	$(MAKE) lint-static
+	$(MAKE) vulncheck
 	$(MAKE) test
 	$(MAKE) test-race
 	$(MAKE) verify-generated
-	$(MAKE) chart-check
+	$(MAKE) helm-lint
+	$(MAKE) release-check
 	$(MAKE) conformance
 
 # go-install-tool installs a versioned binary ($1-$3) and points $1 at it, so bumping a
@@ -146,18 +177,102 @@ api-docs-check:  ## fail if docs/api-reference.md is not up to date (part of ver
 CONTAINER_TOOL ?= docker
 IMG ?= flare-operator:dev
 FAKE_IMG ?= flarefake:dev
-# One platform loads into the local image store; for several, use `docker buildx build --push`.
+# One platform loads into the local image store; for several, see docker-buildx below.
 PLATFORM ?= linux/$(shell go env GOARCH)
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+# The commit time, not the wall clock, so rebuilding a commit gives the same stamp and labels
+# (goreleaser uses .CommitDate the same way).
+BUILD_DATE ?= $(shell TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+# org.opencontainers.image.source; empty until the repository has a permanent home.
+SOURCE_URL ?=
 CHART ?= charts/flare-operator
 HELM ?= helm
+KUBECTL ?= kubectl
 KUBECONFORM ?= $(shell command -v kubeconform 2>/dev/null)
 
+# Version stamp (internal/version) for local builds, the images and .goreleaser.yaml.
+VERSION_PKG = flare.dev/operator/internal/version
+LDFLAGS ?= -s -w -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$(COMMIT) -X $(VERSION_PKG).Date=$(BUILD_DATE)
+IMAGE_BUILD_ARGS = --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg BUILD_DATE=$(BUILD_DATE) --build-arg SOURCE_URL=$(SOURCE_URL)
+
+.PHONY: build
+build:           ## manager and flarefake binaries into ./bin, version-stamped (bin/manager --version)
+	go build -trimpath -ldflags="$(LDFLAGS)" -o $(LOCALBIN)/manager ./cmd/manager
+	go build -trimpath -ldflags="$(LDFLAGS)" -o $(LOCALBIN)/flarefake ./cmd/flarefake
+
 docker-build:    ## manager image $(IMG) for $(PLATFORM)
-	$(CONTAINER_TOOL) build --platform=$(PLATFORM) --build-arg VERSION=$(VERSION) -f Dockerfile -t $(IMG) .
+	$(CONTAINER_TOOL) build --platform=$(PLATFORM) $(IMAGE_BUILD_ARGS) -f Dockerfile -t $(IMG) .
 
 docker-build-fake: ## flarefake image $(FAKE_IMG) for $(PLATFORM), with the pinned spec baked in
-	$(CONTAINER_TOOL) build --platform=$(PLATFORM) --build-arg VERSION=$(VERSION) -f Dockerfile.flarefake -t $(FAKE_IMG) .
+	$(CONTAINER_TOOL) build --platform=$(PLATFORM) $(IMAGE_BUILD_ARGS) -f Dockerfile.flarefake -t $(FAKE_IMG) .
+
+## Multi-arch images with docker buildx. The Dockerfiles cross-compile on the build platform
+## (FROM --platform=$BUILDPLATFORM) and the final stage only copies files, so no QEMU is needed.
+## BUILDX_OUTPUT decides where the image index goes:
+##   --load   the local image store; multi-platform needs the containerd image store
+##            (Docker Engine 29 default; `docker info` shows driver-type io.containerd.snapshotter.v1)
+##   --push   a registry (IMG / FAKE_IMG must name it)
+##   --output type=oci,dest=bin/flare-operator.oci.tar   an OCI archive
+## BUILDX_ATTEST adds a BuildKit SBOM (SPDX, generated by the buildkit-syft-scanner) and minimal
+## provenance as attestations in the image index. `make sbom` extracts the SBOM.
+.PHONY: docker-buildx docker-buildx-fake sbom
+PLATFORMS ?= linux/amd64,linux/arm64
+BUILDX ?= $(CONTAINER_TOOL) buildx
+BUILDX_OUTPUT ?= --load
+BUILDX_ATTEST ?= --sbom=true --provenance=mode=min
+
+docker-buildx:   ## manager image $(IMG) for $(PLATFORMS), with SBOM + provenance attestations
+	$(BUILDX) build --platform=$(PLATFORMS) $(IMAGE_BUILD_ARGS) $(BUILDX_ATTEST) $(BUILDX_OUTPUT) -f Dockerfile -t $(IMG) .
+
+docker-buildx-fake: ## flarefake image $(FAKE_IMG) for $(PLATFORMS), with SBOM + provenance attestations
+	$(BUILDX) build --platform=$(PLATFORMS) $(IMAGE_BUILD_ARGS) $(BUILDX_ATTEST) $(BUILDX_OUTPUT) -f Dockerfile.flarefake -t $(FAKE_IMG) .
+
+# SBOM_DIR gets one SPDX JSON per image and platform. With syft on PATH it scans the images
+# in the local store; otherwise it builds them again with buildx --sbom into a local directory
+# (BuildKit's scanner) and keeps the sbom.spdx.json of each platform.
+SBOM_DIR ?= $(LOCALBIN)/sbom
+SYFT ?= $(shell command -v syft 2>/dev/null)
+sbom:            ## SPDX SBOMs for $(IMG) and $(FAKE_IMG) into $(SBOM_DIR) (syft if installed, else buildx --sbom)
+	@mkdir -p $(SBOM_DIR)
+	@if [ -n "$(SYFT)" ]; then \
+		for img in $(IMG) $(FAKE_IMG); do \
+			f=$(SBOM_DIR)/$$(echo $$img | tr '/:' '__').spdx.json; echo "syft $$img -> $$f"; \
+			$(SYFT) scan "docker:$$img" -o spdx-json="$$f" || exit 1; \
+		done; \
+	else \
+		for pair in "Dockerfile $(IMG)" "Dockerfile.flarefake $(FAKE_IMG)"; do \
+			set -- $$pair; d=$(SBOM_DIR)/$$(echo $$2 | tr '/:' '__'); rm -rf "$$d"; \
+			echo "buildx --sbom $$2 -> $$d/<platform>/sbom.spdx.json"; \
+			$(BUILDX) build --platform=$(PLATFORMS) $(IMAGE_BUILD_ARGS) --sbom=true \
+				--output type=local,dest="$$d" -f $$1 . > /dev/null || exit 1; \
+			find "$$d" -name 'sbom*.spdx.json' -print; \
+			find "$$d" -mindepth 2 ! -name '*.spdx.json' -type f -delete; \
+		done; \
+	fi
+
+## Release (.goreleaser.yaml): binaries for manager and flarefake, multi-arch images, the chart.
+## Nothing is published: release.disable is true until the repository has a permanent home.
+.PHONY: release-check release-snapshot
+GORELEASER ?= $(shell command -v goreleaser 2>/dev/null)
+release-check:   ## goreleaser check (skipped with a note when goreleaser is not installed)
+	@if [ -n "$(GORELEASER)" ]; then $(GORELEASER) check; else echo "goreleaser not installed; skipped (go install github.com/goreleaser/goreleaser/v2@v2.18.2)"; fi
+
+release-snapshot: ## goreleaser release --snapshot --clean: build everything into dist/ locally, publish nothing (needs docker buildx, helm, syft)
+	@[ -n "$(GORELEASER)" ] || { echo "goreleaser not installed (go install github.com/goreleaser/goreleaser/v2@v2.18.2)"; exit 1; }
+	@[ -n "$$(git remote)" ] || echo "WARNING: no git remote: goreleaser ignores the git state for a snapshot and stamps commit 'none', date 0001-01-01 (docs/operations.md \"Releases\")"
+	$(GORELEASER) release --snapshot --clean
+
+## CRD upgrades. Helm installs crds/ on the first install only and never upgrades or deletes
+## them (https://helm.sh/docs/chart_best_practices/custom_resource_definitions/). Before
+## `helm upgrade`, apply the new chart's CRDs server-side; --force-conflicts takes field
+## ownership from the client-side apply or Helm install that created them.
+.PHONY: crds-apply crds-diff
+crds-apply:      ## kubectl apply --server-side the chart's CRDs (run before helm upgrade)
+	$(KUBECTL) apply --server-side --force-conflicts --field-manager=flare-operator-crds -f $(CHART)/crds/
+
+crds-diff:       ## kubectl diff --server-side of the chart's CRDs against the cluster
+	-$(KUBECTL) diff --server-side --force-conflicts --field-manager=flare-operator-crds -f $(CHART)/crds/
 
 chart-sync:      ## copy config/crd/bases into the chart and render config/rbac/role.yaml into its ClusterRole
 	go run ./hack/chartsync
@@ -182,8 +297,9 @@ helm-lint: chart-check ## helm lint + helm template (default and flarefake value
 ## Example for the Lima k0s VM:
 ##   export KUBECONFIG=~/.lima/<instance>/kubeconfig.yaml DOCKER_HOST=unix://$HOME/.lima/<instance>/docker.sock
 ##   make e2e-images E2E_IMAGE_LOAD='limactl shell <instance> sudo k0s ctr -n k8s.io images import -'
-##   make e2e-install e2e e2e-uninstall E2E_IMAGE_REMOVE='limactl shell <instance> sudo k0s ctr -n k8s.io images rm'
-.PHONY: e2e e2e-images e2e-install e2e-uninstall
+##   make e2e-install e2e e2e-uninstall E2E_IMAGE_REMOVE='limactl shell <instance> sudo k0s ctr -n k8s.io images rm' \
+##     E2E_IMAGE_LIST='limactl shell <instance> sudo k0s ctr -n k8s.io images ls' E2E_LOCAL_RMI=1
+.PHONY: e2e e2e-images e2e-install e2e-uninstall e2e-rmi
 
 E2E_TAG ?= e2e
 E2E_NAMESPACE ?= flare-system
@@ -199,8 +315,22 @@ E2E_IMAGE_LOAD ?=
 # E2E_IMAGE_LOAD imported (docker.io/library/<name>:<tag>); `ctr images rm` only warns about a
 # reference it does not have.
 E2E_IMAGE_REMOVE ?=
+# Optional: a command that lists the runtime's image references as `ctr images ls` does (name,
+# type, target digest, ...). The CRI plugin adds a digest-named reference (sha256:<id>) for
+# every imported image, which removing the name leaves behind. With E2E_IMAGE_LIST set,
+# e2e-uninstall also removes every sha256: reference whose target digest is one of the removed
+# images' IDs in the local $(CONTAINER_TOOL) store. For k0s:
+#   E2E_IMAGE_LIST='limactl shell <instance> sudo k0s ctr -n k8s.io images ls'
+E2E_IMAGE_LIST ?=
+# Extra local image names e2e-uninstall removes as well (the upgrade test's previous manager).
+E2E_EXTRA_IMAGES ?=
+# Non-empty: e2e-uninstall also removes the images from the local $(CONTAINER_TOOL) store.
+E2E_LOCAL_RMI ?=
 E2E_IMAGES = flare-operator:$(E2E_TAG) flarefake:$(E2E_TAG) cloudflared-stub:$(E2E_TAG)
-E2E_IMAGE_REFS = $(addprefix docker.io/library/,$(E2E_IMAGES))
+# The images e2e-uninstall and e2e-rmi remove (hack/e2e-upgrade.sh overrides it to remove only
+# its previous-ref image when another run owns E2E_NAMESPACE).
+E2E_REMOVE_IMAGES = $(E2E_IMAGES) $(E2E_EXTRA_IMAGES)
+E2E_IMAGE_REFS = $(addprefix docker.io/library/,$(E2E_REMOVE_IMAGES))
 E2E_CLUSTER_NAME ?= flare-e2e
 
 e2e-images:      ## build flare-operator, flarefake and the cloudflared stub as :$(E2E_TAG) and load them (E2E_IMAGE_LOAD)
@@ -218,6 +348,22 @@ e2e-install:     ## helm install the chart with flarefake into $(E2E_NAMESPACE) 
 		--set image.tag=$(E2E_TAG) --set image.pullPolicy=$(E2E_PULL_POLICY) \
 		--set flarefake.image.tag=$(E2E_TAG) --set flarefake.image.pullPolicy=$(E2E_PULL_POLICY)
 
+## Upgrade e2e: previous ref's chart and manager -> this checkout (hack/e2e-upgrade.sh). It
+## builds and loads the images itself. At the end it uninstalls (with E2E_IMAGE_REMOVE) only what
+## it installed: it claims E2E_NAMESPACE with `kubectl create namespace` right before its helm
+## install and skips the teardown of a namespace another run created.
+##   make e2e-upgrade E2E_IMAGE_LOAD='limactl shell <instance> sudo k0s ctr -n k8s.io images import -' \
+##     E2E_IMAGE_REMOVE='limactl shell <instance> sudo k0s ctr -n k8s.io images rm'
+.PHONY: e2e-upgrade
+# Empty: the latest tag before HEAD, else the merge base with main, else HEAD~1.
+E2E_UPGRADE_FROM ?=
+E2E_PREV_TAG ?= e2e-prev
+e2e-upgrade:     ## install the chart of E2E_UPGRADE_FROM, upgrade to HEAD, check objects survive with no Cloudflare writes, run a smoke subset
+	MAKE="$(MAKE)" HELM="$(HELM)" KUBECTL="$(KUBECTL)" CONTAINER_TOOL="$(CONTAINER_TOOL)" PLATFORM="$(PLATFORM)" CHART="$(CHART)" \
+	E2E_NAMESPACE="$(E2E_NAMESPACE)" E2E_RELEASE="$(E2E_RELEASE)" E2E_TAG="$(E2E_TAG)" E2E_PULL_POLICY="$(E2E_PULL_POLICY)" \
+	E2E_CLUSTER_NAME="$(E2E_CLUSTER_NAME)" E2E_IMAGE_LOAD="$(E2E_IMAGE_LOAD)" E2E_IMAGE_REMOVE="$(E2E_IMAGE_REMOVE)" \
+	E2E_IMAGE_LIST="$(E2E_IMAGE_LIST)" E2E_LOCAL_RMI="$(E2E_LOCAL_RMI)" E2E_UPGRADE_FROM="$(E2E_UPGRADE_FROM)" E2E_PREV_TAG="$(E2E_PREV_TAG)" bash hack/e2e-upgrade.sh
+
 e2e:             ## run test/e2e against the installed chart (skips without KUBECONFIG)
 	E2E_OPERATOR_NAMESPACE=$(E2E_NAMESPACE) E2E_RELEASE=$(E2E_RELEASE) E2E_STUB_IMAGE=cloudflared-stub:$(E2E_TAG) \
 		E2E_STUB_PULL_POLICY=$(E2E_PULL_POLICY) go test -tags e2e ./test/e2e/ -count=1 -v -timeout 20m
@@ -226,10 +372,20 @@ e2e-uninstall:   ## helm uninstall, delete the chart's CRDs (Helm keeps them) an
 	-$(HELM) uninstall $(E2E_RELEASE) -n $(E2E_NAMESPACE) --wait
 	kubectl delete -f $(CHART)/crds/ --ignore-not-found
 	kubectl delete namespace $(E2E_NAMESPACE) --ignore-not-found --wait
+	@$(MAKE) --no-print-directory e2e-rmi
+
+e2e-rmi:         ## remove the e2e images from the cluster (E2E_IMAGE_REMOVE) and, with E2E_LOCAL_RMI, locally; touches no Kubernetes object
 	@if [ -n "$(E2E_IMAGE_REMOVE)" ]; then \
-		echo "removing images with: $(E2E_IMAGE_REMOVE) $(E2E_IMAGE_REFS)"; \
-		$(E2E_IMAGE_REMOVE) $(E2E_IMAGE_REFS); \
+		refs="$(E2E_IMAGE_REFS)"; \
+		if [ -n "$(E2E_IMAGE_LIST)" ]; then \
+			ids=$$(for i in $(E2E_REMOVE_IMAGES); do $(CONTAINER_TOOL) image inspect --format '{{.Id}}' $$i 2>/dev/null; done | tr '\n' ' '); \
+			digests=$$($(E2E_IMAGE_LIST) 2>/dev/null | awk -v ids="$$ids" 'BEGIN { n = split(ids, a, " "); for (i = 1; i <= n; i++) m[a[i]] = 1 } $$1 ~ /^sha256:/ && ($$3 in m) { print $$1 }' | tr '\n' ' '); \
+			refs="$$refs $$digests"; \
+		fi; \
+		echo "removing images with: $(E2E_IMAGE_REMOVE) $$refs"; \
+		$(E2E_IMAGE_REMOVE) $$refs; \
 	else echo "E2E_IMAGE_REMOVE is empty: the images e2e-images loaded were left in the cluster ($(E2E_IMAGE_REFS))"; fi
+	@if [ -n "$(E2E_LOCAL_RMI)" ]; then echo "$(CONTAINER_TOOL) rmi $(E2E_REMOVE_IMAGES)"; $(CONTAINER_TOOL) rmi $(E2E_REMOVE_IMAGES) || true; fi
 
 ## Live smoke test (test/live): the real controllers in envtest against the Cloudflare API.
 ## Needs FLARE_LIVE=1, CLOUDFLARE_ACCOUNT_ID and FLARE_LIVE_TOKEN_FILE; writes RAW cassettes to

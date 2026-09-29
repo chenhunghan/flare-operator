@@ -186,9 +186,7 @@ func markers(t *Type, prefix string) []string {
 			add("MaxItems=%d", *t.MaxItems)
 		}
 		if t.Elem.Kind.scalar() {
-			for _, m := range markers(t.Elem, "items:") {
-				out = append(out, m)
-			}
+			out = append(out, markers(t.Elem, "items:")...)
 		}
 	case KNumber:
 		add("Type=number")

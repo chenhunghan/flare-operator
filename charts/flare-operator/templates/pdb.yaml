@@ -1,0 +1,25 @@
+{{- /*
+Rendered only with more than one replica: a minAvailable 1 budget over a single replica would
+block every node drain (see values.yaml podDisruptionBudget).
+*/}}
+{{- if and .Values.podDisruptionBudget.enabled (gt (int .Values.replicas) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "flare-operator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: manager
+spec:
+  {{- if not (eq (toString .Values.podDisruptionBudget.maxUnavailable) "<nil>" "") }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- else if not (eq (toString .Values.podDisruptionBudget.minAvailable) "<nil>" "") }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else }}
+  {{- fail "podDisruptionBudget: set minAvailable or maxUnavailable" }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "flare-operator.selectorLabels" . | nindent 6 }}
+{{- end }}

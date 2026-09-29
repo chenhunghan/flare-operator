@@ -1,0 +1,86 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+{{- if not $np.apiServer.cidrs }}
+{{- fail "networkPolicy.enabled requires networkPolicy.apiServer.cidrs (the API server endpoint addresses: kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes)" }}
+{{- end }}
+# Limits the manager pods to: cluster DNS, the Kubernetes API server, HTTPS to Cloudflare
+# (by IP range; see values.yaml networkPolicy.cloudflareAPI), flarefake when enabled, and
+# networkPolicy.extraEgress. Ingress is limited to the metrics port; the kubelet's health
+# probes come from the node, which NetworkPolicy always allows.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "flare-operator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: manager
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "flare-operator.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    {{- if .Values.metrics.enabled }}
+    - ports:
+        - port: metrics
+          protocol: TCP
+      {{- with $np.metricsFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
+  egress:
+    # Cluster DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $np.dns.namespaceSelector | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $np.dns.podSelector | nindent 14 }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Kubernetes API server (endpoint addresses, not the Service ClusterIP).
+    - to:
+        {{- range $np.apiServer.cidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        {{- range $np.apiServer.ports }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- with $np.cloudflareAPI.cidrs }}
+    # api.cloudflare.com (Cloudflare's published ranges).
+    - to:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        {{- range $np.cloudflareAPI.ports }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- end }}
+    {{- if .Values.flarefake.enabled }}
+    # flarefake in the release namespace.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "flare-operator.flarefake.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: {{ .Values.flarefake.port }}
+          protocol: TCP
+    {{- end }}
+    {{- with $np.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

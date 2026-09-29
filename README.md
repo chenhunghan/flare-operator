@@ -63,7 +63,9 @@ values, see [charts/flare-operator/README.md](charts/flare-operator/README.md) a
 `charts/flare-operator/values.yaml`.
 
 Helm installs the CRDs from `crds/` on the first install only. When you upgrade, apply them
-yourself: `kubectl apply --server-side -f charts/flare-operator/crds/`.
+yourself first: `make crds-apply`, which runs
+`kubectl apply --server-side --force-conflicts -f charts/flare-operator/crds/`. See
+[docs/operations.md](docs/operations.md#upgrade).
 
 ### 2. Add a token and a CloudflareAccount
 
@@ -504,3 +506,6 @@ docs/                    design docs, status
 | [docs/virtual-kubelet-design.md](docs/virtual-kubelet-design.md) | Planned: Pods on Cloudflare Containers |
 | [docs/plan-parallel.md](docs/plan-parallel.md) | How the work is split into workstreams |
 | [charts/flare-operator/README.md](charts/flare-operator/README.md) | Chart install, values, e2e with flarefake |
+| [docs/operations.md](docs/operations.md) | Runbook: install, upgrade (CRDs), uninstall semantics, metrics, HA, network policy, rate limits, troubleshooting, backup |
+| [SECURITY.md](SECURITY.md) | Token handling, in-cluster privileges, supply chain |
+| [CHANGELOG.md](CHANGELOG.md) | Changes per release |

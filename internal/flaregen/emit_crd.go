@@ -27,7 +27,7 @@ func printerColumns(m *KindModel) []printerColumn {
 		{Name: "EXTERNAL-ID", Type: "string", JSONPath: ".status.id"},
 	}
 	for _, c := range m.PrintColumns {
-		cols = append(cols, printerColumn{Name: c.Name, Type: c.Type, JSONPath: c.JSONPath, Priority: c.Priority, Description: c.Description})
+		cols = append(cols, printerColumn(c))
 	}
 	return append(cols, printerColumn{Name: "AGE", Type: "date", JSONPath: ".metadata.creationTimestamp"})
 }

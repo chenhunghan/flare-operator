@@ -2,6 +2,8 @@ module flare.dev/operator
 
 go 1.26.1
 
+toolchain go1.26.8
+
 require (
 	github.com/getkin/kin-openapi v0.149.0
 	golang.org/x/time v0.16.0

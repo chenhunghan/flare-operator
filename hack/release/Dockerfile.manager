@@ -1,0 +1,9 @@
+# syntax=docker/dockerfile:1
+# Release image for the manager, built by goreleaser (dockers_v2 in .goreleaser.yaml) from the
+# binary goreleaser already compiled: the build context holds <os>/<arch>/manager for every
+# platform. For a source build use ./Dockerfile (make docker-build / docker-buildx).
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/manager /manager
+USER 65532:65532
+ENTRYPOINT ["/manager"]

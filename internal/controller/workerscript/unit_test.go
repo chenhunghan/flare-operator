@@ -137,8 +137,9 @@ func TestSettingsDrift(t *testing.T) {
 
 func TestHashes(t *testing.T) {
 	a := []module{{Name: "a.js", Type: "esm", Content: []byte("x")}}
+	a2 := []module{{Name: "a.js", Type: "esm", Content: []byte("x")}}
 	b := []module{{Name: "a.js", Type: "esm", Content: []byte("y")}}
-	if contentHash("a.js", a) == contentHash("a.js", b) || contentHash("a.js", a) != contentHash("a.js", a) {
+	if contentHash("a.js", a) == contentHash("a.js", b) || contentHash("a.js", a) != contentHash("a.js", a2) {
 		t.Fatal("content hash")
 	}
 	s := apiSettingsBody{Bindings: []map[string]any{{"type": "secret_text", "name": "S", "text": "v1"}}}

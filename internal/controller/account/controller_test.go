@@ -1,5 +1,7 @@
 package account_test
 
+//lint:file-ignore SA1019 these tests assert the deprecated v1alpha1 status fields are still dual-written until v1beta1 (docs/api-versioning.md)
+
 import (
 	"context"
 	"testing"
