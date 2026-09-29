@@ -317,24 +317,65 @@ func (c *client) waitTurn(ctx context.Context) error {
 	return c.state.lim.Wait(ctx)
 }
 
-// url joins the base URL, p and q. p may carry percent-escaped segments (e.g. a KV key
-// "a%2Fb" built with url.PathEscape); they are sent as-is, not double-encoded, so an escaped
-// '/' stays inside its segment. A p that is not a valid escaping (a bare '%') is taken
-// literally and encoded.
+// escapeRequestPath implements Request.Path escaping. Path is appended to the base URL's path
+// and sent in escaped form, segment by segment ('/' separates segments and is sent as-is):
+//
+//   - A valid escape "%XX" (two hex digits, either case) is kept as-is, never double-encoded.
+//     A caller escapes a segment that may contain '/', '%', '?', '#' or other reserved
+//     characters (a KV key, a file name) with url.PathEscape, so "a/b" becomes "a%2Fb" and the
+//     escaped '/' stays inside its segment.
+//   - Every other byte that may not appear literally in a path segment (space, '?', '#', '"',
+//     non-ASCII and control bytes, a '%' that does not start a valid escape) is percent-encoded
+//     once. RFC 3986 unreserved characters, sub-delims, ':' and '@' are sent literally.
+//
+// The two may be mixed in one Path: "dir%2Ffile name%" is sent as "dir%2Ffile%20name%25"
+// (decoded "dir/file name%"). A literal '%' followed by two hex digits cannot be written
+// unescaped; write it as "%25" (url.PathEscape does).
+func escapeRequestPath(p string) string {
+	var b strings.Builder
+	b.Grow(len(p))
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		switch {
+		case c == '%' && i+2 < len(p) && isHex(p[i+1]) && isHex(p[i+2]):
+			b.WriteString(p[i : i+3])
+			i += 2
+		case c == '/' || pathLiteral(c):
+			b.WriteByte(c)
+		default:
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
+}
+
+func isHex(c byte) bool {
+	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
+}
+
+// pathLiteral reports whether c may appear unescaped in a path segment (RFC 3986 pchar other
+// than pct-encoded: unreserved, sub-delims, ':' and '@').
+func pathLiteral(c byte) bool {
+	if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' {
+		return true
+	}
+	return strings.IndexByte("-._~!$&'()*+,;=:@", c) >= 0
+}
+
+// url joins the base URL, p (a Request.Path, see escapeRequestPath) and q.
 func (c *client) url(p string, q url.Values) string {
 	if !strings.HasPrefix(p, "/") {
 		p = "/" + p
 	}
 	u := *c.base
-	if dec, err := url.PathUnescape(p); err == nil {
-		u.Path = c.base.Path + dec
-		// URL.String uses RawPath only when it is a valid encoding of Path; otherwise (e.g. p
-		// has a space) it re-encodes Path, which is also correct.
-		u.RawPath = c.base.EscapedPath() + p
-	} else {
-		u.Path = c.base.Path + p
-		u.RawPath = ""
+	raw := escapeRequestPath(p)
+	dec, err := url.PathUnescape(raw)
+	if err != nil { // unreachable: raw holds only valid escapes
+		dec = p
 	}
+	u.Path = c.base.Path + dec
+	// raw is a valid encoding of dec, so URL.String sends it verbatim.
+	u.RawPath = c.base.EscapedPath() + raw
 	if len(q) > 0 {
 		u.RawQuery = q.Encode()
 	}

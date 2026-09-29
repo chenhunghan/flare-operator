@@ -231,7 +231,7 @@ func TestResolveDeletingAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := reconcile.NewAccounts(kube, reconcile.WithBaseURLPolicy(reconcile.BaseURLPolicy{AllowAny: true}))
-	if _, err := b.Resolve(ctx, get("has-id")); !reconcile.IsAccountNotReady(err) || !strings.Contains(err.Error(), "restore the Secret") {
+	if _, err := b.Resolve(ctx, get("has-id")); !reconcile.IsAccountNotReady(err) || !strings.Contains(err.Error(), "restore the token Secret") {
 		t.Fatalf("no Secret, no cached client: %v", err)
 	}
 }

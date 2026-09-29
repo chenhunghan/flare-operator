@@ -70,6 +70,17 @@ func TestEscapedPathSegments(t *testing.T) {
 		// A pre-escaped '%' stays single-encoded.
 		{"/values/" + url.PathEscape("100%"), "/client/v4/values/100%25", "/client/v4/values/100%"},
 		{"plain/path", "/client/v4/plain/path", "/client/v4/plain/path"},
+		// Mixed: a pre-escaped '/' plus characters that still need escaping; the escaped '/'
+		// is kept, the rest is encoded once.
+		{"/values/dir%2Ffile name", "/client/v4/values/dir%2Ffile%20name", "/client/v4/values/dir/file name"},
+		{"/values/a%2Fb%", "/client/v4/values/a%2Fb%25", "/client/v4/values/a/b%"},
+		{"/values/x%2fy?z#w", "/client/v4/values/x%2fy%3Fz%23w", "/client/v4/values/x/y?z#w"},
+		{"/values/é%2F\"q\"", "/client/v4/values/%C3%A9%2F%22q%22", "/client/v4/values/é/\"q\""},
+		{"/values/100%/k%2Fv", "/client/v4/values/100%25/k%2Fv", "/client/v4/values/100%/k/v"},
+		// Sub-delims, ':' and '@' are sent literally.
+		{"/values/a:b@c!$&'()*+,;=~", "/client/v4/values/a:b@c!$&'()*+,;=~", "/client/v4/values/a:b@c!$&'()*+,;=~"},
+		// Any string escaped with url.PathEscape round-trips.
+		{"/values/" + url.PathEscape("k/ey %2F?#é"), "/client/v4/values/k%2Fey%20%252F%3F%23%C3%A9", "/client/v4/values/k/ey %2F?#é"},
 	} {
 		if _, err := c.Do(ctx, Request{Path: tc.in}); err != nil {
 			t.Fatal(err)
