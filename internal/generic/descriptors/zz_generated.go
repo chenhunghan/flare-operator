@@ -5,14 +5,35 @@ package descriptors
 import (
 	"k8s.io/apimachinery/pkg/runtime"
 
+	aigatewayv1alpha1 "flare.dev/operator/api/aigateway/v1alpha1"
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
 	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
+	secretsstorev1alpha1 "flare.dev/operator/api/secretsstore/v1alpha1"
+	vectorizev1alpha1 "flare.dev/operator/api/vectorize/v1alpha1"
 	"flare.dev/operator/internal/generic"
 )
 
 var generated = []Entry{
+	{
+		Descriptor: generic.Descriptor{
+			Group: "aigateway.cloudflare.flare.dev", Version: "v1alpha1", Kind: "AIGateway",
+			Scope:                 "account",
+			CreatePath:            "/accounts/{account_id}/ai-gateway/gateways",
+			ItemPath:              "/accounts/{account_id}/ai-gateway/gateways/{id}",
+			ListPath:              "/accounts/{account_id}/ai-gateway/gateways",
+			IDField:               "id",
+			UpdateMethod:          "PUT",
+			Immutable:             []string{"id"},
+			CreateFields:          []string{"authentication", "byok_only", "cache_invalidate_on_update", "cache_ttl", "collect_logs", "id", "log_management", "log_management_strategy", "logpush", "logpush_public_key", "rate_limiting_interval", "rate_limiting_limit", "rate_limiting_technique", "retry_backoff", "retry_delay", "retry_max_attempts", "store_id", "workers_ai_billing_mode", "zdr"},
+			UpdateFields:          []string{"authentication", "byok_only", "cache_invalidate_on_update", "cache_ttl", "collect_logs", "dlp", "guardrails", "log_classification", "log_management", "log_management_strategy", "logpush", "logpush_public_key", "otel", "rate_limiting_interval", "rate_limiting_limit", "rate_limiting_technique", "retry_backoff", "retry_delay", "retry_max_attempts", "spend_limits", "store_id", "stripe", "workers_ai_billing_mode", "zdr"},
+			DefaultDeletionPolicy: "Delete",
+		},
+		FernGroup: "ai-gateway.gateways",
+		New:       func() commonv1alpha1.Managed { return &aigatewayv1alpha1.AIGateway{} },
+		NewList:   func() runtime.Object { return &aigatewayv1alpha1.AIGatewayList{} },
+	},
 	{
 		Descriptor: generic.Descriptor{
 			Group: "d1.cloudflare.flare.dev", Version: "v1alpha1", Kind: "D1Database",
@@ -76,10 +97,47 @@ var generated = []Entry{
 		New:       func() commonv1alpha1.Managed { return &queuesv1alpha1.Queue{} },
 		NewList:   func() runtime.Object { return &queuesv1alpha1.QueueList{} },
 	},
+	{
+		Descriptor: generic.Descriptor{
+			Group: "secretsstore.cloudflare.flare.dev", Version: "v1alpha1", Kind: "SecretsStore",
+			Scope:                 "account",
+			CreatePath:            "/accounts/{account_id}/secrets_store/stores",
+			ItemPath:              "/accounts/{account_id}/secrets_store/stores/{id}",
+			ListPath:              "/accounts/{account_id}/secrets_store/stores",
+			IDField:               "id",
+			NameField:             "name",
+			Immutable:             []string{"name"},
+			CreateFields:          []string{"name"},
+			DefaultDeletionPolicy: "Delete",
+		},
+		FernGroup: "secrets-store.stores",
+		New:       func() commonv1alpha1.Managed { return &secretsstorev1alpha1.SecretsStore{} },
+		NewList:   func() runtime.Object { return &secretsstorev1alpha1.SecretsStoreList{} },
+	},
+	{
+		Descriptor: generic.Descriptor{
+			Group: "vectorize.cloudflare.flare.dev", Version: "v1alpha1", Kind: "VectorizeIndex",
+			Scope:                 "account",
+			CreatePath:            "/accounts/{account_id}/vectorize/v2/indexes",
+			ItemPath:              "/accounts/{account_id}/vectorize/v2/indexes/{id}",
+			ListPath:              "/accounts/{account_id}/vectorize/v2/indexes",
+			IDField:               "name",
+			NameField:             "name",
+			Immutable:             []string{"config", "description", "name"},
+			CreateFields:          []string{"config", "description", "name"},
+			DefaultDeletionPolicy: "Delete",
+		},
+		FernGroup: "vectorize",
+		New:       func() commonv1alpha1.Managed { return &vectorizev1alpha1.VectorizeIndex{} },
+		NewList:   func() runtime.Object { return &vectorizev1alpha1.VectorizeIndexList{} },
+	},
 }
 
 var schemeBuilder = runtime.SchemeBuilder{
+	aigatewayv1alpha1.AddToScheme,
 	d1v1alpha1.AddToScheme,
 	kvv1alpha1.AddToScheme,
 	queuesv1alpha1.AddToScheme,
+	secretsstorev1alpha1.AddToScheme,
+	vectorizev1alpha1.AddToScheme,
 }

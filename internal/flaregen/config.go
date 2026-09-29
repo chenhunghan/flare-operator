@@ -50,6 +50,12 @@ type KindConfig struct {
 	// applied to both forProvider and atProvider wherever the path exists.
 	Fields map[string]FieldOverride `json:"fields,omitempty"`
 
+	// Emulate selects how flarefake emulates the kind: "" (a hand-written profile in
+	// internal/fake, or not at all) or "generic" (the descriptor-driven generic profile,
+	// internal/fake/generic.go; listed in internal/fake/zz_generated_generic.go). See
+	// docs/generator-scaleout.md.
+	Emulate string `json:"emulate,omitempty"`
+
 	// Why documents the overrides (recording numbers, UNVERIFIED notes). Not emitted.
 	Why map[string]string `json:"why,omitempty"`
 }
@@ -96,6 +102,11 @@ func ParseConfig(b []byte) (*Config, error) {
 		case "", "PUT", "PATCH", "-":
 		default:
 			return nil, fmt.Errorf("generator config: %s: updateMethod %q", k.FernGroup, k.UpdateMethod)
+		}
+		switch k.Emulate {
+		case "", "generic":
+		default:
+			return nil, fmt.Errorf("generator config: %s: emulate %q (want \"generic\" or nothing)", k.FernGroup, k.Emulate)
 		}
 		for p, o := range k.Fields {
 			switch o.Type {

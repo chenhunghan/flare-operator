@@ -247,7 +247,7 @@ func TestRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := descriptors.All()
-	if len(all) != 3 {
+	if len(all) != 6 {
 		t.Errorf("%d descriptors", len(all))
 	}
 	for _, d := range all {
@@ -284,7 +284,8 @@ func TestRegistry(t *testing.T) {
 }
 
 // TestDescriptorsMatchEmulator cross-checks the generated descriptors with the
-// flarefake routes and the recordings they cite (internal/fake/kv.go, queues.go, d1.go).
+// flarefake routes and the recordings they cite (internal/fake/kv.go, queues.go, d1.go), and
+// pins the spec-derived descriptors of the generic-profile kinds.
 func TestDescriptorsMatchEmulator(t *testing.T) {
 	want := map[string]struct {
 		create, item, idField, nameField, update string
@@ -300,6 +301,15 @@ func TestDescriptorsMatchEmulator(t *testing.T) {
 		// 0017 create → uuid; 0023 PATCH read_replication; flarefake has no PUT for D1.
 		"D1Database": {"/accounts/{account_id}/d1/database", "/accounts/{account_id}/d1/database/{id}", "uuid", "name", "PATCH",
 			[]string{"jurisdiction", "name", "primary_location_hint"}, []string{"primary_location_hint"}, "Orphan"},
+		// Generic-profile kinds (emulate: generic): spec-derived, UNVERIFIED until recorded.
+		// Vectorize v2 has no update; the index name is the item path parameter.
+		"VectorizeIndex": {"/accounts/{account_id}/vectorize/v2/indexes", "/accounts/{account_id}/vectorize/v2/indexes/{id}", "name", "name", "",
+			[]string{"config", "description", "name"}, nil, "Delete"},
+		"SecretsStore": {"/accounts/{account_id}/secrets_store/stores", "/accounts/{account_id}/secrets_store/stores/{id}", "id", "name", "",
+			[]string{"name"}, nil, "Delete"},
+		// The client chooses the gateway id; PUT is the only update.
+		"AIGateway": {"/accounts/{account_id}/ai-gateway/gateways", "/accounts/{account_id}/ai-gateway/gateways/{id}", "id", "", "PUT",
+			[]string{"id"}, nil, "Delete"},
 	}
 	for _, d := range descriptors.All() {
 		w, ok := want[d.Kind]

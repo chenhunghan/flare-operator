@@ -36,6 +36,30 @@ rules:
   - create
   - patch
 - apiGroups:
+  - aigateway.cloudflare.flare.dev
+  resources:
+  - aigateways
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aigateway.cloudflare.flare.dev
+  resources:
+  - aigateways/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - aigateway.cloudflare.flare.dev
+  resources:
+  - aigateways/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - apps
   resources:
   - deployments
@@ -174,6 +198,30 @@ rules:
   - patch
   - update
 - apiGroups:
+  - secretsstore.cloudflare.flare.dev
+  resources:
+  - secretsstores
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - secretsstore.cloudflare.flare.dev
+  resources:
+  - secretsstores/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - secretsstore.cloudflare.flare.dev
+  resources:
+  - secretsstores/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - tunnels.cloudflare.flare.dev
   resources:
   - tunnels
@@ -193,6 +241,30 @@ rules:
   - tunnels.cloudflare.flare.dev
   resources:
   - tunnels/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - vectorize.cloudflare.flare.dev
+  resources:
+  - vectorizeindexes
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - vectorize.cloudflare.flare.dev
+  resources:
+  - vectorizeindexes/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - vectorize.cloudflare.flare.dev
+  resources:
+  - vectorizeindexes/status
   verbs:
   - get
   - patch

@@ -3,5 +3,7 @@ kinds:
   - fernGroup: widgets.gadgets
     kind: Widget
     listOrder: informational
+    emulate: generic
   - fernGroup: widget_tools.settings
     kind: WidgetSettings
+    emulate: generic

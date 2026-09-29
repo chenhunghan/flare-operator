@@ -314,6 +314,9 @@ type KindModel struct {
 	// requires; required (by a CEL rule) only when the object may create.
 	CreateRequired []string
 
+	// Emulate is generator.yaml emulate ("generic": flarefake's generic profile).
+	Emulate string
+
 	Warnings []string
 }
 
@@ -447,6 +450,7 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 	}
 	m.Observation = objectOrEmpty(Project(obs, ViewObservation))
 	m.Warnings = warns
+	m.Emulate = kc.Emulate
 
 	var createFields, updateFields []string
 	for _, f := range Project(createT, ViewParameters).Fields {

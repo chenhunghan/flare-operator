@@ -52,3 +52,36 @@ kinds:
       tagResourceType: "resource_type enum of the spec's tags-set; UNVERIFIED against live Resource Tagging"
       fields: "spec enum is lower-case; the API rejects other values and names the upper-case set (0019)"
       derived: "id field uuid (0017); PATCH read_replication (0023); name/jurisdiction/primary_location_hint are create-only; primary_location_hint is never read back (0020), so it is write-only"
+
+
+  # Proving wave for the generic flarefake profile (docs/generator-scaleout.md): simple
+  # account-level CRUD resources with plain JSON bodies, emulated only by the generic profile
+  # (emulate: generic) until a live recording pass replaces its UNVERIFIED behavior.
+  - fernGroup: vectorize
+    kind: VectorizeIndex
+    idField: name
+    emulate: generic
+    why:
+      kind: '"Index" alone is too generic across groups'
+      idField: "the item path takes the index name ({index_name}); the object has no other identifier (spec)"
+      emulate: "no hand-written profile; the empty list 0154 matches the spec (no result_info)"
+      derived: "no update operation in the v2 API: every field is create-only (immutable)"
+
+  - fernGroup: secrets-store.stores
+    kind: SecretsStore
+    group: secretsstore
+    emulate: generic
+    why:
+      kind: '"Store" alone is too generic across groups'
+      group: '"secrets-store" is not a valid Go package name'
+      emulate: "no hand-written profile; list result_info recorded without total_pages (0155, a generic quirk)"
+      derived: "no update operation: name is create-only (immutable). UNVERIFIED: the beta allows one store per account, which the generic profile does not enforce"
+
+  - fernGroup: ai-gateway.gateways
+    kind: AIGateway
+    group: aigateway
+    emulate: generic
+    why:
+      group: '"ai-gateway" is not a valid Go package name'
+      emulate: "no hand-written profile and no recordings yet"
+      derived: "the client chooses the id (create body); PUT is the only update, so id is create-only (immutable); no name field, so no adoption by name"

@@ -148,6 +148,11 @@ func TestDescriptorsAgainstFlarefake(t *testing.T) {
 			`{"queue_name":"flare-spike-q-1","jurisdiction":"eu","settings":{"delivery_delay":10,"message_retention_period":3600}}`},
 		"D1Database": {`{"name":"flare-spike-d1-1","primary_location_hint":"WEUR","read_replication":{"mode":"disabled"}}`,
 			`{"name":"flare-spike-d1-1","primary_location_hint":"WEUR","read_replication":{"mode":"auto"}}`},
+		// Generic-profile kinds (emulate: generic; UNVERIFIED emulation). "" = no update operation.
+		"VectorizeIndex": {`{"name":"flare-spike-vec-1","description":"d","config":{"dimensions":3,"metric":"cosine"}}`, ""},
+		"SecretsStore":   {`{"name":"flare-spike-store-1"}`, ""},
+		"AIGateway": {`{"id":"flare-spike-gw-1","cache_invalidate_on_update":false,"cache_ttl":60,"collect_logs":true,"rate_limiting_interval":0,"rate_limiting_limit":0}`,
+			`{"id":"flare-spike-gw-1","cache_invalidate_on_update":true,"cache_ttl":120,"collect_logs":false,"rate_limiting_interval":60,"rate_limiting_limit":10}`},
 	}
 	// Known spec defects: requests the real API accepts but the pinned spec rejects.
 	type violation struct{ kind, method, contains, why string }
@@ -169,7 +174,7 @@ func TestDescriptorsAgainstFlarefake(t *testing.T) {
 
 	for _, e := range descriptors.Entries() {
 		t.Run(e.Kind, func(t *testing.T) {
-			s := fake.New(fake.Options{Spec: spec})
+			s := fake.New(fake.Options{Spec: spec, Generic: fake.GeneratedGenericKinds()})
 			hs := httptest.NewServer(s)
 			defer hs.Close()
 			c := &apiClient{t: t, base: hs.URL}
@@ -205,16 +210,21 @@ func TestDescriptorsAgainstFlarefake(t *testing.T) {
 			if st != http.StatusOK || !strings.Contains(string(env.Result), id) {
 				t.Fatalf("list: %d, id %s missing in %s", st, id, env.Result)
 			}
-			if d.NameField != "" && !strings.Contains(string(env.Result), desired[d.NameField].(string)) {
+			if name, _ := desired[d.NameField].(string); d.NameField != "" && !strings.Contains(string(env.Result), name) {
 				t.Errorf("list does not show %s", d.NameField)
 			}
 
 			// Update.
-			desired = forProvider(t, e, sm.update)
-			if st, env := c.do(d.UpdateMethod, path(d.ItemPath, id), pick(desired, d.UpdateFields)); st != http.StatusOK {
-				t.Fatalf("update: %d %+v", st, env.Errors)
+			if (sm.update == "") != (d.UpdateMethod == "") {
+				t.Fatalf("sample update %q for UpdateMethod %q", sm.update, d.UpdateMethod)
 			}
-			checkObserved(t, c, e, id, desired)
+			if d.UpdateMethod != "" {
+				desired = forProvider(t, e, sm.update)
+				if st, env := c.do(d.UpdateMethod, path(d.ItemPath, id), pick(desired, d.UpdateFields)); st != http.StatusOK {
+					t.Fatalf("update: %d %+v", st, env.Errors)
+				}
+				checkObserved(t, c, e, id, desired)
+			}
 
 			// Delete, then 404.
 			if st, env := c.do(http.MethodDelete, path(d.ItemPath, id), nil); st != http.StatusOK {

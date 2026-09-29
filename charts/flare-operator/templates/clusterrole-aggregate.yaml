@@ -9,6 +9,15 @@ metadata:
     rbac.authorization.k8s.io/aggregate-to-view: "true"
 rules:
 - apiGroups:
+  - aigateway.cloudflare.flare.dev
+  resources:
+  - aigateways
+  - aigateways/status
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - cloudflare.flare.dev
   resources:
   - cloudflareaccounts
@@ -45,10 +54,28 @@ rules:
   - list
   - watch
 - apiGroups:
+  - secretsstore.cloudflare.flare.dev
+  resources:
+  - secretsstores
+  - secretsstores/status
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - tunnels.cloudflare.flare.dev
   resources:
   - tunnels
   - tunnels/status
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - vectorize.cloudflare.flare.dev
+  resources:
+  - vectorizeindexes
+  - vectorizeindexes/status
   verbs:
   - get
   - list
@@ -72,6 +99,19 @@ metadata:
     rbac.authorization.k8s.io/aggregate-to-edit: "true"
     rbac.authorization.k8s.io/aggregate-to-admin: "true"
 rules:
+- apiGroups:
+  - aigateway.cloudflare.flare.dev
+  resources:
+  - aigateways
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - cloudflare.flare.dev
   resources:
@@ -125,9 +165,35 @@ rules:
   - update
   - watch
 - apiGroups:
+  - secretsstore.cloudflare.flare.dev
+  resources:
+  - secretsstores
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - tunnels.cloudflare.flare.dev
   resources:
   - tunnels
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - vectorize.cloudflare.flare.dev
+  resources:
+  - vectorizeindexes
   verbs:
   - create
   - delete
