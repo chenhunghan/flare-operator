@@ -36,7 +36,13 @@ make spec-check      # spec/openapi.json.gz must match spec/LOCK
 
 ## Rules
 - **Emulator fidelity:**
-  - Every emulator behavior must cite the recording it came from (`// 0029`), or be marked `UNVERIFIED`.
+  - Every emulator behavior cites its evidence, strongest first:
+    1. a real-API recording (`// 0029`)
+    2. `// SOURCED: <repo>@<short-sha>:<path>#L<n>`: an official Cloudflare client or its test fixtures (cloudflare/workers-sdk (wrangler), cloudflare-go, terraform-provider-cloudflare, cloudflared)
+    3. `// DOCS: <developers.cloudflare.com URL>`: a documented example
+    4. otherwise `UNVERIFIED` (spec-only or inferred)
+  - A recording wins over any other source when they conflict.
+  - Live testing is optional (2026-09-29 decision). Trust comes from the evidence tiers above plus differential tests: real Cloudflare clients such as wrangler and cloudflare-go run against flarefake.
   - When you change a profile, keep `TestConformance` passing. Don't loosen its normalization to make a test pass.
   - Add new recordings to a scenario; the test fails if a recording hits an emulated route that no scenario replays.
 - **Live Cloudflare account** (the user's own; `cf` CLI logged in; `CLOUDFLARE_ACCOUNT_ID` must be exported):
