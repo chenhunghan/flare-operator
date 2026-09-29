@@ -107,11 +107,12 @@ Scale runs (`TestScale`, one account, default client rate limit, mixed generated
 - 24 objects (the CI size): converged in 41 s with 165 calls (6.9/object, no 429); steady state
   1.50 calls per poll.
 - 500 objects (`FLARE_SCALE_OBJECTS=500 go test -run TestScale -timeout 60m
-  ./internal/resilience/`, about 83 of each of the six generated kinds): converged in 22 min
-  with 4769 calls (9.5/object; 1377 of them tag calls), no 429 from the fake's 1200-per-5-minutes
-  limit. The run is rate-limit bound: 4769 / 3.6 per second ≈ 22 min. Steady state: 1.31 calls
-  per poll on this mix, i.e. about 7 800 calls/hour (61 % of the client budget) at the 5-minute
-  default.
+  ./internal/resilience/`, about 83 of each of the six generated kinds; two runs): converged in
+  22 min with 4769 and 4763 calls (9.5/object; about 1375 of them tag calls), no 429 from the
+  fake's 1200-per-5-minutes limit, within the budget the test computes (7000 with list pages).
+  The run is rate-limit bound: 4763 / 3.6 per second ≈ 22 min. Steady state: 1.31–1.34 calls per
+  poll on this half-tagged mix, i.e. about 8 000 calls/hour (62 % of the client budget) at the
+  5-minute default.
 
 Creates cost more in large accounts: every create first lists the kind's collection to adopt a
 same-named resource, one call per page (20 items per page for KV and the generic-profile kinds,
