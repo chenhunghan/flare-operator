@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -20,6 +22,10 @@ import (
 //   - The etag is "v1:" + base64url(sha256(canonical tags JSON)[:16]) (spec description) and
 //     If-Match mismatches answer 412 (spec; error code UNVERIFIED).
 //   - The emulator does not check that the tagged resource exists.
+//   - GET /tags/resources (tags-list) lists resources that currently carry at least one tag, in
+//     one page (result_info.cursor ""), filtered by type/id/name/tag as the spec describes.
+//     Whether resources whose tags were all deleted are listed, the ordering and the page size
+//     are UNVERIFIED; the live endpoint may also lag writes (it is an index).
 
 // tagResourceTypes are the account-level resource_type values of the pinned spec's tags-set.
 var tagResourceTypes = map[string]bool{
@@ -91,6 +97,7 @@ func (s *Server) registerTags() {
 	s.handle(http.MethodGet, base, tagsGet)
 	s.handle(http.MethodPut, base, tagsSet)
 	s.handle(http.MethodDelete, base, tagsDelete)
+	s.handle(http.MethodGet, base+"/resources", tagsList)
 }
 
 func tagKey(typ, id, worker string) string { return typ + "/" + worker + "/" + id }
@@ -211,4 +218,107 @@ func tagsDelete(c *reqCtx) response {
 	rec.Tags = map[string]string{}
 	rec.UpdatedAt = c.now
 	return response{status: http.StatusNoContent}
+}
+
+// tagsList: GET /accounts/{account_id}/tags/resources. UNVERIFIED (no recording): see the
+// package comment above.
+func tagsList(c *reqCtx) response {
+	q := c.query
+	types := map[string]bool{}
+	for _, t := range q["type"] {
+		if !tagResourceTypes[t] {
+			return badTagRequest("invalid type " + t)
+		}
+		types[t] = true
+	}
+	if len(q["id"]) > 50 { // spec: id may be repeated up to 50 times
+		return badTagRequest("too many id filters")
+	}
+	ids := map[string]bool{}
+	for _, id := range q["id"] {
+		ids[id] = true
+	}
+	fold := q.Get("case_insensitive") == "true"
+	name := strings.ToLower(q.Get("name"))
+	var filters []func(map[string]string) bool
+	for _, expr := range q["tag"] {
+		f, valid := parseTagFilter(expr, fold)
+		if !valid {
+			return badTagRequest("invalid tag filter " + expr)
+		}
+		filters = append(filters, f)
+	}
+	store := c.tagStore()
+	keys := make([]string, 0, len(store))
+	for k := range store {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := []any{}
+	for _, k := range keys {
+		rec := store[k]
+		if len(rec.Tags) == 0 || (len(types) > 0 && !types[rec.Type]) || (len(ids) > 0 && !ids[rec.ID]) {
+			continue
+		}
+		rname := c.tagResourceName(rec.Type, rec.ID)
+		if name != "" && !strings.Contains(strings.ToLower(rname), name) {
+			continue
+		}
+		match := true
+		for _, f := range filters {
+			if !f(rec.Tags) {
+				match = false
+				break
+			}
+		}
+		if match {
+			out = append(out, rec.json(rname))
+		}
+	}
+	return okList(out, map[string]any{"count": len(out), "cursor": ""})
+}
+
+// parseTagFilter implements the spec's tag filter syntax: key, key=v1,v2, !key, key!=value.
+func parseTagFilter(expr string, fold bool) (func(map[string]string) bool, bool) {
+	eq := func(a, b string) bool {
+		if fold {
+			return strings.EqualFold(a, b)
+		}
+		return a == b
+	}
+	lookup := func(tags map[string]string, key string) (string, bool) {
+		for k, v := range tags {
+			if eq(k, key) {
+				return v, true
+			}
+		}
+		return "", false
+	}
+	switch {
+	case expr == "" || expr == "!":
+		return nil, false
+	case strings.HasPrefix(expr, "!"):
+		key := expr[1:]
+		return func(t map[string]string) bool { _, has := lookup(t, key); return !has }, true
+	case strings.Contains(expr, "!="):
+		key, val, _ := strings.Cut(expr, "!=")
+		return func(t map[string]string) bool { v, has := lookup(t, key); return !has || !eq(v, val) }, key != ""
+	case strings.Contains(expr, "="):
+		key, vals, _ := strings.Cut(expr, "=")
+		want := strings.Split(vals, ",")
+		return func(t map[string]string) bool {
+			v, has := lookup(t, key)
+			if !has {
+				return false
+			}
+			for _, w := range want {
+				if eq(v, w) {
+					return true
+				}
+			}
+			return false
+		}, key != ""
+	default:
+		return func(t map[string]string) bool { _, has := lookup(t, expr); return has }, true
+	}
 }

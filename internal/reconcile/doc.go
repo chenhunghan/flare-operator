@@ -16,5 +16,7 @@
 //     the same namespace and returns its cached cfclient.Client and account ID, or an
 //     *AccountError (reason AccountNotReady) the caller surfaces with MarkAccountNotReady.
 //   - Ownership tags (tags.go): Tagger writes flare.dev/owner=<cluster>/<ns>/<name> through
-//     Resource Tagging with GET-merge-PUT (PUT replaces all tags). NoopTagger disables it.
+//     Resource Tagging with GET-merge-PUT (PUT replaces all tags), guarded by If-Match with a
+//     bounded retry on 412; an ambiguous 500 read is checked against the tag index before any
+//     write. NoopTagger disables it.
 package reconcile
