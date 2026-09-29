@@ -75,6 +75,16 @@ rules:
   - patch
   - update
 - apiGroups:
+  - d1.cloudflare.flare.dev
+  - kv.cloudflare.flare.dev
+  - queues.cloudflare.flare.dev
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - kv.cloudflare.flare.dev
   resources:
   - kvnamespaces

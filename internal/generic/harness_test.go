@@ -143,7 +143,7 @@ func newHarness(t *testing.T, which controllers) *harness {
 		o.Controllers = kinds.Names()
 	case recorded:
 		o.Setup = []func(ctrl.Manager, controller.Deps) error{func(m ctrl.Manager, d controller.Deps) error {
-			d.Accounts = reconcile.NewAccounts(m.GetClient(), reconcile.WithHTTPClient(&http.Client{Transport: h.rec}))
+			d.Accounts = reconcile.NewAccounts(m.GetClient(), reconcile.WithHTTPClient(&http.Client{Transport: h.rec}), anyBaseURL)
 			for _, en := range descriptors.Entries() {
 				r := kinds.NewReconciler(en, m.GetClient(), d)
 				r.PollInterval = poll
@@ -433,3 +433,6 @@ func entry(t testing.TB, kind string) descriptors.Entry {
 }
 
 func randName(prefix string) string { return prefix + "-" + testenv.RandomHex(4) }
+
+// anyBaseURL lets test accounts point at flarefake (spec.baseURL).
+var anyBaseURL = reconcile.WithBaseURLPolicy(reconcile.BaseURLPolicy{AllowAny: true})

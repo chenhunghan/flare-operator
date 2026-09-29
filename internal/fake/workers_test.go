@@ -233,13 +233,27 @@ func TestWorkerSettingsPatch(t *testing.T) {
 		t.Errorf("a settings change adds a version: %v", items)
 	}
 
-	// A plain JSON body is accepted too; an unknown VPC service is rejected like on upload.
+	// An unknown VPC service is rejected like on upload.
 	bad := map[string]any{"bindings": []any{map[string]any{"type": "vpc_service", "name": "X", "service_id": "nope"}}}
-	if st, env, _ := c.do("PATCH", acct+"/workers/scripts/w/settings", bad); st != 400 || env.Errors[0].Code != 10180 {
+	body, ct = multipartBody(t, "settings", bad, nil)
+	if st, env, _ := c.raw("PATCH", acct+"/workers/scripts/w/settings", ct, body); st != 400 || env.Errors[0].Code != 10180 {
 		t.Errorf("patch with unknown service: %d %v", st, env.Errors)
 	}
-	if st, env, _ := c.do("PATCH", acct+"/workers/scripts/w/settings", map[string]any{"logpush": false}); st != 200 || resultMap(t, env)["logpush"] != false {
-		t.Errorf("JSON patch: %d %v", st, env.Result)
+	// The spec allows only multipart: a plain JSON body, or a multipart body without a
+	// "settings" part, is rejected and changes nothing.
+	if st, env, _ := c.do("PATCH", acct+"/workers/scripts/w/settings", map[string]any{"logpush": false}); st != 400 || len(env.Errors) != 1 || env.Errors[0].Code != 10021 {
+		t.Errorf("JSON patch: %d %v", st, env.Errors)
+	}
+	body, ct = multipartBody(t, "metadata", map[string]any{"logpush": false}, nil)
+	if st, env, _ := c.raw("PATCH", acct+"/workers/scripts/w/settings", ct, body); st != 400 || len(env.Errors) != 1 || env.Errors[0].Code != 10021 {
+		t.Errorf("multipart patch without a settings part: %d %v", st, env.Errors)
+	}
+	if _, env, _ := c.do("GET", acct+"/workers/scripts/w/settings", nil); resultMap(t, env)["logpush"] != true {
+		t.Errorf("rejected patches changed settings: %v", env.Result)
+	}
+	_, env, _ = c.do("GET", acct+"/workers/scripts/w/versions", nil)
+	if items := resultMap(t, env)["items"].([]any); len(items) != 2 {
+		t.Errorf("rejected patches added versions: %d", len(items))
 	}
 }
 
@@ -357,6 +371,52 @@ func TestWorkerMultipartPassesSpecValidation(t *testing.T) {
 	for _, j := range s.Journal() {
 		if j.SchemaViolation != "" {
 			t.Errorf("%s %s: %s", j.Method, j.Path, j.SchemaViolation)
+		}
+	}
+}
+
+// The multipart bypass covers only Workers operations the spec declares multipart. A multipart
+// body sent to a JSON-only operation (Workers or not), and a JSON body sent to the multipart-only
+// settings PATCH, are schema violations: journaled, and rejected in reject mode.
+func TestMultipartBypassIsScoped(t *testing.T) {
+	if testing.Short() {
+		t.Skip("loads the 26 MB spec")
+	}
+	spec, err := LoadDefaultSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mp, mpCT := multipartBody(t, "metadata", map[string]any{"title": "ns", "enabled": true}, nil)
+	cases := []struct {
+		name, method, path, ct string
+		body                   []byte
+	}{
+		{"multipart to KV create", "POST", acct + "/storage/kv/namespaces", mpCT, mp},
+		{"multipart to Workers subdomain POST", "POST", acct + "/workers/scripts/w/subdomain", mpCT, mp},
+		{"JSON to settings PATCH", "PATCH", acct + "/workers/scripts/w/settings", "application/json", []byte(`{"logpush":true}`)},
+	}
+	for _, reject := range []bool{false, true} {
+		for _, tc := range cases {
+			s := New(Options{Spec: spec, RejectSchemaViolations: reject})
+			c := newClient(t, s)
+			if st, env, _ := c.upload("w", map[string]any{"main_module": "index.js", "compatibility_date": "2026-09-01"}); st != 200 {
+				t.Fatalf("upload: %d %v", st, env.Errors)
+			}
+			st, env, _ := c.raw(tc.method, tc.path, tc.ct, tc.body)
+			if st != 400 {
+				t.Errorf("%s (reject=%v): status %d, want 400", tc.name, reject, st)
+			}
+			if reject && (len(env.Errors) != 1 || env.Errors[0].Code != 10001) {
+				t.Errorf("%s: reject mode must answer 10001: %v", tc.name, env.Errors)
+			}
+			j := s.Journal()
+			last := j[len(j)-1]
+			if last.Method != tc.method || last.SchemaViolation == "" {
+				t.Errorf("%s (reject=%v): not journaled as a violation: %+v", tc.name, reject, last)
+			}
+			if j[0].SchemaViolation != "" {
+				t.Errorf("valid upload journaled as a violation: %s", j[0].SchemaViolation)
+			}
 		}
 	}
 }

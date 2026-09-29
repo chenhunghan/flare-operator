@@ -327,7 +327,7 @@ func TestResolve(t *testing.T) {
 	// Ready: client is cached; a rotated token builds a new one.
 	kube := newKube(t, readyAccount(1, 1, true), tokenSecret("t1"))
 	builds := 0
-	accts := reconcile.NewAccounts(kube, reconcile.WithClientFactory(func(o cfclient.Options) (cfclient.Client, error) {
+	accts := reconcile.NewAccounts(kube, reconcile.WithBaseURLPolicy(reconcile.BaseURLPolicy{AllowAny: true}), reconcile.WithClientFactory(func(o cfclient.Options) (cfclient.Client, error) {
 		builds++
 		if o.Token == "" || o.BaseURL == "" {
 			t.Errorf("options %+v", o)

@@ -106,11 +106,25 @@ func (s *Spec) ValidateRequest(r *http.Request, body []byte) error {
 			MultiError:         true,
 		},
 	}
-	// kin-openapi cannot decode the spec's multipart schemas (Workers script upload and settings
-	// PATCH fail with "unsupported schema of request body" even when valid), so for multipart
-	// bodies only the path and query are validated; the Workers profile parses the parts itself.
-	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" {
+	// kin-openapi cannot decode the spec's Workers multipart schemas (script upload and settings
+	// PATCH fail with "unsupported schema of request body" even when valid), so for a multipart
+	// body sent to a Workers operation that the spec declares multipart, only the path and query
+	// are validated; the Workers profile parses the parts itself. Every other request, including a
+	// multipart body sent to a JSON-only operation, has its body validated as usual.
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" && workersMultipartOp(route) {
 		in.Options.ExcludeRequestBody = true
 	}
 	return openapi3filter.ValidateRequest(context.Background(), in)
+}
+
+// workersMultipartOp reports whether route is a Workers operation (a path under
+// /accounts/{account_id}/workers/) whose pinned-spec request body accepts multipart/form-data.
+func workersMultipartOp(route *routers.Route) bool {
+	if route == nil || route.Operation == nil || route.Operation.RequestBody == nil || route.Operation.RequestBody.Value == nil {
+		return false
+	}
+	if !strings.HasPrefix(route.Path, "/accounts/{account_id}/workers/") {
+		return false
+	}
+	return route.Operation.RequestBody.Value.Content.Get("multipart/form-data") != nil
 }

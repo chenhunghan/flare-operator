@@ -114,12 +114,12 @@ const (
 	workerAuthorID    = "USER_ID"
 	workerAuthorEmail = "user@example.com"
 
-	workerTriggeredUpload   = "upload"                          // 0038, 0039, 0065
-	workerMessageUpload     = "Automatic deployment on upload." // 0039
-	workerTriggeredSettings = "settings"                        // UNVERIFIED: settings PATCH not recorded
-	workerMessageSettings   = "Automatic deployment on settings update."
-	workerDefaultUsageModel = "standard" // 0036
-	workerDefaultStartupMs  = 1          // 0036, 0183 (0062 and 0104 report 2)
+	workerTriggeredUpload   = "upload"                                   // 0038, 0039, 0065
+	workerMessageUpload     = "Automatic deployment on upload."          // 0039
+	workerTriggeredSettings = "settings"                                 // UNVERIFIED: settings PATCH not recorded
+	workerMessageSettings   = "Automatic deployment on settings update." // UNVERIFIED: settings PATCH not recorded
+	workerDefaultUsageModel = "standard"                                 // 0036
+	workerDefaultStartupMs  = 1                                          // 0036, 0183 (0062 and 0104 report 2)
 	workerVPCDocsURL        = "https://developers.cloudflare.com/workers-vpc/get-started/"
 )
 
@@ -238,11 +238,11 @@ func (w *workerScript) common() map[string]any {
 		"tags":               nullIfEmpty(w.Tags),          // null when never set (0036); UNVERIFIED when set
 		"tail_consumers":     nullIfEmpty(w.TailConsumers), // null when never set (0036); UNVERIFIED when set
 		"logpush":            w.Logpush,
-		"has_assets":         false, // assets upload not emulated
-		"has_modules":        w.MainModule != "",
+		"has_assets":         false,              // 0036 (assets upload not emulated)
+		"has_modules":        w.MainModule != "", // true for module syntax (0036); false for body_part UNVERIFIED
 		"etag":               w.Etag,
 		"handlers":           emptyIfNil(w.Handlers),
-		"last_deployed_from": "api",
+		"last_deployed_from": "api", // 0036, 0114
 		"compatibility_date": w.CompatDate,
 		"usage_model":        w.UsageModel,
 	}
@@ -453,7 +453,7 @@ func workerUpload(c *reqCtx) response {
 	if !exists {
 		w = &workerScript{Name: name, Tag: c.s.ids.next(hex32), Created: c.now, Seq: c.s.nextSeq()}
 	}
-	w.Modified = c.now
+	w.Modified = c.now // a re-upload advances modified_on and keeps created_on (0104)
 	w.MainModule, w.EntryPoint = mainModule, entry
 	w.CompatDate, w.CompatFlags = deref(md.CompatibilityDate), derefSlice(md.CompatibilityFlags)
 	w.UsageModel = workerDefaultUsageModel
@@ -462,9 +462,9 @@ func workerUpload(c *reqCtx) response {
 	}
 	w.Bindings = bindings
 	w.Observability = md.Observability
-	w.Logpush = md.Logpush != nil && *md.Logpush
+	w.Logpush = md.Logpush != nil && *md.Logpush // false when omitted (0036)
 	w.Tags, w.TailConsumers = derefSlice(md.Tags), derefSlice(md.TailConsumers)
-	w.Placement = nil
+	w.Placement = nil // reported as {} when omitted (0065)
 	if md.Placement != nil {
 		w.Placement = *md.Placement
 	}
@@ -508,30 +508,31 @@ func workerSettingsGet(c *reqCtx) response {
 	return ok(w.settingsJSON())
 }
 
-// workerSettingsPatch: PATCH …/settings merges the given fields. Entirely UNVERIFIED (not
-// recorded): the spec's multipart "settings" part is accepted, and so is a plain JSON body; a
-// change creates a new version deployed at 100%, like an upload; the response is the settings
-// object.
+// workerSettingsPatch: PATCH …/settings merges the given fields. No recording covers this route,
+// so it is entirely UNVERIFIED. The pinned spec declares only a multipart/form-data body with a
+// JSON "settings" part, so any other content type (a plain JSON body included) is rejected by
+// readParts with 400/10021 (UNVERIFIED: no recording shows the API's answer to a wrong content
+// type). A change creates a new version deployed at 100%, like an upload, and the response is
+// the settings object (both UNVERIFIED).
 func workerSettingsPatch(c *reqCtx) response {
 	w, found := c.account.scripts[c.params["script_name"]]
 	if !found {
-		return workerNotFound()
+		return workerNotFound() // UNVERIFIED for this route (10007 recorded for GET: 0109, 0143, 0211)
+	}
+	parts, r := readParts(c)
+	if r != nil {
+		return *r
+	}
+	raw, found := parts["settings"]
+	if !found {
+		return fail(http.StatusBadRequest, 10021, "Missing settings part.") // UNVERIFIED
 	}
 	var md workerMetadata
-	raw := c.body
-	if mt, _, _ := mime.ParseMediaType(c.r.Header.Get("Content-Type")); mt == "multipart/form-data" {
-		parts, r := readParts(c)
-		if r != nil {
-			return *r
-		}
-		if raw, found = parts["settings"]; !found {
-			return fail(http.StatusBadRequest, 10021, "Missing settings part.")
-		}
-	}
 	if r := decodeMetadata(raw, &md); r != nil {
 		return *r
 	}
 	if md.Bindings != nil {
+		// 400/10180 for an unknown VPC service is recorded for upload (0106); UNVERIFIED here.
 		if r := validateBindings(c.account, *md.Bindings); r != nil {
 			return *r
 		}
@@ -561,7 +562,7 @@ func workerSettingsPatch(c *reqCtx) response {
 	if md.Placement != nil {
 		w.Placement = *md.Placement
 	}
-	w.Modified = c.now
+	w.Modified = c.now // UNVERIFIED
 	c.newVersionAndDeployment(w, workerTriggeredSettings, workerMessageSettings)
 	return ok(w.settingsJSON())
 }
@@ -578,6 +579,7 @@ func workerVersionsList(c *reqCtx) response {
 	for i := len(w.Versions) - 1; i >= 0; i-- {
 		newest = append(newest, w.Versions[i])
 	}
+	// page/per_page query handling is UNVERIFIED (only the default first page is recorded).
 	pageItems, page, perPage, _ := paginate(newest, c.intQuery("page", 1), c.intQuery("per_page", 10), 10)
 	items := make([]any, 0, len(pageItems))
 	for _, v := range pageItems {
