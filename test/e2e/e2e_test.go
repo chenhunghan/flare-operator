@@ -547,7 +547,9 @@ func (s *suite) testUpdate(t *testing.T, o *objects) {
 	// A connector change is Kubernetes-only: no Cloudflare write.
 	s.patch(o.tunnel2, func() { o.tunnel2.Spec.Connector.Replicas = ptr.To[int32](2) })
 	// New code: exactly one upload (a new version), nothing else of the script.
-	s.patch(o.worker, func() { o.worker.Spec.ForProvider.Modules = map[string]workersv1alpha1.WorkerModule{"index.js": {Type: "esm", Content: workerCode("v2")}} })
+	s.patch(o.worker, func() {
+		o.worker.Spec.ForProvider.Modules = map[string]workersv1alpha1.WorkerModule{"index.js": {Type: "esm", Content: workerCode("v2")}}
+	})
 	// Every field of a Vectorize index is immutable: a change is refused (Synced=False,
 	// Immutable) without a write, and reverting it makes the object Synced again.
 	desc := *o.vec.Spec.ForProvider.Description
