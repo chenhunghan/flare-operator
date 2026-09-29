@@ -41,7 +41,10 @@ type KindConfig struct {
 	NotWriteOnly []string `json:"notWriteOnly,omitempty"`
 
 	DefaultDeletionPolicy string `json:"defaultDeletionPolicy,omitempty"` // Delete | Orphan
-	ListOrder             string `json:"listOrder,omitempty"`
+	// TagResourceType is the resource_type of the account-level Resource Tagging API
+	// (/accounts/{account_id}/tags) for ownership tags; "" disables ownership tagging.
+	TagResourceType string `json:"tagResourceType,omitempty"`
+	ListOrder       string `json:"listOrder,omitempty"`
 
 	// Fields overrides schema facts per dotted JSON path (e.g. "settings.delivery_delay"),
 	// applied to both forProvider and atProvider wherever the path exists.

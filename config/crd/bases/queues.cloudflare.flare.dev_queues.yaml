@@ -96,8 +96,6 @@ spec:
                         format: int64
                         type: integer
                     type: object
-                required:
-                - queue_name
                 type: object
               managementPolicies:
                 description: ManagementPolicies default to ["*"]. ["Observe"] makes
@@ -123,8 +121,15 @@ spec:
                 type: object
             required:
             - accountRef
-            - forProvider
             type: object
+            x-kubernetes-validations:
+            - fieldPath: .forProvider.queue_name
+              message: forProvider.queue_name is required unless managementPolicies
+                exclude Create (e.g. ["Observe"])
+              reason: FieldValueRequired
+              rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
+                == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
+                || (has(self.forProvider) && has(self.forProvider.queue_name))'
           status:
             description: QueueStatus defines the observed state of a Queue.
             properties:

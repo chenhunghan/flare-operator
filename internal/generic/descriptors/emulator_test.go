@@ -143,8 +143,9 @@ func TestDescriptorsAgainstFlarefake(t *testing.T) {
 	}
 	samples := map[string]struct{ create, update string }{
 		"KVNamespace": {`{"title":"flare-spike-kv-1"}`, `{"title":"flare-spike-kv-2"}`},
-		"Queue": {`{"queue_name":"flare-spike-q-1","settings":{"delivery_delay":5}}`,
-			`{"queue_name":"flare-spike-q-1","settings":{"delivery_delay":10,"message_retention_period":3600}}`},
+		// jurisdiction reads back (flarefake UNVERIFIED): no permanent drift for set jurisdictions.
+		"Queue": {`{"queue_name":"flare-spike-q-1","jurisdiction":"eu","settings":{"delivery_delay":5}}`,
+			`{"queue_name":"flare-spike-q-1","jurisdiction":"eu","settings":{"delivery_delay":10,"message_retention_period":3600}}`},
 		"D1Database": {`{"name":"flare-spike-d1-1","primary_location_hint":"WEUR","read_replication":{"mode":"disabled"}}`,
 			`{"name":"flare-spike-d1-1","primary_location_hint":"WEUR","read_replication":{"mode":"auto"}}`},
 	}
@@ -179,7 +180,7 @@ func TestDescriptorsAgainstFlarefake(t *testing.T) {
 			d := e.Descriptor
 			desired := forProvider(t, e, sm.create)
 
-			st, env := c.do(http.MethodPost, path(d.CreatePath, ""), pick(desired, e.CreateFields))
+			st, env := c.do(http.MethodPost, path(d.CreatePath, ""), pick(desired, d.CreateFields))
 			if st != http.StatusOK || !env.Success {
 				t.Fatalf("create: %d %+v", st, env.Errors)
 			}
@@ -192,7 +193,7 @@ func TestDescriptorsAgainstFlarefake(t *testing.T) {
 			observe(t, e, env.Result)
 
 			// Fields sent only on update (e.g. queue settings) need an update after create.
-			if extra := pick(desired, e.UpdateFields); len(extra) > 0 && d.UpdateMethod != "" {
+			if extra := pick(desired, d.UpdateFields); len(extra) > 0 && d.UpdateMethod != "" {
 				if st, env := c.do(d.UpdateMethod, path(d.ItemPath, id), extra); st != http.StatusOK {
 					t.Fatalf("post-create update: %d %+v", st, env.Errors)
 				}
@@ -210,7 +211,7 @@ func TestDescriptorsAgainstFlarefake(t *testing.T) {
 
 			// Update.
 			desired = forProvider(t, e, sm.update)
-			if st, env := c.do(d.UpdateMethod, path(d.ItemPath, id), pick(desired, e.UpdateFields)); st != http.StatusOK {
+			if st, env := c.do(d.UpdateMethod, path(d.ItemPath, id), pick(desired, d.UpdateFields)); st != http.StatusOK {
 				t.Fatalf("update: %d %+v", st, env.Errors)
 			}
 			checkObserved(t, c, e, id, desired)

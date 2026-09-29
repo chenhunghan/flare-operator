@@ -12,23 +12,28 @@ kinds:
   - fernGroup: kv.namespaces
     kind: KVNamespace
     defaultDeletionPolicy: Orphan
+    tagResourceType: kv_namespace
     listOrder: "id ascending by default; order=title and direction=asc|desc supported"
     why:
       kind: '"Namespace" alone would clash with the core kind in kubectl output'
       defaultDeletionPolicy: data-bearing (keys and values)
+      tagResourceType: "resource_type enum of the spec's tags-set; UNVERIFIED against live Resource Tagging"
       listOrder: kv-order-list-default, kv-order-list-title-asc, 0007/0008
       derived: "id/title from the get response (0006); rename is PUT (0009); jurisdiction is create-only"
 
   - fernGroup: queues
     kind: Queue
     defaultDeletionPolicy: Orphan
+    tagResourceType: queue
     immutable: [jurisdiction]
     fields:
       settings.delivery_delay: {type: integer}
       settings.message_retention_period: {type: integer}
     why:
       defaultDeletionPolicy: data-bearing (undelivered messages)
+      tagResourceType: "resource_type enum of the spec's tags-set; UNVERIFIED against live Resource Tagging"
       immutable: "UNVERIFIED: the spec lists jurisdiction in the PUT/PATCH bodies, but a queue's jurisdiction is fixed at creation"
+      jurisdiction: "read back from GET (atProvider.jurisdiction per the spec). No recording creates a queue with a jurisdiction (0028 has none and returns none); flarefake stores and returns it when set (UNVERIFIED)"
       fields: "spec says number; the API returns and accepts whole seconds (0028, 0032, 0033)"
       derived: "id field queue_id (0028); PATCH merges settings (0032) and is preferred over PUT, which resets omitted settings (0033)"
 
@@ -36,10 +41,12 @@ kinds:
     path: /accounts/{account_id}/d1/database
     kind: D1Database
     defaultDeletionPolicy: Orphan
+    tagResourceType: d1_database
     fields:
       primary_location_hint: {enum: [WNAM, ENAM, WEUR, EEUR, APAC, OC]}
     why:
       kind: '"Database" is too generic across groups'
       defaultDeletionPolicy: data-bearing (SQL data)
+      tagResourceType: "resource_type enum of the spec's tags-set; UNVERIFIED against live Resource Tagging"
       fields: "spec enum is lower-case; the API rejects other values and names the upper-case set (0019)"
       derived: "id field uuid (0017); PATCH read_replication (0023); name/jurisdiction/primary_location_hint are create-only; primary_location_hint is never read back (0020), so it is write-only"

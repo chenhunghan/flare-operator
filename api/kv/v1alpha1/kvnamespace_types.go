@@ -17,8 +17,9 @@ type KVNamespaceParameters struct {
 	Jurisdiction *string `json:"jurisdiction,omitempty"`
 	// Human-readable string name for a Workers KV namespace.
 	// +kubebuilder:validation:MaxLength=512
-	// +kubebuilder:validation:Required
-	Title string `json:"title"`
+	// Required unless managementPolicies exclude Create (CEL rule on the spec).
+	// +optional
+	Title *string `json:"title,omitempty"`
 }
 
 // KVNamespaceObservation is the KVNamespace as returned by GET /accounts/{account_id}/storage/kv/namespaces/{namespace_id}.
@@ -38,6 +39,7 @@ type KVNamespaceObservation struct {
 }
 
 // KVNamespaceSpec defines the desired state of a KVNamespace.
+// +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.title))",message="forProvider.title is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
 type KVNamespaceSpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
 	// ForProvider holds the Cloudflare API fields, named exactly as in the API.

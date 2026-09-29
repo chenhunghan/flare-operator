@@ -19,7 +19,12 @@
 // Per kind (generator.yaml can override each):
 //
 //   - forProvider = create body ∪ chosen update body, readOnly properties removed.
-//     Top-level required = required by the create body (nothing for singletons).
+//     Top-level fields the create body requires (nothing for singletons) are
+//     optional pointers in Go and required by a CEL rule on spec only when the
+//     managementPolicies allow Create, so an Observe-only object need not set them.
+//   - Descriptor.CreateFields / UpdateFields: the top-level forProvider fields the
+//     create and chosen update bodies accept (immutable fields removed from
+//     UpdateFields).
 //   - atProvider = the "result" of the get response envelope (the create response
 //     if there is no get), writeOnly properties removed.
 //   - UpdateMethod: PATCH ("edit", or an "update" that is PATCH) is preferred
@@ -72,7 +77,7 @@
 //     applied by the API, not by Kubernetes).
 //  8. Field names in JSON are exactly the API's; Go names are CamelCase with
 //     common initialisms (queue_id → QueueID). Optional scalars and objects are
-//     pointers; required ones are values.
+//     pointers; required ones (below the top level of forProvider) are values.
 //
 // Output: api/<product>/v1alpha1 (types, groupversion_info.go, deepcopy),
 // config/crd/bases/<group>_<plural>.yaml, and

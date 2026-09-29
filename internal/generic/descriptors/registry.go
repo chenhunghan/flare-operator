@@ -16,10 +16,9 @@ type Entry struct {
 
 	// FernGroup is the x-fern-sdk-group-name the kind was generated from.
 	FernGroup string
-	// CreateFields and UpdateFields are the top-level forProvider fields that
-	// the create and update request bodies accept (per the spec). Fields in
-	// neither list are never sent; UpdateFields is empty without UpdateMethod.
-	CreateFields, UpdateFields []string
+	// TagResourceType is the Resource Tagging resource_type used for the
+	// ownership tag (generator.yaml tagResourceType); "" disables tagging.
+	TagResourceType string
 
 	// New returns an empty object of the kind; NewList an empty list.
 	New     func() commonv1alpha1.Managed

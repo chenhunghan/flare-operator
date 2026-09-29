@@ -106,8 +106,8 @@ func TestBuildKindDescriptor(t *testing.T) {
 			t.Errorf("Descriptor.%s = %#v, want %#v", f, g, w)
 		}
 	}
-	if contains(m.UpdateFields, "region") || !contains(m.CreateFields, "region") {
-		t.Errorf("CreateFields=%v UpdateFields=%v", m.CreateFields, m.UpdateFields)
+	if contains(d.UpdateFields, "region") || !contains(d.CreateFields, "region") {
+		t.Errorf("CreateFields=%v UpdateFields=%v", d.CreateFields, d.UpdateFields)
 	}
 }
 
@@ -218,11 +218,15 @@ func TestFlattening(t *testing.T) {
 	if o.Field("id") == nil || o.Field("secret") != nil {
 		t.Error("atProvider must have id and not the writeOnly secret")
 	}
-	// Top-level required from the create body only.
+	// Top-level required from the create body only, and only via CreateRequired
+	// (a CEL rule): the schema itself requires nothing at the top level.
 	for _, f := range p.Fields {
-		if want := f.JSONName == "name" || f.JSONName == "kind"; f.Required != want {
-			t.Errorf("forProvider.%s required=%v", f.JSONName, f.Required)
+		if f.Required {
+			t.Errorf("forProvider.%s required=true; top-level fields are required by CEL only", f.JSONName)
 		}
+	}
+	if !reflect.DeepEqual(m.CreateRequired, []string{"kind", "name"}) && !reflect.DeepEqual(m.CreateRequired, []string{"name", "kind"}) {
+		t.Errorf("CreateRequired = %v, want kind and name", m.CreateRequired)
 	}
 	// oneOf of objects → one object; discriminator enum unioned; required intersected.
 	origin := field(p, "origin")

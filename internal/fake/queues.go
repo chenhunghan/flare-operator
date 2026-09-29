@@ -18,6 +18,9 @@ type queue struct {
 	DeliveryDelay int
 	Retention     int
 	Seq           int64
+	// Jurisdiction is set at create only. UNVERIFIED: no recording creates a queue with a
+	// jurisdiction; the spec lists it in the create body and in the queue object.
+	Jurisdiction string
 }
 
 type queueSettings struct {
@@ -33,11 +36,15 @@ const (
 )
 
 func (q *queue) json() map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"queue_id": q.ID, "queue_name": q.Name,
 		"settings":   map[string]any{"delivery_delay": q.DeliveryDelay, "message_retention_period": q.Retention},
 		"created_on": tsMicro(q.Created), "modified_on": tsMicro(q.Modified),
 	}
+	if q.Jurisdiction != "" {
+		m["jurisdiction"] = q.Jurisdiction // UNVERIFIED: returned only when set (0028 has none)
+	}
+	return m
 }
 
 // getJSON adds producer/consumer summaries, which only GET returns (0031 vs 0032).
@@ -80,8 +87,9 @@ func queueNotFound(id string) response {
 
 func queueCreate(c *reqCtx) response {
 	var req struct {
-		QueueName string         `json:"queue_name"`
-		Settings  *queueSettings `json:"settings"`
+		QueueName    string         `json:"queue_name"`
+		Settings     *queueSettings `json:"settings"`
+		Jurisdiction string         `json:"jurisdiction"`
 	}
 	if r := c.decodeJSON(&req); r != nil {
 		return *r
@@ -93,7 +101,7 @@ func queueCreate(c *reqCtx) response {
 		return *r
 	}
 	q := &queue{ID: c.s.ids.next(hex32), Name: req.QueueName, Created: c.now, Modified: c.now,
-		DeliveryDelay: queueDefaultDelay, Retention: queueDefaultRetention, Seq: c.s.nextSeq()}
+		DeliveryDelay: queueDefaultDelay, Retention: queueDefaultRetention, Seq: c.s.nextSeq(), Jurisdiction: req.Jurisdiction}
 	applyQueueSettings(q, req.Settings)
 	c.account.queues[q.ID] = q
 	return ok(q.json())

@@ -14,8 +14,9 @@ type QueueParameters struct {
 	// +kubebuilder:validation:Enum="eu";"us";"fedramp"
 	// +optional
 	Jurisdiction *string `json:"jurisdiction,omitempty"`
-	// +kubebuilder:validation:Required
-	QueueName string `json:"queue_name"`
+	// Required unless managementPolicies exclude Create (CEL rule on the spec).
+	// +optional
+	QueueName *string `json:"queue_name,omitempty"`
 	// +optional
 	Settings *QueueSettingsParameters `json:"settings,omitempty"`
 }
@@ -134,6 +135,7 @@ type QueueSettingsObservation struct {
 }
 
 // QueueSpec defines the desired state of a Queue.
+// +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.queue_name))",message="forProvider.queue_name is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
 type QueueSpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
 	// ForProvider holds the Cloudflare API fields, named exactly as in the API.

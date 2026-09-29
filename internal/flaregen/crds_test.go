@@ -177,7 +177,9 @@ func TestSampleObjects(t *testing.T) {
 		valid bool
 	}{
 		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, forProvider: {title: flare-spike-kv}}}`, true},
-		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, forProvider: {}}}`, false}, // title required
+		// title is required by a CEL rule (checked in envtest), not by the OpenAPI schema.
+		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, forProvider: {}}}`, true},
+		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, managementPolicies: [Observe]}}`, true},
 		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, forProvider: {title: x, jurisdiction: mars}}}`, false},
 		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {forProvider: {title: x}}}`, false}, // accountRef required
 		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, deletionPolicy: Keep, forProvider: {title: x}}}`, false},

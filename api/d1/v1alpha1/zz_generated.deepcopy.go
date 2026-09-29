@@ -69,6 +69,11 @@ func (in *D1DatabaseParameters) DeepCopyInto(out *D1DatabaseParameters) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.Name != nil {
+		in, out := &in.Name, &out.Name
+		*out = new(string)
+		**out = **in
+	}
 	if in.PrimaryLocationHint != nil {
 		in, out := &in.PrimaryLocationHint, &out.PrimaryLocationHint
 		*out = new(string)

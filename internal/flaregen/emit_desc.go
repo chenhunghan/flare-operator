@@ -64,13 +64,16 @@ func emitDescriptors(module string, kinds []*KindModel) ([]byte, error) {
 		if d.ListOrder != "" {
 			fmt.Fprintf(&b, "\t\t\tListOrder: %q,\n", d.ListOrder)
 		}
+		if len(d.CreateFields) > 0 {
+			fmt.Fprintf(&b, "\t\t\tCreateFields: %s,\n", goStrings(d.CreateFields))
+		}
+		if len(d.UpdateFields) > 0 {
+			fmt.Fprintf(&b, "\t\t\tUpdateFields: %s,\n", goStrings(d.UpdateFields))
+		}
 		fmt.Fprintf(&b, "\t\t\tDefaultDeletionPolicy: %q,\n\t\t},\n", d.DefaultDeletionPolicy)
 		fmt.Fprintf(&b, "\t\tFernGroup: %q,\n", m.Resource.FernGroup)
-		if len(m.CreateFields) > 0 {
-			fmt.Fprintf(&b, "\t\tCreateFields: %s,\n", goStrings(m.CreateFields))
-		}
-		if len(m.UpdateFields) > 0 {
-			fmt.Fprintf(&b, "\t\tUpdateFields: %s,\n", goStrings(m.UpdateFields))
+		if m.TagResourceType != "" {
+			fmt.Fprintf(&b, "\t\tTagResourceType: %q,\n", m.TagResourceType)
 		}
 		fmt.Fprintf(&b, "\t\tNew: func() commonv1alpha1.Managed { return &%s.%s{} },\n", a, m.Kind)
 		fmt.Fprintf(&b, "\t\tNewList: func() runtime.Object { return &%s.%sList{} },\n\t},\n", a, m.Kind)

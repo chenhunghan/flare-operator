@@ -107,7 +107,6 @@ spec:
                 type: object
             required:
             - accountRef
-            - forProvider
             - zoneRef
             type: object
           status:
