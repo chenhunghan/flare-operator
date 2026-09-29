@@ -114,8 +114,10 @@ UNVERIFIED):
   steps below before you delete the Application.
 
 **Tested path.** `make e2e-upgrade` installs the chart and manager of a previous git ref
-(default: the latest tag, else the merge base with `main`), creates an account, a KVNamespace,
-a Queue, a D1Database and a Tunnel, runs `make crds-apply` and `helm upgrade` to the current
+(default: the latest tag; without one, the merge base with `main` when HEAD is on another
+branch, else `HEAD~1`, so on `main` it tests an upgrade from the previous commit only), creates
+an account, a KVNamespace, a Queue, a D1Database and a Tunnel, runs `make crds-apply` and the
+documented `helm upgrade --reset-then-reuse-values` to the current
 checkout, and checks:
 
 - the objects stay Ready with the same Cloudflare IDs;
@@ -219,7 +221,11 @@ selects with `metrics.serviceMonitor.labels`.
 Logs are zap JSON on stderr (`logging.encoder=console` for development). `logging.level=debug`
 adds the controllers' debug messages. Reconcile log lines carry `controller`, `namespace`,
 `name` and `reconcileID`, so `kubectl logs deploy/flare-operator | jq 'select(.name=="sessions")'` follows
-one object. Events are the other half: `kubectl get events -n <ns> --field-selector
+one object. With `replicas` above 1, `kubectl logs deploy/…` picks an arbitrary pod, often the
+standby, which logs nothing but leader election. Read the leader's logs instead: its pod name
+is the Lease holder (`kubectl -n flare-system get lease flare-operator.cloudflare.flare.dev -o
+jsonpath='{.spec.holderIdentity}'`, up to the first `_`), or use
+`kubectl -n flare-system logs -l app.kubernetes.io/component=manager --prefix`. Events are the other half: `kubectl get events -n <ns> --field-selector
 involvedObject.name=<name>` shows `ExternalResourceKept` and `ForeignOwnerTunnelKept` warnings.
 
 ## High availability and leader election

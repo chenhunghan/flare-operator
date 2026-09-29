@@ -78,7 +78,7 @@ toolchain has no helm-docs generator; the test takes its place.
 | `baseURLOverride.allowed` | array | `[]` | `--allowed-base-url`, once per entry: honour exactly these `spec.baseURL` values. |
 | `reconcile.pollInterval` | string | `""` | `--poll-interval`, a Go duration, minimum `10s`. Empty keeps the controller defaults (5m for generated kinds, 10m for Tunnel, VPCService and WorkerScript). |
 | `reconcile.maxConcurrentReconciles` | integer | `1` | `--max-concurrent-reconciles`: parallel reconciles per controller. All workers of a token share its rate limit. |
-| `reconcile.timeout` | string | `"5m"` | `--reconcile-timeout`: context deadline of one reconcile (`0` disables it). |
+| `reconcile.timeout` | string | `"5m"` | `--reconcile-timeout`: context deadline of one reconcile. `"0"` (quoted, or `--set-string`) or `0s` disables it; empty keeps the manager default (5m). |
 | `reconcile.cloudflareRequestTimeout` | string | `"60s"` | `--cloudflare-request-timeout`: timeout of one Cloudflare API HTTP request. |
 | `logging.level` | string or integer | `"info"` | `--zap-log-level`: `debug`, `info`, `error`, `panic`, or an integer verbosity. |
 | `logging.encoder` | string | `"json"` | `--zap-encoder`: `json` or `console`. |

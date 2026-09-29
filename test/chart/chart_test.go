@@ -49,6 +49,10 @@ func renderDir(t *testing.T, dir string, sets ...string) (map[string][][]byte, s
 	}
 	args := []string{"template", "flare-operator", dir, "-n", "flare-system"}
 	for _, s := range sets {
+		if v, ok := strings.CutPrefix(s, "string:"); ok {
+			args = append(args, "--set-string", v)
+			continue
+		}
 		args = append(args, "--set", s)
 	}
 	var out, stderr bytes.Buffer
@@ -318,6 +322,14 @@ func TestSchemaRejects(t *testing.T) {
 	}
 	// Values the schema must keep accepting.
 	mustRender(t, "clusterName=Prod_eu-1.example", "podDisruptionBudget.maxUnavailable=1", "global.foo=bar", "logging.level=2")
+	// reconcile.timeout "0" disables the deadline, as documented.
+	for _, set := range []string{"string:reconcile.timeout=0", "reconcile.timeout=0s"} {
+		d := manager(t, mustRender(t, set))
+		want := "--reconcile-timeout=" + strings.SplitN(set, "=", 2)[1]
+		if !slices.Contains(d.Spec.Template.Spec.Containers[0].Args, want) {
+			t.Errorf("--set %s: args %v lack %s", set, d.Spec.Template.Spec.Containers[0].Args, want)
+		}
+	}
 }
 
 // TestClusterNameRequired checks that an install without clusterName fails. With a shared
