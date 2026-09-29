@@ -1,0 +1,19 @@
+# An AI Gateway gateway. Emulated by flarefake's generic profile (UNVERIFIED; see
+# docs/generator-scaleout.md). The client chooses the id (create-only); the rest is updated
+# with PUT. There is no name field, so an existing gateway is not adopted by name: set the
+# cloudflare.flare.dev/external-id annotation to the id to adopt one.
+apiVersion: aigateway.cloudflare.flare.dev/v1alpha1
+kind: AIGateway
+metadata:
+  name: app-gateway
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    id: app-gateway
+    cache_invalidate_on_update: true
+    cache_ttl: 300               # seconds
+    collect_logs: true
+    rate_limiting_interval: 60   # seconds
+    rate_limiting_limit: 100
+    rate_limiting_technique: sliding  # fixed | sliding

@@ -376,6 +376,7 @@ func TestParseConfig(t *testing.T) {
 		"kinds:\n- fernGroup: a\n  updateMethod: POST\n",
 		"kinds:\n- fernGroup: a\n  fields: {x: {type: object}}\n",
 		"kinds:\n- fernGroup: a\n  typo: 1\n",
+		"kinds:\n- fernGroup: a\n  emulate: handwritten\n",
 	} {
 		if _, err := ParseConfig([]byte(bad)); err == nil {
 			t.Errorf("accepted %q", bad)

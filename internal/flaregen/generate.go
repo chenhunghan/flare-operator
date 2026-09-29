@@ -32,6 +32,9 @@ const (
 	// RBACFile carries the kubebuilder RBAC markers of the generic controllers
 	// (make manifests collects them into config/rbac).
 	RBACFile = "internal/generic/kinds/zz_generated.rbac.go"
+	// FakeKindsFile lists the kinds flarefake emulates with its generic profile
+	// (generator.yaml emulate: generic).
+	FakeKindsFile = "internal/fake/zz_generated_generic.go"
 )
 
 // SelectResource finds the resource a generator.yaml entry names.
@@ -150,6 +153,11 @@ func Generate(doc *openapi3.T, cfg *Config, opts Options) (*Output, error) {
 		return nil, err
 	}
 	out.Files[RBACFile] = rbac
+	fk, err := emitFakeKinds(out.Kinds)
+	if err != nil {
+		return nil, err
+	}
+	out.Files[FakeKindsFile] = fk
 	return out, nil
 }
 
@@ -202,6 +210,7 @@ func existingGenerated(root string) ([]string, error) {
 		filepath.Join(root, CRDDir, "*.yaml"),
 		filepath.Join(root, filepath.FromSlash(DescriptorFile)),
 		filepath.Join(root, filepath.FromSlash(RBACFile)),
+		filepath.Join(root, filepath.FromSlash(FakeKindsFile)),
 	}
 	for _, p := range patterns {
 		matches, err := filepath.Glob(p)

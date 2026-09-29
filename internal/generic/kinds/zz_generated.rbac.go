@@ -4,6 +4,9 @@ package kinds
 
 // RBAC of the generic controllers, one block per generated kind.
 //
+// +kubebuilder:rbac:groups=aigateway.cloudflare.flare.dev,resources=aigateways,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=aigateway.cloudflare.flare.dev,resources=aigateways/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=aigateway.cloudflare.flare.dev,resources=aigateways/finalizers,verbs=update
 // +kubebuilder:rbac:groups=d1.cloudflare.flare.dev,resources=d1databases,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=d1.cloudflare.flare.dev,resources=d1databases/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=d1.cloudflare.flare.dev,resources=d1databases/finalizers,verbs=update
@@ -13,6 +16,12 @@ package kinds
 // +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues/finalizers,verbs=update
+// +kubebuilder:rbac:groups=secretsstore.cloudflare.flare.dev,resources=secretsstores,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=secretsstore.cloudflare.flare.dev,resources=secretsstores/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=secretsstore.cloudflare.flare.dev,resources=secretsstores/finalizers,verbs=update
+// +kubebuilder:rbac:groups=vectorize.cloudflare.flare.dev,resources=vectorizeindexes,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=vectorize.cloudflare.flare.dev,resources=vectorizeindexes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=vectorize.cloudflare.flare.dev,resources=vectorizeindexes/finalizers,verbs=update
 // +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 

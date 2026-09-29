@@ -1,0 +1,15 @@
+# A Vectorize (v2) vector index. Emulated by flarefake's generic profile (UNVERIFIED; see
+# docs/generator-scaleout.md). The v2 API has no update: every field is create-only.
+apiVersion: vectorize.cloudflare.flare.dev/v1alpha1
+kind: VectorizeIndex
+metadata:
+  name: embeddings
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    name: embeddings             # also the ID (the item path takes the index name)
+    description: document embeddings
+    config:                      # dimensions + metric, or a preset
+      dimensions: 768
+      metric: cosine             # cosine | euclidean | dot-product
