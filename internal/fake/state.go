@@ -11,6 +11,7 @@ type account struct {
 	tunnels map[string]*tunnel
 	vnets   map[string]*virtualNetwork
 	vpc     map[string]*vpcService
+	scripts map[string]*workerScript
 }
 
 func (s *Server) accountLocked(id string) *account {
@@ -24,6 +25,7 @@ func (s *Server) accountLocked(id string) *account {
 			tunnels: map[string]*tunnel{},
 			vnets:   map[string]*virtualNetwork{},
 			vpc:     map[string]*vpcService{},
+			scripts: map[string]*workerScript{},
 		}
 		s.accounts[id] = a
 	}

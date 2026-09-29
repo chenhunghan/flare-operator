@@ -66,16 +66,36 @@ var scenarios = []scenario{
 	}},
 	{name: "queues", include: func(l string) bool { return strings.HasPrefix(l, "q-") || l == "final-queues" }},
 	{
-		name: "tunnel+vpc",
+		// One timeline: the Workers VPC spike binds a Worker to the VPC services (0062, 0106) while
+		// the logs spike's Worker exists alongside it (0114, 0120 list it).
+		name: "tunnel+vpc+workers",
 		include: func(l string) bool {
-			return strings.HasPrefix(l, "vpc-") && !strings.Contains(l, "worker") || strings.HasPrefix(l, "vnet-") ||
-				oneOf(l, "final-virtual-networks", "final-tunnels-active", "final-vpc-services", "verify-tunnels", "verify-vpc")
+			return strings.HasPrefix(l, "vpc-") || strings.HasPrefix(l, "vnet-") ||
+				oneOf(l, "final-virtual-networks", "final-tunnels-active", "final-vpc-services", "verify-tunnels", "verify-vpc") ||
+				oneOf(l, "subdomain-get", "scripts-list", "logs-upload", "logs-subdomain-enable", "logs-versions-list",
+					"logs-deployments-list", "logs-upload-v2", "logs-script-delete", "logs-script-get-after-delete",
+					"logs-scripts-list-final", "verify-scripts", "final-workers-scripts")
 		},
 		before: map[string]func(s *Server){
 			// The tunnel create also auto-creates the default virtual network (0160); queue its ID.
 			"vpc-tunnel-create":            func(s *Server) { s.EnqueueIDs(tunnelID, "32c0a24c-c920-4a50-8475-643853700c5b") },
 			"vpc-tunnel-connections-poll1": func(s *Server) { s.ConnectTunnel("ACCOUNT_ID", tunnelID, 1, 4) },
 			"vpc-tunnel-get-after-kill":    func(s *Server) { s.DisconnectTunnel("ACCOUNT_ID", tunnelID) },
+			// Script uploads consume tag (new scripts only), version ID, deployment ID, etag. The
+			// deployment IDs of 0062/0104 were never listed, so any UUID will do.
+			"logs-upload": func(s *Server) {
+				s.EnqueueIDs("f96f372e1ac34f71af8a7a12573f0d01", "2bbbf05d-a4dd-495b-bbb3-7121f176550e",
+					"e0166a02-dbba-4044-a8a8-04b017c19614", "727ab41b8d35355cb536ad52aa97452357ea4ba3196b3ff3c91a2e1d8b8f7f4c")
+			},
+			"vpc-worker-upload": func(s *Server) {
+				s.SetWorkerStartupTime(2)
+				s.EnqueueIDs("0c4f57ff0b02429388f1a47846ec4778", "dfc59c32-1bd3-4f5a-9554-16f398ba3026",
+					unlistedDeploymentID, "307dd4d0bd52bad574443e71714201b466dee3008fc4af5580ae65c09ffaee5d")
+			},
+			"logs-upload-v2": func(s *Server) {
+				s.EnqueueIDs("1b8ff0e5-5b98-4a00-9f78-f3894e14c37b", unlistedDeploymentID,
+					"c9a68a769728b1405d3215a896f01f6ebbadd7f2800dd61b52fe7b6079ce06e1")
+			},
 		},
 	},
 	{
@@ -83,18 +103,26 @@ var scenarios = []scenario{
 		// account-wide verification listings taken after it.
 		name: "k8s",
 		include: func(l string) bool {
-			return strings.HasPrefix(l, "k8s-") && !strings.Contains(l, "worker") && !strings.Contains(l, "hyperdrive") ||
-				oneOf(l, "final2-tunnels-active", "final2-vpc-services", "final2-kv", "final2-d1", "final2-queues", "final2-vnets")
+			return strings.HasPrefix(l, "k8s-") && !strings.Contains(l, "hyperdrive") ||
+				oneOf(l, "final2-tunnels-active", "final2-vpc-services", "final2-kv", "final2-d1", "final2-queues", "final2-vnets",
+					"final2-scripts")
 		},
 		before: map[string]func(s *Server){
 			"k8s-tunnel-create":              func(s *Server) { s.EnqueueIDs(k8sTunnelID, "32c0a24c-c920-4a50-8475-643853700c5b") },
 			"k8s-tunnel-connections":         func(s *Server) { s.ConnectTunnel("ACCOUNT_ID", k8sTunnelID, 1, 4) },
 			"k8s-cleanup-tunnel-connections": func(s *Server) { s.DisconnectTunnel("ACCOUNT_ID", k8sTunnelID) },
+			"k8s-worker-upload": func(s *Server) {
+				s.EnqueueIDs("7fef574e072345ac9fa88b7df8e5a643", "29701f99-1c74-4f29-b400-c376f7f1d585",
+					unlistedDeploymentID, "13e6d7f2cdbb55bcb2ab507b29c239c7909bb2281731582288f750baa27a538e")
+			},
 		},
 	},
 }
 
 const k8sTunnelID = "2c2ebad5-acd8-472f-8d20-bd5b78b34083"
+
+// unlistedDeploymentID stands in for deployment IDs that no recording reveals.
+const unlistedDeploymentID = "00000000-0000-4000-8000-000000000000"
 
 func loadRecordings(t *testing.T) []recording {
 	t.Helper()
@@ -202,15 +230,23 @@ func replay(t *testing.T, srv *Server, base string, rec recording) {
 	}
 
 	var body []byte
+	contentType := "application/json"
 	if len(rec.RequestBody) > 0 && string(rec.RequestBody) != "null" {
 		var v any
 		_ = json.Unmarshal(rec.RequestBody, &v)
-		body, _ = json.Marshal(v) // compact, keys sorted — matches how the spike sent them
+		if raw, isStr := v.(string); isStr && strings.HasPrefix(raw, "--") && strings.Contains(raw, "\r\n") {
+			// A multipart upload (Workers scripts) is recorded verbatim; its first line is
+			// "--" + boundary.
+			body = []byte(raw)
+			contentType = "multipart/form-data; boundary=" + strings.TrimPrefix(raw[:strings.Index(raw, "\r\n")], "--")
+		} else {
+			body, _ = json.Marshal(v) // compact, keys sorted — matches how the spike sent them
+		}
 	}
 	req, _ := http.NewRequest(rec.Method, base+"/client/v4"+rec.Path, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer test-token")
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
