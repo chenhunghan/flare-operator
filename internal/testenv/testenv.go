@@ -31,6 +31,7 @@ package testenv
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"net/http/httptest"
@@ -200,10 +201,15 @@ func (e *Env) Stop() error {
 // Main is a TestMain body: it starts the harness into *out, runs the tests and stops it. When
 // the envtest assets are missing it prints why, leaves *out nil and still runs the tests
 // (Require skips them), so packages mixing unit and envtest tests keep their unit coverage.
+//
+// Main also turns on strict response validation (see StrictMain): every flarefake response in
+// the package's tests is checked against the pinned spec, and the run fails on a violation that
+// internal/fake's responseAllowlist does not cover. opts.Fake.NoStrictResponses opts out.
 func Main(m *testing.M, out **Env, opts Options) {
+	enableStrictResponses()
 	if _, ok := Assets(); !ok {
 		fmt.Fprintln(os.Stderr, "testenv: "+MissingAssetsMessage())
-		os.Exit(m.Run())
+		os.Exit(strictExit(m.Run()))
 	}
 	e, err := Start(opts)
 	if err != nil {
@@ -215,7 +221,40 @@ func Main(m *testing.M, out **Env, opts Options) {
 	if err := e.Stop(); err != nil {
 		fmt.Fprintln(os.Stderr, "testenv: stop: "+err.Error())
 	}
-	os.Exit(code)
+	os.Exit(strictExit(code))
+}
+
+// StrictMain is a TestMain body for packages that run flarefake without the envtest harness:
+// it validates every flarefake response against the pinned spec (except under -short, which
+// skips loading the 26 MB spec) and fails the run on violations the allowlist does not cover.
+func StrictMain(m *testing.M) {
+	enableStrictResponses()
+	os.Exit(strictExit(m.Run()))
+}
+
+func enableStrictResponses() {
+	if !flag.Parsed() {
+		flag.Parse()
+	}
+	if testing.Short() {
+		return
+	}
+	spec, err := fake.LoadDefaultSpec()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "testenv: load spec: "+err.Error())
+		os.Exit(1)
+	}
+	fake.EnableStrictResponses(spec)
+}
+
+func strictExit(code int) int {
+	if err := fake.StrictResponseError(); err != nil {
+		fmt.Fprintln(os.Stderr, "testenv: "+err.Error())
+		if code == 0 {
+			code = 1
+		}
+	}
+	return code
 }
 
 // Require returns e, or skips t when the harness is not running.

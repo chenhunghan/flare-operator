@@ -120,8 +120,20 @@ func d1List(c *reqCtx) response {
 	return okList(out, PageInfo{Count: len(out), Page: intp(page), PerPage: intp(perPage), TotalCount: intp(len(items))})
 }
 
+// d1Get also finds a database by its exact name in place of the UUID: wrangler resolves names
+// with GET …/d1/database/{name}?fields=uuid,name. SOURCED (relies):
+// cloudflare/workers-sdk@485cfb3:packages/wrangler/src/d1/utils.ts#L93-L98, and the spec's
+// database_id parameter is a oneOf of a UUID and a name. The fields filter is ignored (the whole
+// object is returned; wrangler reads only uuid and name): UNVERIFIED.
 func d1Get(c *reqCtx) response {
 	d, found := c.account.d1[c.params["database_id"]]
+	if !found {
+		for _, x := range c.account.d1 {
+			if x.Name == c.params["database_id"] {
+				d, found = x, true
+			}
+		}
+	}
 	if !found {
 		return d1NotFound(c.params["database_id"])
 	}

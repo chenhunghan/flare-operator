@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -13,19 +14,23 @@ import (
 
 // Resource Tagging (account level): GET / PUT / DELETE /accounts/{account_id}/tags.
 //
-// UNVERIFIED: no recording exists yet. The model follows the pinned spec (operationIds tags-get,
-// tags-set, tags-delete) and docs/cloudflare-service-catalog.md:
-//   - PUT replaces the whole tag map (replace-all, not merge).
-//   - GET on a resource that was never tagged answers 500 (catalog note; the error code is
-//     unknown, 1000-range placeholder used here).
-//   - DELETE removes all tags and answers 204 with no body (spec); later GETs return an empty map.
+// No recording exists yet. The model follows the pinned spec (operationIds tags-get, tags-set,
+// tags-delete, tags-list) and the docs (DOCS below:
+// https://developers.cloudflare.com/resource-tagging/how-to/manage-tags/ and
+// https://developers.cloudflare.com/resource-tagging/how-to/filter-resources/):
+//   - PUT replaces the whole tag map ("This operation replaces all existing tags"; DOCS).
+//   - GET on a resource that was never tagged (or does not exist) answers 500 (DOCS); the error
+//     code is UNVERIFIED (1000 used here).
+//   - DELETE removes all tags and answers "204 No Content" (DOCS); later GETs return an empty map.
 //   - The etag is "v1:" + base64url(sha256(canonical tags JSON)[:16]) (spec description) and
-//     If-Match mismatches answer 412 (spec; error code UNVERIFIED).
+//     If-Match mismatches answer 412 (spec; the docs do not mention If-Match; error code
+//     UNVERIFIED).
 //   - The emulator does not check that the tagged resource exists.
-//   - GET /tags/resources (tags-list) lists resources that currently carry at least one tag, in
-//     one page (result_info.cursor ""), filtered by type/id/name/tag as the spec describes.
-//     Whether resources whose tags were all deleted are listed, the ordering and the page size
-//     are UNVERIFIED; the live endpoint may also lag writes (it is an index).
+//   - GET /tags/resources (tags-list) lists resources that currently carry at least one tag,
+//     filtered by type/id/name/tag, with cursor pagination at a fixed page size of 100 and a
+//     null cursor on the last page, and at most 20 tag filters (else code 1010) (DOCS). Whether
+//     resources whose tags were all deleted are listed, the ordering and the cursor format are
+//     UNVERIFIED; the live endpoint may also lag writes (it is an index).
 
 // tagResourceTypes are the account-level resource_type values of the pinned spec's tags-set.
 var tagResourceTypes = map[string]bool{
@@ -151,7 +156,7 @@ func tagsGet(c *reqCtx) response {
 	}
 	rec, found := c.tagStore()[tagKey(typ, id, worker)]
 	if !found {
-		// docs/cloudflare-service-catalog.md: never-tagged resources answer 500.
+		// never-tagged resources answer 500. DOCS: https://developers.cloudflare.com/resource-tagging/how-to/manage-tags/
 		return fail(http.StatusInternalServerError, 1000, "Internal Server Error")
 	}
 	return ok(rec.json(c.tagResourceName(typ, id)))
@@ -236,8 +241,8 @@ func tagsDelete(c *reqCtx) response {
 	return response{status: http.StatusNoContent}
 }
 
-// tagsList: GET /accounts/{account_id}/tags/resources. UNVERIFIED (no recording): see the
-// package comment above.
+// tagsList: GET /accounts/{account_id}/tags/resources (no recording; evidence and open points
+// in the package comment above).
 func tagsList(c *reqCtx) response {
 	q := c.query
 	types := map[string]bool{}
@@ -256,6 +261,9 @@ func tagsList(c *reqCtx) response {
 	}
 	fold := q.Get("case_insensitive") == "true"
 	name := strings.ToLower(q.Get("name"))
+	if len(q["tag"]) > 20 { // DOCS (filter-resources): "Maximum of 20 tag filters per query (error code 1010 if exceeded)"
+		return fail(http.StatusBadRequest, 1010, "too many tag filters (maximum 20)") // status and message UNVERIFIED
+	}
 	var filters []func(map[string]string) bool
 	for _, expr := range q["tag"] {
 		f, valid := parseTagFilter(expr, fold)
@@ -291,7 +299,43 @@ func tagsList(c *reqCtx) response {
 			out = append(out, rec.json(rname))
 		}
 	}
-	return okList(out, map[string]any{"count": len(out), "cursor": ""})
+	// Cursor pagination, fixed page size 100, null cursor on the last page (DOCS,
+	// filter-resources). The cursor encodes the offset: its real format is opaque (UNVERIFIED).
+	start := 0
+	if cur := q.Get("cursor"); cur != "" {
+		n, err := decodeTagCursor(cur)
+		if err != nil || n > len(out) {
+			return badTagRequest("invalid cursor")
+		}
+		start = n
+	}
+	end := min(start+tagsPageSize, len(out))
+	var next any // null on the last page
+	if end < len(out) {
+		next = encodeTagCursor(end)
+	}
+	page := out[start:end]
+	return okList(page, map[string]any{"count": len(page), "cursor": next})
+}
+
+const tagsPageSize = 100
+
+func encodeTagCursor(offset int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"offset":%d}`, offset)))
+}
+
+func decodeTagCursor(c string) (int, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(c)
+	if err != nil {
+		return 0, err
+	}
+	var v struct {
+		Offset *int `json:"offset"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil || v.Offset == nil || *v.Offset < 0 {
+		return 0, fmt.Errorf("bad cursor")
+	}
+	return *v.Offset, nil
 }
 
 // parseTagFilter implements the spec's tag filter syntax: key, key=v1,v2, !key, key!=value.

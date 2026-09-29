@@ -128,6 +128,10 @@ const (
 // this heuristic is UNVERIFIED beyond the fetch-only scripts recorded (0036, 0062, 0183).
 var workerHandlerRe = regexp.MustCompile(`(?m)^\s*(?:async\s+)?(fetch|scheduled|queue|email|tail|trace|test)\s*\(`)
 
+// workerNotFound is Workers' missing-script error (0109, 0143, 0211: GET …/settings). The code
+// and message are the API's for a missing Worker on any route, per wrangler: SOURCED
+// cloudflare/workers-sdk@485cfb3:packages/deploy-helpers/src/deploy/helpers/worker-not-found-error.ts#L1-L15
+// (a statement, not route-specific). Where a route's status is not recorded, it stays marked.
 func workerNotFound() response {
 	return fail(http.StatusNotFound, 10007, "This Worker does not exist on your account.") // 0109, 0143, 0211
 }
@@ -325,7 +329,9 @@ func (d *workerDeployment) json() map[string]any {
 // ---- handlers --------------------------------------------------------------------------------
 
 // workerAccountSubdomainGet: GET /accounts/{id}/workers/subdomain (0001). Accounts without a
-// workers.dev subdomain are UNVERIFIED (not emulated: every account has one).
+// workers.dev subdomain are not emulated (every account has one); wrangler's fixture for that
+// case answers code 10007 (packages/wrangler/src/__tests__/helpers/mock-workers-subdomain.ts#L28,
+// a mock), so the real answer stays UNVERIFIED.
 func workerAccountSubdomainGet(c *reqCtx) response {
 	return ok(map[string]any{"subdomain": c.s.opts.WorkersSubdomain})
 }
@@ -341,7 +347,9 @@ func workerList(c *reqCtx) response {
 }
 
 // readParts parses a multipart/form-data body into part name → content. Error codes for
-// malformed uploads are UNVERIFIED (not recorded); 10021 is Workers' script-validation code.
+// malformed uploads are UNVERIFIED (not recorded); 10021 is Workers' script-validation code
+// (SOURCED fixtures: cloudflare/workers-sdk@485cfb3:packages/wrangler/src/__tests__/deploy/build.test.ts#L1044,
+// packages/wrangler/src/__tests__/deploy/entry-points.test.ts#L742; they show other messages).
 func readParts(c *reqCtx) (map[string][]byte, *response) {
 	bad := func(msg string) (map[string][]byte, *response) {
 		r := fail(http.StatusBadRequest, 10021, msg) // UNVERIFIED
@@ -432,7 +440,10 @@ func workerUpload(c *reqCtx) response {
 	case md.MainModule != nil && *md.MainModule != "":
 		mainModule, entry = *md.MainModule, *md.MainModule
 	case md.BodyPart != nil && *md.BodyPart != "":
-		entry = *md.BodyPart // UNVERIFIED: service-worker syntax not recorded
+		// Service-worker syntax (not recorded): metadata.body_part names the script part.
+		// SOURCED: cloudflare/workers-sdk@485cfb3:packages/wrangler/src/__tests__/helpers/mock-upload-worker.ts#L123
+		// (the fixture asserts wrangler's request); see has_modules for the response.
+		entry = *md.BodyPart
 	default:
 		return fail(http.StatusBadRequest, 10021, "Metadata must set main_module or body_part.") // UNVERIFIED
 	}
@@ -569,7 +580,8 @@ func workerSettingsPatch(c *reqCtx) response {
 
 // workerVersionsList: GET …/versions → {"items": […]} with page/per_page/count/total_count (no
 // total_pages), per_page 10 by default, and null errors/messages (0038). Newest-first ordering
-// is UNVERIFIED (one version recorded).
+// is UNVERIFIED (one version recorded; wrangler sorts client-side and its fixture,
+// packages/wrangler/src/__tests__/helpers/msw/handlers/versions.ts#L214, lists oldest first).
 func workerVersionsList(c *reqCtx) response {
 	w, found := c.account.scripts[c.params["script_name"]]
 	if !found {
@@ -580,7 +592,13 @@ func workerVersionsList(c *reqCtx) response {
 		newest = append(newest, w.Versions[i])
 	}
 	// page/per_page query handling is UNVERIFIED (only the default first page is recorded).
+	// With deployable=true the API ignores pagination. SOURCED (a statement about the API):
+	// cloudflare/workers-sdk@485cfb3:packages/wrangler/src/versions/list.ts#L57. Every emulated
+	// version is deployable; the result_info then reported is UNVERIFIED.
 	pageItems, page, perPage, _ := paginate(newest, c.intQuery("page", 1), c.intQuery("per_page", 10), 10)
+	if c.query.Get("deployable") == "true" {
+		pageItems, page = newest, 1
+	}
 	items := make([]any, 0, len(pageItems))
 	for _, v := range pageItems {
 		items = append(items, v.json())
@@ -591,11 +609,15 @@ func workerVersionsList(c *reqCtx) response {
 }
 
 // workerDeploymentsList: GET …/deployments → {"deployments": […]} with a full page-based
-// result_info (0039). Newest first and the 10-item cap are UNVERIFIED (one deployment recorded).
+// result_info (0039). Newest first: SOURCED (relies) wrangler takes deployments.at(0) as the
+// latest, cloudflare/workers-sdk@485cfb3:packages/deploy-helpers/src/deploy/helpers/versions-api.ts#L83.
+// The 10-item cap is UNVERIFIED (one deployment recorded).
 func workerDeploymentsList(c *reqCtx) response {
 	w, found := c.account.scripts[c.params["script_name"]]
 	if !found {
-		return workerNotFound() // UNVERIFIED for this route
+		// SOURCED (relies): a first deploy tolerates exactly the 10007 not-found error here,
+		// cloudflare/workers-sdk@485cfb3:packages/deploy-helpers/src/deploy/helpers/confirm-latest-deployment-overwrite.ts#L43-L72.
+		return workerNotFound()
 	}
 	const perPage = 10
 	out := []any{}
@@ -608,7 +630,10 @@ func workerDeploymentsList(c *reqCtx) response {
 }
 
 // workerSubdomainPost: POST …/subdomain {enabled, previews_enabled} echoes the new state (0037,
-// 0063, 0184). An omitted field keeps its current value (UNVERIFIED).
+// 0063, 0184). An omitted previews_enabled follows enabled. SOURCED:
+// cloudflare/workers-sdk@485cfb3:packages/wrangler/src/__tests__/helpers/mock-workers-subdomain.ts#L92
+// (fixture, commented "Mimics API behavior"). An omitted enabled keeps its current value
+// (UNVERIFIED; wrangler always sends it).
 func workerSubdomainPost(c *reqCtx) response {
 	w, found := c.account.scripts[c.params["script_name"]]
 	if !found {
@@ -624,14 +649,19 @@ func workerSubdomainPost(c *reqCtx) response {
 	if req.Enabled != nil {
 		w.Subdomain.Enabled = *req.Enabled
 	}
-	if req.PreviewsEnabled != nil {
+	switch {
+	case req.PreviewsEnabled != nil:
 		w.Subdomain.PreviewsEnabled = *req.PreviewsEnabled
+	case req.Enabled != nil:
+		w.Subdomain.PreviewsEnabled = *req.Enabled
 	}
 	return ok(w.Subdomain)
 }
 
-// workerSubdomainGet is UNVERIFIED (not recorded): same shape as the POST result. A new script
-// starts with workers.dev disabled (UNVERIFIED).
+// workerSubdomainGet is UNVERIFIED (not recorded): same shape as the POST result, as wrangler's
+// fixture for the sibling services/{name}/environments/{env}/subdomain route shows
+// (packages/wrangler/src/__tests__/deploy/helpers.ts#L735-L758, a mock of another route). A new
+// script starts with workers.dev disabled (UNVERIFIED).
 func workerSubdomainGet(c *reqCtx) response {
 	w, found := c.account.scripts[c.params["script_name"]]
 	if !found {

@@ -25,6 +25,16 @@ type Options struct {
 	Spec                   *Spec
 	RejectSchemaViolations bool
 
+	// ValidateResponses (needs Spec) also validates every emulated response body against the
+	// spec's response schema for the operation, journaling violations as
+	// JournalEntry.ResponseViolation. It never changes a response. Tests get this for every
+	// Server through EnableStrictResponses; NoStrictResponses opts one Server out of that.
+	ValidateResponses bool
+	NoStrictResponses bool
+	// OnResponseViolation, if set, is called (without the server lock) for every response
+	// violation found, allowlisted ones included (ResponseViolation.Allowed).
+	OnResponseViolation func(ResponseViolation)
+
 	// RateLimit is the per-token budget per RateWindow. Real API: 1200 per 300 s
 	// ("Ratelimit-Policy: \"default\";q=1200;w=300", recording 0001). Zero means default.
 	RateLimit  int
@@ -54,8 +64,9 @@ type Server struct {
 	routes   []route
 	seq      int64 // creation sequence; orders lists deterministically even with a frozen clock
 
-	tokens          map[string]*Token // tokens.go; nil = open mode
-	workerStartupMs int               // startup_time_ms reported by script uploads (see SetWorkerStartupTime)
+	respViolations  []ResponseViolation // response_validation.go
+	tokens          map[string]*Token   // tokens.go; nil = open mode
+	workerStartupMs int                 // startup_time_ms reported by script uploads (see SetWorkerStartupTime)
 }
 
 // nextSeq returns a monotonically increasing creation number. Callers hold s.mu.
@@ -73,7 +84,10 @@ type JournalEntry struct {
 	Query           string    `json:"query,omitempty"`
 	Status          int       `json:"status"`
 	SchemaViolation string    `json:"schema_violation,omitempty"`
-	Fault           bool      `json:"fault,omitempty"`
+	// ResponseViolation: the emulated response did not match the spec's response schema (and no
+	// allowlist entry covers it); see Options.ValidateResponses.
+	ResponseViolation string `json:"response_violation,omitempty"`
+	Fault             bool   `json:"fault,omitempty"`
 }
 
 // Fault makes matching requests fail. Times<=0 means "until removed".
@@ -120,6 +134,7 @@ func (s *Server) Reset() {
 	defer s.mu.Unlock()
 	s.accounts = map[string]*account{}
 	s.journal = nil
+	s.respViolations = nil
 	s.faults = nil
 	s.seq = 0
 	s.tokens = nil
@@ -227,15 +242,25 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	now := s.Clock.Now()
 	entry := JournalEntry{Time: now, Method: r.Method, Path: path, Query: r.URL.RawQuery}
+	var cw *captureWriter
+	if s.responseSpec() != nil {
+		cw = &captureWriter{ResponseWriter: w}
+		w = cw
+	}
 	defer func() {
+		if cw != nil && !entry.Fault && cw.status != 0 { // injected faults are the test's choice, not emulated behavior
+			s.validateResponse(r, path, cw.status, cw.Header(), cw.buf.Bytes(), &entry)
+		}
 		s.mu.Lock()
 		s.journal = append(s.journal, entry)
 		s.mu.Unlock()
 	}()
 
-	// Auth. The real API rejects requests without credentials; exact status/code for the
-	// missing-credentials case is UNVERIFIED (not yet recorded) — 400/9106 is Cloudflare's
-	// commonly documented response.
+	// Auth. The real API rejects requests without credentials (not yet recorded) with 400/9106
+	// "Missing X-Auth-Key, X-Auth-Email or Authorization headers". SOURCED: wrangler's changelog
+	// quotes that raw API error for code 9106, cloudflare/workers-sdk@485cfb3:packages/wrangler/CHANGELOG.md#L3682-L3684,
+	// and its tests render 9106 as "Authentication failed (status: 400)",
+	// packages/wrangler/src/__tests__/core/handle-errors.test.ts#L285.
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if token == "" && r.Header.Get("X-Auth-Key") == "" {
 		entry.Status = http.StatusBadRequest
@@ -260,7 +285,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Ratelimit-Policy", fmt.Sprintf("%q;q=%d;w=%d", policy, quota, window))
 	}
 	if !allowed {
-		// 429 body/code UNVERIFIED (not yet recorded); 971 is Cloudflare's documented throttling code.
+		// 429 with retry-after: DOCS https://developers.cloudflare.com/fundamentals/api/reference/limits/.
+		// The body's code 971 is UNVERIFIED (not recorded, and not in the docs); users report it
+		// from the real API through wrangler (cloudflare/workers-sdk issue #10025, a field report).
 		w.Header().Set("Retry-After", fmt.Sprint(reset))
 		entry.Status = http.StatusTooManyRequests
 		writeResponse(w, fail(http.StatusTooManyRequests, 971, "Please wait and consider throttling your request speed"))
@@ -313,6 +340,28 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 	entry.Status = resp.status
 	writeResponse(w, resp)
+}
+
+// captureWriter keeps a copy of the status and body for response validation.
+type captureWriter struct {
+	http.ResponseWriter
+	status int
+	buf    bytes.Buffer
+}
+
+func (c *captureWriter) WriteHeader(code int) {
+	if c.status == 0 {
+		c.status = code
+	}
+	c.ResponseWriter.WriteHeader(code)
+}
+
+func (c *captureWriter) Write(b []byte) (int, error) {
+	if c.status == 0 {
+		c.status = http.StatusOK
+	}
+	c.buf.Write(b)
+	return c.ResponseWriter.Write(b)
 }
 
 func (s *Server) takeFault(method, path string) *Fault {
