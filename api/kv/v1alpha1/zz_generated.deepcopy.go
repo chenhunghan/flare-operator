@@ -49,6 +49,11 @@ func (in *KVNamespaceParameters) DeepCopyInto(out *KVNamespaceParameters) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.Title != nil {
+		in, out := &in.Title, &out.Title
+		*out = new(string)
+		**out = **in
+	}
 }
 
 // DeepCopy creates a deep copy of the receiver.

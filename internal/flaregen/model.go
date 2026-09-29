@@ -306,9 +306,13 @@ type KindModel struct {
 	Params      *Type // spec.forProvider (ViewParameters)
 	Observation *Type // status.atProvider (ViewObservation)
 
-	Descriptor   generic.Descriptor
-	CreateFields []string // top-level forProvider fields the create body accepts
-	UpdateFields []string // top-level forProvider fields the update body accepts
+	// Descriptor carries CreateFields/UpdateFields: the top-level forProvider
+	// fields the create and update bodies accept.
+	// Descriptor.TagResourceType comes from generator.yaml tagResourceType.
+	Descriptor generic.Descriptor
+	// CreateRequired are the top-level forProvider fields the create body
+	// requires; required (by a CEL rule) only when the object may create.
+	CreateRequired []string
 
 	Warnings []string
 }
@@ -419,28 +423,42 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 	c := &converter{stack: map[*openapi3.Schema]bool{}}
 	params := c.intersect(createT, updT)
 	params = objectOrEmpty(params)
+	// Top-level fields the create body requires are not required by the
+	// schema: an object that cannot create (managementPolicies without Create,
+	// e.g. ["Observe"]) never sends them. BuildCRD enforces them with a CEL rule
+	// on spec instead (CreateRequired).
+	var createRequired []string
 	for _, f := range params.Fields {
 		cf := createT.Field(f.JSONName)
-		f.Required = !r.Singleton && cf != nil && cf.Required && !cf.ReadOnly
+		if !r.Singleton && cf != nil && cf.Required && !cf.ReadOnly {
+			createRequired = append(createRequired, f.JSONName)
+		}
+		f.Required = false
 	}
 	obs := getT
 	if err := applyFieldOverrides(kc, params, obs); err != nil {
 		return nil, fmt.Errorf("%s: %w", r.Key(), err)
 	}
 	m.Params = objectOrEmpty(Project(params, ViewParameters))
+	for _, n := range createRequired {
+		if m.Params.Field(n) != nil {
+			m.CreateRequired = append(m.CreateRequired, n)
+		}
+	}
 	m.Observation = objectOrEmpty(Project(obs, ViewObservation))
 	m.Warnings = warns
 
+	var createFields, updateFields []string
 	for _, f := range Project(createT, ViewParameters).Fields {
-		m.CreateFields = append(m.CreateFields, f.JSONName)
+		createFields = append(createFields, f.JSONName)
 	}
 	if upd != nil {
 		for _, f := range objectOrEmpty(Project(updT, ViewParameters)).Fields {
-			m.UpdateFields = append(m.UpdateFields, f.JSONName)
+			updateFields = append(updateFields, f.JSONName)
 		}
 	}
 	if r.Singleton {
-		m.CreateFields = nil
+		createFields = nil
 	}
 
 	d := generic.Descriptor{
@@ -502,8 +520,8 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 	// Immutable: create-only fields, plus overrides.
 	imm := map[string]bool{}
 	if !r.Singleton {
-		for _, n := range m.CreateFields {
-			if upd == nil || !contains(m.UpdateFields, n) {
+		for _, n := range createFields {
+			if upd == nil || !contains(updateFields, n) {
 				imm[n] = true
 			}
 		}
@@ -516,12 +534,12 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 	}
 	d.Immutable = sortedKeys(imm)
 	var updFields []string
-	for _, n := range m.UpdateFields {
+	for _, n := range updateFields {
 		if !imm[n] {
 			updFields = append(updFields, n)
 		}
 	}
-	m.UpdateFields = updFields
+	d.CreateFields, d.UpdateFields = createFields, updFields
 
 	// WriteOnly: forProvider fields the get response never returns, plus overrides.
 	wo := map[string]bool{}
@@ -531,8 +549,8 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 		}
 	}
 	for _, n := range kc.WriteOnly {
-		if m.Params.Field(n) == nil {
-			return nil, fmt.Errorf("%s: writeOnly %q is not a forProvider field", r.Key(), n)
+		if !objectPath(m.Params, n) {
+			return nil, fmt.Errorf("%s: writeOnly %q is not a forProvider field (a dotted path may only cross objects)", r.Key(), n)
 		}
 		wo[n] = true
 	}
@@ -551,6 +569,7 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 			d.DefaultDeletionPolicy = "Orphan"
 		}
 	}
+	d.TagResourceType = kc.TagResourceType
 	m.Descriptor = d
 	return m, nil
 }
@@ -586,6 +605,26 @@ func applyFieldOverrides(kc KindConfig, trees ...*Type) error {
 		}
 	}
 	return nil
+}
+
+// objectPath reports whether the dotted path names a field of t reached through object fields
+// only (the generic reconciler resolves write-only paths without array or map steps).
+func objectPath(t *Type, path string) bool {
+	segs := strings.Split(path, ".")
+	for i, seg := range segs {
+		if t == nil || t.Kind != KObject {
+			return false
+		}
+		f := t.Field(seg)
+		if f == nil {
+			return false
+		}
+		if i == len(segs)-1 {
+			return true
+		}
+		t = f.Type
+	}
+	return false
 }
 
 // lookupPath walks object fields, stepping through array items and map values.

@@ -227,6 +227,11 @@ func (in *WidgetParameters) DeepCopyInto(out *WidgetParameters) {
 		*out = new(WidgetComboParameters)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Kind != nil {
+		in, out := &in.Kind, &out.Kind
+		*out = new(string)
+		**out = **in
+	}
 	if in.Labels != nil {
 		in, out := &in.Labels, &out.Labels
 		*out = make(map[string]string, len(*in))
@@ -246,6 +251,11 @@ func (in *WidgetParameters) DeepCopyInto(out *WidgetParameters) {
 	}
 	if in.Mode != nil {
 		in, out := &in.Mode, &out.Mode
+		*out = new(string)
+		**out = **in
+	}
+	if in.Name != nil {
+		in, out := &in.Name, &out.Name
 		*out = new(string)
 		**out = **in
 	}

@@ -23,7 +23,7 @@ func kvUsing(ns, name, account string) *kvv1alpha1.KVNamespace {
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
 		Spec: kvv1alpha1.KVNamespaceSpec{
 			ResourceSpec: commonv1alpha1.ResourceSpec{AccountRef: commonv1alpha1.LocalRef{Name: account}},
-			ForProvider:  kvv1alpha1.KVNamespaceParameters{Title: name},
+			ForProvider:  kvv1alpha1.KVNamespaceParameters{Title: &name},
 		},
 	}
 }

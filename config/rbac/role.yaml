@@ -7,18 +7,19 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
-  - ""
-  resources:
   - secrets
   verbs:
   - get
   - list
   - watch
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 - apiGroups:
   - cloudflare.flare.dev
   resources:
@@ -51,6 +52,30 @@ rules:
   - watch
 - apiGroups:
   - d1.cloudflare.flare.dev
+  resources:
+  - d1databases
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - d1.cloudflare.flare.dev
+  resources:
+  - d1databases/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - d1.cloudflare.flare.dev
+  resources:
+  - d1databases/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - d1.cloudflare.flare.dev
   - kv.cloudflare.flare.dev
   - queues.cloudflare.flare.dev
   resources:
@@ -59,3 +84,51 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - kv.cloudflare.flare.dev
+  resources:
+  - kvnamespaces
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kv.cloudflare.flare.dev
+  resources:
+  - kvnamespaces/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kv.cloudflare.flare.dev
+  resources:
+  - kvnamespaces/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - queues.cloudflare.flare.dev
+  resources:
+  - queues
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - queues.cloudflare.flare.dev
+  resources:
+  - queues/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - queues.cloudflare.flare.dev
+  resources:
+  - queues/status
+  verbs:
+  - get
+  - patch
+  - update

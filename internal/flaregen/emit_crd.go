@@ -3,6 +3,7 @@ package flaregen
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -144,9 +145,18 @@ func commonStatusProps() map[string]apiextensionsv1.JSONSchemaProps {
 func BuildCRD(m *KindModel) *apiextensionsv1.CustomResourceDefinition {
 	d := m.Descriptor
 	spec := apiextensionsv1.JSONSchemaProps{Type: "object", Description: fmt.Sprintf("%sSpec defines the desired state of a %s.", m.Kind, m.Kind),
-		Properties: commonSpecProps(d.DefaultDeletionPolicy), Required: []string{"accountRef", "forProvider"}}
+		Properties: commonSpecProps(d.DefaultDeletionPolicy), Required: []string{"accountRef"}}
 	fp := props(m.Params)
 	fp.Description = "ForProvider holds the Cloudflare API fields, named exactly as in the API."
+	var celFields []string
+	for _, f := range m.CreateRequired {
+		if CELAccessible(f) {
+			celFields = append(celFields, f)
+		} else {
+			fp.Required = append(fp.Required, f) // no CEL rule can name it: plain required
+		}
+	}
+	spec.XValidations = createRequiredRules(celFields)
 	spec.Properties["forProvider"] = fp
 	if d.Scope == "zone" {
 		spec.Required = append(spec.Required, "zoneRef")
@@ -213,4 +223,56 @@ func MarshalCRD(crd *apiextensionsv1.CustomResourceDefinition) ([]byte, error) {
 		return nil, err
 	}
 	return append([]byte("# "+GeneratedHeader+"\n---\n"), y...), nil
+}
+
+// CanCreateCEL is true (in a CEL rule on spec) when the management policies allow
+// Create: unset or empty means ["*"].
+const CanCreateCEL = "!has(self.managementPolicies) || size(self.managementPolicies) == 0 || " +
+	"'*' in self.managementPolicies || 'Create' in self.managementPolicies"
+
+// createRequiredRules returns one CEL rule per top-level forProvider field the
+// create body requires: required only when the object may create, so an
+// Observe-only object that adopts through the external-id annotation need not
+// supply fields it never sends.
+func createRequiredRules(fields []string) apiextensionsv1.ValidationRules {
+	var out apiextensionsv1.ValidationRules
+	for _, f := range fields {
+		r := apiextensionsv1.ValidationRule{
+			Rule:    fmt.Sprintf("!(%s) || (has(self.forProvider) && has(self.forProvider.%s))", CanCreateCEL, CELField(f)),
+			Message: fmt.Sprintf("forProvider.%s is required unless managementPolicies exclude Create (e.g. [\"Observe\"])", f),
+			Reason:  ptr(apiextensionsv1.FieldValueRequired),
+		}
+		if celIdentRe.MatchString(f) && !celReserved[f] {
+			r.FieldPath = ".forProvider." + f
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+var (
+	celIdentRe      = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	celAccessibleRe = regexp.MustCompile(`^[a-zA-Z_.\-/][a-zA-Z0-9_.\-/]*$`)
+)
+
+// CELAccessible reports whether Kubernetes CEL can select a property of this name.
+func CELAccessible(name string) bool { return celAccessibleRe.MatchString(name) }
+
+// celReserved are the CEL keywords Kubernetes escapes as __{keyword}__.
+var celReserved = map[string]bool{
+	"true": true, "false": true, "null": true, "in": true, "as": true, "break": true, "const": true,
+	"continue": true, "else": true, "for": true, "function": true, "if": true, "import": true,
+	"let": true, "loop": true, "package": true, "namespace": true, "return": true, "var": true,
+	"void": true, "while": true,
+}
+
+// CELField escapes a property name for CEL field selection the way the
+// Kubernetes CEL environment does: reserved words become __{word}__, and
+// "__", ".", "-", "/" become __underscores__, __dot__, __dash__, __slash__.
+func CELField(name string) string {
+	if celReserved[name] {
+		return "__" + name + "__"
+	}
+	r := strings.NewReplacer("__", "__underscores__", ".", "__dot__", "-", "__dash__", "/", "__slash__")
+	return r.Replace(name)
 }

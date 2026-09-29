@@ -154,9 +154,6 @@ spec:
                     type: object
                   ttl:
                     type: number
-                required:
-                - kind
-                - name
                 type: object
               managementPolicies:
                 description: ManagementPolicies default to ["*"]. ["Observe"] makes
@@ -182,8 +179,22 @@ spec:
                 type: object
             required:
             - accountRef
-            - forProvider
             type: object
+            x-kubernetes-validations:
+            - fieldPath: .forProvider.kind
+              message: forProvider.kind is required unless managementPolicies exclude
+                Create (e.g. ["Observe"])
+              reason: FieldValueRequired
+              rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
+                == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
+                || (has(self.forProvider) && has(self.forProvider.kind))'
+            - fieldPath: .forProvider.name
+              message: forProvider.name is required unless managementPolicies exclude
+                Create (e.g. ["Observe"])
+              reason: FieldValueRequired
+              rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
+                == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
+                || (has(self.forProvider) && has(self.forProvider.name))'
           status:
             description: WidgetStatus defines the observed state of a Widget.
             properties:

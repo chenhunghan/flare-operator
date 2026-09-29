@@ -15,8 +15,9 @@ type WidgetParameters struct {
 	// +optional
 	Combo *WidgetComboParameters `json:"combo,omitempty"`
 	// +kubebuilder:validation:Enum="a";"b"
-	// +kubebuilder:validation:Required
-	Kind string `json:"kind"`
+	// Required unless managementPolicies exclude Create (CEL rule on the spec).
+	// +optional
+	Kind *string `json:"kind,omitempty"`
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 	// +optional
@@ -31,8 +32,9 @@ type WidgetParameters struct {
 	// Widget name.
 	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]*$`
 	// +kubebuilder:validation:MaxLength=64
-	// +kubebuilder:validation:Required
-	Name string `json:"name"`
+	// Required unless managementPolicies exclude Create (CEL rule on the spec).
+	// +optional
+	Name *string `json:"name,omitempty"`
 	// +optional
 	Note *string `json:"note,omitempty"`
 	// +optional
@@ -172,6 +174,8 @@ type WidgetTreeObservation struct {
 }
 
 // WidgetSpec defines the desired state of a Widget.
+// +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.kind))",message="forProvider.kind is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
+// +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.name))",message="forProvider.name is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
 type WidgetSpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
 	// ForProvider holds the Cloudflare API fields, named exactly as in the API.

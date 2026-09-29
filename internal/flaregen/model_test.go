@@ -106,15 +106,15 @@ func TestBuildKindDescriptor(t *testing.T) {
 			t.Errorf("Descriptor.%s = %#v, want %#v", f, g, w)
 		}
 	}
-	if contains(m.UpdateFields, "region") || !contains(m.CreateFields, "region") {
-		t.Errorf("CreateFields=%v UpdateFields=%v", m.CreateFields, m.UpdateFields)
+	if contains(d.UpdateFields, "region") || !contains(d.CreateFields, "region") {
+		t.Errorf("CreateFields=%v UpdateFields=%v", d.CreateFields, d.UpdateFields)
 	}
 }
 
 func TestBuildKindOverrides(t *testing.T) {
 	m := buildWidget(t, KindConfig{
 		Kind: "Widget", Group: "gadgets", UpdateMethod: "PUT", IDField: "name", NameField: "-",
-		Immutable: []string{"kind"}, WriteOnly: []string{"meta"}, NotWriteOnly: []string{"secret"},
+		Immutable: []string{"kind"}, WriteOnly: []string{"meta", "origin.timeout"}, NotWriteOnly: []string{"secret"},
 		DefaultDeletionPolicy: "Orphan",
 		Fields:                map[string]FieldOverride{"ttl": {Type: "integer"}, "kind": {Enum: []any{"A", "B"}}, "origin.timeout": {Type: "string"}},
 	})
@@ -126,7 +126,8 @@ func TestBuildKindOverrides(t *testing.T) {
 	if !reflect.DeepEqual(d.Immutable, []string{"kind"}) {
 		t.Errorf("Immutable = %v", d.Immutable)
 	}
-	if !reflect.DeepEqual(d.WriteOnly, []string{"meta", "region"}) {
+	// A dotted path names a nested field (reached through objects only).
+	if !reflect.DeepEqual(d.WriteOnly, []string{"meta", "origin.timeout", "region"}) {
 		t.Errorf("WriteOnly = %v", d.WriteOnly)
 	}
 	if k := m.Params.Field("ttl").Type.Kind; k != KInteger {
@@ -149,6 +150,8 @@ func TestBuildKindOverrideErrors(t *testing.T) {
 		"unknown field override":   {Fields: map[string]FieldOverride{"nope.x": {Type: "string"}}},
 		"unknown immutable":        {Immutable: []string{"nope"}},
 		"unknown writeOnly":        {WriteOnly: []string{"nope"}},
+		"unknown nested writeOnly": {WriteOnly: []string{"origin.nope"}},
+		"writeOnly below a scalar": {WriteOnly: []string{"ttl.x"}},
 		"notWriteOnly not derived": {NotWriteOnly: []string{"name"}},
 		"unknown nameField":        {NameField: "nope"},
 		"no such update method":    {UpdateMethod: "POST"},
@@ -218,11 +221,15 @@ func TestFlattening(t *testing.T) {
 	if o.Field("id") == nil || o.Field("secret") != nil {
 		t.Error("atProvider must have id and not the writeOnly secret")
 	}
-	// Top-level required from the create body only.
+	// Top-level required from the create body only, and only via CreateRequired
+	// (a CEL rule): the schema itself requires nothing at the top level.
 	for _, f := range p.Fields {
-		if want := f.JSONName == "name" || f.JSONName == "kind"; f.Required != want {
-			t.Errorf("forProvider.%s required=%v", f.JSONName, f.Required)
+		if f.Required {
+			t.Errorf("forProvider.%s required=true; top-level fields are required by CEL only", f.JSONName)
 		}
+	}
+	if !reflect.DeepEqual(m.CreateRequired, []string{"kind", "name"}) && !reflect.DeepEqual(m.CreateRequired, []string{"name", "kind"}) {
+		t.Errorf("CreateRequired = %v, want kind and name", m.CreateRequired)
 	}
 	// oneOf of objects → one object; discriminator enum unioned; required intersected.
 	origin := field(p, "origin")
@@ -373,5 +380,34 @@ func TestParseConfig(t *testing.T) {
 		if _, err := ParseConfig([]byte(bad)); err == nil {
 			t.Errorf("accepted %q", bad)
 		}
+	}
+}
+
+func TestCELField(t *testing.T) {
+	for in, want := range map[string]string{
+		"title": "title", "queue_name": "queue_name", "namespace": "__namespace__", "in": "__in__",
+		"a-b": "a__dash__b", "a.b": "a__dot__b", "a/b": "a__slash__b", "a__b": "a__underscores__b",
+	} {
+		if got := CELField(in); got != want {
+			t.Errorf("CELField(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for name, ok := range map[string]bool{"title": true, "x-y": true, "1abc": false, "a b": false, "@type": false} {
+		if CELAccessible(name) != ok {
+			t.Errorf("CELAccessible(%q) = %v", name, !ok)
+		}
+	}
+	// A create-required field CEL cannot name falls back to a plain schema requirement.
+	m := &KindModel{Kind: "X", Plural: "xs", Group: "g.cloudflare.flare.dev", Product: "g", Version: "v1alpha1",
+		Resource: &Resource{FernGroup: "g"}, Params: &Type{Kind: KObject, Fields: []*Field{
+			{JSONName: "ok", Type: &Type{Kind: KString}}, {JSONName: "1bad", Type: &Type{Kind: KString}}}},
+		Observation: &Type{Kind: KObject}, CreateRequired: []string{"ok", "1bad"}}
+	crd := BuildCRD(m)
+	spec := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
+	if len(spec.XValidations) != 1 || !strings.Contains(spec.XValidations[0].Rule, "has(self.forProvider.ok)") {
+		t.Errorf("rules %+v", spec.XValidations)
+	}
+	if fp := spec.Properties["forProvider"]; !reflect.DeepEqual(fp.Required, []string{"1bad"}) {
+		t.Errorf("forProvider.required = %v", fp.Required)
 	}
 }

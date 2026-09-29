@@ -178,6 +178,11 @@ func (in *QueueParameters) DeepCopyInto(out *QueueParameters) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.QueueName != nil {
+		in, out := &in.QueueName, &out.QueueName
+		*out = new(string)
+		**out = **in
+	}
 	if in.Settings != nil {
 		in, out := &in.Settings, &out.Settings
 		*out = new(QueueSettingsParameters)

@@ -17,8 +17,9 @@ type D1DatabaseParameters struct {
 	Jurisdiction *string `json:"jurisdiction,omitempty"`
 	// D1 database name.
 	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`
-	// +kubebuilder:validation:Required
-	Name string `json:"name"`
+	// Required unless managementPolicies exclude Create (CEL rule on the spec).
+	// +optional
+	Name *string `json:"name,omitempty"`
 	// Specify the region to create the D1 primary, if available. If this option is omitted, the D1 will be created as close as possible to the current user.
 	// +kubebuilder:validation:Enum="WNAM";"ENAM";"WEUR";"EEUR";"APAC";"OC"
 	// +optional
@@ -78,6 +79,7 @@ type D1DatabaseReadReplicationObservation struct {
 }
 
 // D1DatabaseSpec defines the desired state of a D1Database.
+// +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.name))",message="forProvider.name is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
 type D1DatabaseSpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
 	// ForProvider holds the Cloudflare API fields, named exactly as in the API.

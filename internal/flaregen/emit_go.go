@@ -61,6 +61,8 @@ type goStruct struct {
 	Doc    string
 	Type   *Type
 	Fields []goField
+	// createRequired marks forProvider fields required only when the object may create.
+	createRequired map[string]bool
 }
 
 // goPkg collects the struct definitions of one API package.
@@ -245,6 +247,9 @@ func writeStruct(b *bytes.Buffer, s *goStruct) {
 		for _, m := range markers(f.Field.Type, "") {
 			fmt.Fprintf(b, "\t// %s\n", m)
 		}
+		if s.createRequired[f.Field.JSONName] {
+			b.WriteString("\t// Required unless managementPolicies exclude Create (CEL rule on the spec).\n")
+		}
 		tag := f.Field.JSONName
 		if f.Field.Required {
 			b.WriteString("\t// +kubebuilder:validation:Required\n")
@@ -276,12 +281,22 @@ func emitTypesFile(module string, k *kindGo, structs []*goStruct) ([]byte, error
 	b.WriteString("\tmetav1 \"k8s.io/apimachinery/pkg/apis/meta/v1\"\n\n")
 	fmt.Fprintf(&b, "\tcommonv1alpha1 %q\n)\n\n", module+"/api/common/v1alpha1")
 
+	k.params.createRequired = map[string]bool{}
+	for _, f := range m.CreateRequired {
+		k.params.createRequired[f] = true
+	}
 	for _, s := range structs {
 		writeStruct(&b, s)
 	}
 	r := m.Resource
 	d := m.Descriptor
 	fmt.Fprintf(&b, "// %sSpec defines the desired state of a %s.\n", m.Kind, m.Kind)
+	for _, f := range m.CreateRequired {
+		if CELAccessible(f) {
+			r := createRequiredRules([]string{f})[0]
+			fmt.Fprintf(&b, "// +kubebuilder:validation:XValidation:rule=%q,message=%q\n", r.Rule, r.Message)
+		}
+	}
 	fmt.Fprintf(&b, "type %sSpec struct {\n\tcommonv1alpha1.ResourceSpec `json:\",inline\"`\n", m.Kind)
 	b.WriteString("\t// ForProvider holds the Cloudflare API fields, named exactly as in the API.\n")
 	fmt.Fprintf(&b, "\tForProvider %s `json:\"forProvider\"`\n}\n\n", k.params.Name)
@@ -369,12 +384,6 @@ func emitGroupVersion(product, group, version string, fernGroups, kinds []string
 // emitDeepCopy renders zz_generated.deepcopy.go for all structs and kinds of a package.
 func emitDeepCopy(version string, structs []*goStruct, kinds []string) ([]byte, error) {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "// %s\n\npackage %s\n\n", GeneratedHeader, version)
-	b.WriteString("import (\n")
-	if usesJSON(structs) {
-		b.WriteString("\tapiextensionsv1 \"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1\"\n")
-	}
-	b.WriteString("\t\"k8s.io/apimachinery/pkg/runtime\"\n)\n\n")
 	sorted := append([]*goStruct(nil), structs...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 	for _, s := range sorted {
@@ -405,7 +414,15 @@ func emitDeepCopy(version string, structs []*goStruct, kinds []string) ([]byte, 
 		deepCopyFunc(&b, k+"List")
 		deepCopyObject(&b, k+"List")
 	}
-	return formatGo(b.Bytes())
+	// apiextensionsv1 is imported only when the copy code names it (a JSON value
+	// field is copied with a method call and never names the package).
+	var head bytes.Buffer
+	fmt.Fprintf(&head, "// %s\n\npackage %s\n\nimport (\n", GeneratedHeader, version)
+	if bytes.Contains(b.Bytes(), []byte("apiextensionsv1.")) {
+		head.WriteString("\tapiextensionsv1 \"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1\"\n")
+	}
+	head.WriteString("\t\"k8s.io/apimachinery/pkg/runtime\"\n)\n\n")
+	return formatGo(append(head.Bytes(), b.Bytes()...))
 }
 
 func deepCopyFunc(b *bytes.Buffer, name string) {
