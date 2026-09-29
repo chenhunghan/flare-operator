@@ -114,6 +114,8 @@ jobs:
       # (plus untracked files) over the generated paths.
       - name: make verify-generated
         run: make verify-generated
+      - name: make chart-check
+        run: make chart-check
       - name: Whole tree unchanged
         run: git diff --exit-code
 

@@ -105,6 +105,7 @@ ci:
 	$(MAKE) test
 	$(MAKE) test-race
 	$(MAKE) verify-generated
+	$(MAKE) chart-check
 	$(MAKE) conformance
 
 # go-install-tool installs a versioned binary ($1-$3) and points $1 at it, so bumping a
