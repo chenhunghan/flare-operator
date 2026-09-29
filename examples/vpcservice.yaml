@@ -1,0 +1,37 @@
+# Workers VPC services: private backends that Workers reach through a Tunnel. Default
+# deletionPolicy: Delete. tunnelRef links the service to a Tunnel object in this namespace: the
+# Tunnel's NetworkPolicy then allows egress to this backend, and the Tunnel cannot finish
+# deleting while this service exists.
+apiVersion: workersvpc.cloudflare.flare.dev/v1alpha1
+kind: VPCService
+metadata:
+  name: web
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    type: http
+    host:
+      # Must be fully qualified: cloudflared never applies DNS search domains. Without
+      # resolver_network.resolver_ips the controller sends the cluster DNS Service's ClusterIP.
+      hostname: web.default.svc.cluster.local
+    http_port: 8080
+    tunnelRef:
+      name: private-backends
+---
+# A TCP backend by IP address (a database outside the cluster).
+apiVersion: workersvpc.cloudflare.flare.dev/v1alpha1
+kind: VPCService
+metadata:
+  name: orders-db
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    type: tcp
+    host:
+      ipv4: 192.0.2.10
+    tcp_port: 5432
+    app_protocol: postgresql
+    tunnelRef:
+      name: private-backends

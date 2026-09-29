@@ -24,8 +24,11 @@ Helm installs `crds/` on first install only and never upgrades or deletes them; 
 runs the Cloudflare API emulator as a Deployment and Service in the release namespace and passes
 the manager `--allowed-base-url` for that Service's URL only, in three spellings
 (`<svc>`, `<svc>.<ns>.svc`, `<svc>.<ns>.svc.<clusterDomain>`). Use
-`spec.baseURL: http://<release>-flare-operator-flarefake.<ns>.svc:8787/client/v4` in a
-CloudflareAccount (the install NOTES print the exact value). Never enable it in a cluster that
+`spec.baseURL: http://<fullname>-flarefake.<ns>.svc:8787/client/v4` in a CloudflareAccount, where
+`<fullname>` is `<release>-flare-operator`, or just `<release>` when the release name already
+contains `flare-operator` (release `flare-operator` in `flare-system`:
+`http://flare-operator-flarefake.flare-system.svc:8787/client/v4`). The install NOTES print the
+exact value. Never enable it in a cluster that
 manages a real Cloudflare account.
 
 ## Values

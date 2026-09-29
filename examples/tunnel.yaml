@@ -1,0 +1,21 @@
+# A remotely managed Cloudflare Tunnel plus the cloudflared Deployment that connects it and an
+# egress NetworkPolicy for the cloudflared pods. Default deletionPolicy: Delete: the controller
+# scales cloudflared to zero first, because Cloudflare refuses to delete a connected tunnel.
+apiVersion: tunnels.cloudflare.flare.dev/v1alpha1
+kind: Tunnel
+metadata:
+  name: private-backends
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    name: private-backends # defaults to metadata.name; an existing tunnel of this name is adopted
+  connector:
+    replicas: 2 # the default; each replica opens 4 connections to the edge
+    # image: cloudflare/cloudflared:2026.9.3 # the default
+  networkPolicy:
+    # Remove the cluster's pod and service CIDRs from the 0.0.0.0/0 egress rules, so those rules
+    # do not also open in-cluster destinations (the controller does not discover them).
+    excludeCIDRs:
+      - 10.244.0.0/16
+      - 10.96.0.0/12
