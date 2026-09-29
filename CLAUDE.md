@@ -6,18 +6,11 @@ A Kubernetes-native interface to **all** Cloudflare resources and settings, in t
 
 It is a standalone Go operator, packaged as one Helm chart, following Crossplane-style conventions.
 
-## Status (2026-09-29)
-- **Done:**
-  - design docs (`docs/`)
-  - pinned spec (`spec/`)
-  - the `flarefake` emulator (`internal/fake`, `cmd/flarefake`), which replays 122 real-API recordings
-  - live spikes, summarized in `docs/spike-results-2026-09-29.md`
-- **Not started:** operator controllers, CRD types, the CRD generator.
-- **Blocked:** the Container spikes (S2–S6 in `docs/virtual-kubelet-design.md` §9) need the Workers Paid plan. The test account is Free with no payment method, so never upgrade it without asking.
-- **Next steps** (the user chose among these):
-  1. operator scaffold: `CloudflareAccount`, then KV / Queues / Tunnel (managed `cloudflared` plus a generated NetworkPolicy) / VPC service controllers, tested against flarefake
-  2. CRD generator from the `x-fern-sdk-group-name` / `x-fern-sdk-method-name` annotations
-  3. Workers script upload in flarefake
+## Status (2026-09-30)
+See `docs/STATUS.md` → "Current state". In short:
+- **Done:** the operator (10 kinds), the flaregen generator, the flarefake emulator with evidence tiers and strict response validation, differential tests against real clients, resilience and crash-consistency tests, the Helm chart, CI config (not pushed), and e2e and upgrade-e2e on k0s. The production-readiness phase is complete.
+- **Blocked on the user:** pushing to GitHub; a test zone; the Workers Paid plan (never upgrade without asking).
+- **Paused:** the full-stack slice, generator singletons and nested resources, and Wave 1 kinds (the user asked to harden first; hardening is done).
 
 ## How to work in a long session
 Follow `docs/plan-parallel.md`:
@@ -29,7 +22,7 @@ Follow `docs/plan-parallel.md`:
 ```sh
 make test            # all tests (the full run loads the 26 MB spec, ~3 s); make test-short skips that
 make conformance     # replay test/recordings against flarefake
-go test -race ./...  # run this before claiming emulator changes are done
+make test-race       # race detector (CGO_ENABLED=0 on this Mac); make ci runs everything
 make fake            # emulator on 127.0.0.1:8787 (/client/v4 for the API, /_fake for control)
 make spec-check      # spec/openapi.json.gz must match spec/LOCK
 ```
