@@ -293,7 +293,8 @@ helm-lint: chart-check ## helm lint + helm template (default and flarefake value
 ## Example for the Lima k0s VM:
 ##   export KUBECONFIG=~/.lima/<instance>/kubeconfig.yaml DOCKER_HOST=unix://$HOME/.lima/<instance>/docker.sock
 ##   make e2e-images E2E_IMAGE_LOAD='limactl shell <instance> sudo k0s ctr -n k8s.io images import -'
-##   make e2e-install e2e e2e-uninstall E2E_IMAGE_REMOVE='limactl shell <instance> sudo k0s ctr -n k8s.io images rm'
+##   make e2e-install e2e e2e-uninstall E2E_IMAGE_REMOVE='limactl shell <instance> sudo k0s ctr -n k8s.io images rm' \
+##     E2E_IMAGE_LIST='limactl shell <instance> sudo k0s ctr -n k8s.io images ls' E2E_LOCAL_RMI=1
 .PHONY: e2e e2e-images e2e-install e2e-uninstall
 
 E2E_TAG ?= e2e
@@ -310,8 +311,20 @@ E2E_IMAGE_LOAD ?=
 # E2E_IMAGE_LOAD imported (docker.io/library/<name>:<tag>); `ctr images rm` only warns about a
 # reference it does not have.
 E2E_IMAGE_REMOVE ?=
+# Optional: a command that lists the runtime's image references as `ctr images ls` does (name,
+# type, target digest, ...). The CRI plugin adds a digest-named reference (sha256:<id>) for
+# every imported image, which removing the name leaves behind. With E2E_IMAGE_LIST set,
+# e2e-uninstall also removes every sha256: reference whose target digest is one of the removed
+# images' IDs in the local $(CONTAINER_TOOL) store. For k0s:
+#   E2E_IMAGE_LIST='limactl shell <instance> sudo k0s ctr -n k8s.io images ls'
+E2E_IMAGE_LIST ?=
+# Extra local image names e2e-uninstall removes as well (the upgrade test's previous manager).
+E2E_EXTRA_IMAGES ?=
+# Non-empty: e2e-uninstall also removes the images from the local $(CONTAINER_TOOL) store.
+E2E_LOCAL_RMI ?=
 E2E_IMAGES = flare-operator:$(E2E_TAG) flarefake:$(E2E_TAG) cloudflared-stub:$(E2E_TAG)
-E2E_IMAGE_REFS = $(addprefix docker.io/library/,$(E2E_IMAGES))
+E2E_REMOVE_IMAGES = $(E2E_IMAGES) $(E2E_EXTRA_IMAGES)
+E2E_IMAGE_REFS = $(addprefix docker.io/library/,$(E2E_REMOVE_IMAGES))
 E2E_CLUSTER_NAME ?= flare-e2e
 
 e2e-images:      ## build flare-operator, flarefake and the cloudflared stub as :$(E2E_TAG) and load them (E2E_IMAGE_LOAD)
@@ -341,7 +354,7 @@ e2e-upgrade:     ## install the chart of E2E_UPGRADE_FROM, upgrade to HEAD, chec
 	MAKE="$(MAKE)" HELM="$(HELM)" KUBECTL="$(KUBECTL)" CONTAINER_TOOL="$(CONTAINER_TOOL)" PLATFORM="$(PLATFORM)" CHART="$(CHART)" \
 	E2E_NAMESPACE="$(E2E_NAMESPACE)" E2E_RELEASE="$(E2E_RELEASE)" E2E_TAG="$(E2E_TAG)" E2E_PULL_POLICY="$(E2E_PULL_POLICY)" \
 	E2E_CLUSTER_NAME="$(E2E_CLUSTER_NAME)" E2E_IMAGE_LOAD="$(E2E_IMAGE_LOAD)" E2E_IMAGE_REMOVE="$(E2E_IMAGE_REMOVE)" \
-	E2E_UPGRADE_FROM="$(E2E_UPGRADE_FROM)" E2E_PREV_TAG="$(E2E_PREV_TAG)" bash hack/e2e-upgrade.sh
+	E2E_IMAGE_LIST="$(E2E_IMAGE_LIST)" E2E_LOCAL_RMI="$(E2E_LOCAL_RMI)" E2E_UPGRADE_FROM="$(E2E_UPGRADE_FROM)" E2E_PREV_TAG="$(E2E_PREV_TAG)" bash hack/e2e-upgrade.sh
 
 e2e:             ## run test/e2e against the installed chart (skips without KUBECONFIG)
 	E2E_OPERATOR_NAMESPACE=$(E2E_NAMESPACE) E2E_RELEASE=$(E2E_RELEASE) E2E_STUB_IMAGE=cloudflared-stub:$(E2E_TAG) \
@@ -352,9 +365,16 @@ e2e-uninstall:   ## helm uninstall, delete the chart's CRDs (Helm keeps them) an
 	kubectl delete -f $(CHART)/crds/ --ignore-not-found
 	kubectl delete namespace $(E2E_NAMESPACE) --ignore-not-found --wait
 	@if [ -n "$(E2E_IMAGE_REMOVE)" ]; then \
-		echo "removing images with: $(E2E_IMAGE_REMOVE) $(E2E_IMAGE_REFS)"; \
-		$(E2E_IMAGE_REMOVE) $(E2E_IMAGE_REFS); \
+		refs="$(E2E_IMAGE_REFS)"; \
+		if [ -n "$(E2E_IMAGE_LIST)" ]; then \
+			ids=$$(for i in $(E2E_REMOVE_IMAGES); do $(CONTAINER_TOOL) image inspect --format '{{.Id}}' $$i 2>/dev/null; done | tr '\n' ' '); \
+			digests=$$($(E2E_IMAGE_LIST) 2>/dev/null | awk -v ids="$$ids" 'BEGIN { n = split(ids, a, " "); for (i = 1; i <= n; i++) m[a[i]] = 1 } $$1 ~ /^sha256:/ && ($$3 in m) { print $$1 }' | tr '\n' ' '); \
+			refs="$$refs $$digests"; \
+		fi; \
+		echo "removing images with: $(E2E_IMAGE_REMOVE) $$refs"; \
+		$(E2E_IMAGE_REMOVE) $$refs; \
 	else echo "E2E_IMAGE_REMOVE is empty: the images e2e-images loaded were left in the cluster ($(E2E_IMAGE_REFS))"; fi
+	@if [ -n "$(E2E_LOCAL_RMI)" ]; then echo "$(CONTAINER_TOOL) rmi $(E2E_REMOVE_IMAGES)"; $(CONTAINER_TOOL) rmi $(E2E_REMOVE_IMAGES) || true; fi
 
 ## Live smoke test (test/live): the real controllers in envtest against the Cloudflare API.
 ## Needs FLARE_LIVE=1, CLOUDFLARE_ACCOUNT_ID and FLARE_LIVE_TOKEN_FILE; writes RAW cassettes to

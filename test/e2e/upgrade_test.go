@@ -225,6 +225,7 @@ func TestUpgradePost(t *testing.T) {
 		t.Errorf("Cloudflare writes by the upgraded manager: %v", w)
 	}
 	s.checkJournalClean(sinceUpgrade)
+	t.Logf("upgraded manager: %d Cloudflare requests for this account since it started, %d writes", len(sinceUpgrade), len(writes(sinceUpgrade)))
 	s.clearJournal()
 	s.restartManager() // a second start of the new version: still no writes
 	eventually(t, 3*time.Minute, "a GET of every resource after a restart", func() (bool, string) {
@@ -242,6 +243,7 @@ func TestUpgradePost(t *testing.T) {
 	if w := writes(j); len(w) > 0 {
 		t.Errorf("Cloudflare writes after restarting the upgraded manager: %v", w)
 	}
+	t.Logf("after a restart of the upgraded manager: %d requests, %d writes", len(j), len(writes(j)))
 	s.checkJournalClean(j)
 	for _, mg := range objs {
 		s.waitManaged(mg, 30*time.Second)

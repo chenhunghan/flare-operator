@@ -18,7 +18,7 @@
 #
 # Environment (defaults match the Makefile): MAKE, HELM, KUBECTL, CONTAINER_TOOL, PLATFORM,
 # CHART, E2E_NAMESPACE, E2E_RELEASE, E2E_TAG, E2E_PULL_POLICY, E2E_CLUSTER_NAME,
-# E2E_IMAGE_LOAD, E2E_IMAGE_REMOVE, and
+# E2E_IMAGE_LOAD, E2E_IMAGE_REMOVE, E2E_IMAGE_LIST, E2E_LOCAL_RMI (see the Makefile), and
 #   E2E_UPGRADE_FROM    git ref to upgrade from (default: the latest tag before HEAD, else the
 #                       merge base with main when HEAD is on a branch, else HEAD~1)
 #   E2E_PREV_TAG        image tag for the previous manager (e2e-prev)
@@ -40,6 +40,8 @@ E2E_PULL_POLICY=${E2E_PULL_POLICY:-Never}
 E2E_CLUSTER_NAME=${E2E_CLUSTER_NAME:-flare-e2e}
 E2E_IMAGE_LOAD=${E2E_IMAGE_LOAD:-}
 E2E_IMAGE_REMOVE=${E2E_IMAGE_REMOVE:-}
+E2E_IMAGE_LIST=${E2E_IMAGE_LIST:-}
+E2E_LOCAL_RMI=${E2E_LOCAL_RMI:-}
 E2E_PREV_TAG=${E2E_PREV_TAG:-e2e-prev}
 E2E_UPGRADE_SMOKE=${E2E_UPGRADE_SMOKE:-'^TestEndToEnd$/^(RBAC|Account|CreateResources|Idempotency|Update|ManagerHealth)$'}
 E2E_BUSY_WAIT=${E2E_BUSY_WAIT:-900}
@@ -82,12 +84,11 @@ cleanup() {
 	rc=$?
 	log "cleanup (exit $rc)"
 	"$KUBECTL" delete namespace "$E2E_UPGRADE_NAMESPACE" --ignore-not-found --wait --timeout=3m || true
-	"$MAKE" e2e-uninstall E2E_NAMESPACE="$E2E_NAMESPACE" E2E_RELEASE="$E2E_RELEASE" E2E_TAG="$E2E_TAG" \
-		E2E_IMAGE_REMOVE="$E2E_IMAGE_REMOVE" CHART="$CHART" || true
-	if [ -n "$E2E_IMAGE_REMOVE" ]; then
-		sh -c "$E2E_IMAGE_REMOVE docker.io/library/$prev_img" || true
-	fi
-	"$CONTAINER_TOOL" rmi "$prev_img" >/dev/null 2>&1 || true
+	"$MAKE" e2e-uninstall E2E_NAMESPACE="$E2E_NAMESPACE" E2E_RELEASE="$E2E_RELEASE" E2E_TAG="$E2E_TAG" CHART="$CHART" \
+		E2E_IMAGE_REMOVE="$E2E_IMAGE_REMOVE" E2E_IMAGE_LIST="$E2E_IMAGE_LIST" E2E_EXTRA_IMAGES="$prev_img" \
+		E2E_LOCAL_RMI="$E2E_LOCAL_RMI" || true
+	# Without E2E_LOCAL_RMI the previous-ref image is still removed locally: nothing else uses it.
+	[ -n "$E2E_LOCAL_RMI" ] || "$CONTAINER_TOOL" rmi "$prev_img" >/dev/null 2>&1 || true
 	rm -rf "$work"
 	exit "$rc"
 }
