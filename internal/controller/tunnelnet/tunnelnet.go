@@ -73,17 +73,22 @@ func ParseServiceFQDN(host, domain string) (namespace, service string, ok bool) 
 		return "", "", false
 	}
 	labels := strings.Split(strings.TrimSuffix(h, suffix), ".")
+	for _, l := range labels {
+		if l == "" {
+			return "", "", false
+		}
+	}
 	switch len(labels) {
 	case 2:
-		return labels[1], labels[0], labels[0] != "" && labels[1] != ""
+		return labels[1], labels[0], true
 	case 3:
-		return labels[2], labels[1], labels[1] != "" && labels[2] != ""
+		return labels[2], labels[1], true
 	}
 	return "", "", false
 }
 
-// Index names and key helpers. Each controller registers its own index (distinct names, so
-// both can run in one manager) with the functions below.
+// Index names and key helpers, registered once per manager by RegisterIndexes (both
+// controllers call it).
 const (
 	// IndexTunnelRef indexes VPCServices by spec.forProvider.tunnelRef.name.
 	IndexTunnelRef = "tunnelnet.vpcservice.tunnelRef"
