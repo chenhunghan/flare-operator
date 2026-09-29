@@ -265,18 +265,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	due, wait := r.verifyDue(ctx, &acct)
 	behind, settled := r.cacheBehind(&acct)
 	switch {
-	case due || settled:
-		// settled: not due, but the cache still does not show the last verify's status well
-		// after that write; verify and write the status again rather than wait for the schedule.
-		res, verr = r.verify(ctx, &acct)
-		r.schedule(ctx, &acct, res, verr)
-	case behind:
+	case behind && !settled && (!due || r.lagging(&acct)):
 		// The cache has not caught up with the last verify's status write: a status patch built
-		// from it could overwrite newer conditions. Look again shortly.
+		// from it could overwrite newer conditions. Look again shortly. This holds even when a
+		// verify is due (its schedule elapsed, the token changed): verifying on the stale object
+		// would build the status from it, and a transient error, which keeps the Ready it finds,
+		// would find none and write Ready=False over the last verify's Ready=True.
 		if serr != nil {
 			return ctrl.Result{}, serr
 		}
 		return ctrl.Result{RequeueAfter: cacheRetry}, nil
+	case due || settled:
+		// settled: the cache still does not show the last verify's status well after that
+		// write; verify and write the status again rather than wait for the schedule.
+		res, verr = r.verify(ctx, &acct)
+		r.schedule(ctx, &acct, res, verr)
 	default:
 		res.RequeueAfter = wait
 	}
@@ -478,6 +481,14 @@ func (r *Reconciler) cacheBehind(acct *cloudflarev1alpha1.CloudflareAccount) (be
 }
 
 func behindOnly(behind, _ bool) bool { return behind }
+
+// lagging reports whether this process's last verify of acct was for acct's current generation,
+// so that a cached acct that is behind (cacheBehind) lags that verify's status write rather
+// than showing a spec change the verify has not seen.
+func (r *Reconciler) lagging(acct *cloudflarev1alpha1.CloudflareAccount) bool {
+	sch, ok := r.scheduleOf(acct)
+	return ok && sch.generation == acct.Generation
+}
 
 // tokenKey fingerprints the token acct's Secret holds now ("" when it cannot be read).
 func (r *Reconciler) tokenKey(ctx context.Context, acct *cloudflarev1alpha1.CloudflareAccount) string {

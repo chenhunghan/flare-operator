@@ -39,6 +39,10 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      # Longer than the manager's graceful shutdown timeout (5 s, cmd/manager
+      # GracefulShutdownTimeout): on SIGTERM it stops its controllers, releases the leader lease
+      # (LeaderElectionReleaseOnCancel) and exits before the kubelet kills it, so the next
+      # manager takes over without waiting for the lease to expire.
       terminationGracePeriodSeconds: 10
       containers:
         - name: manager

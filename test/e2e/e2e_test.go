@@ -73,6 +73,7 @@ func TestEndToEnd(t *testing.T) {
 		{"Idempotency", func(t *testing.T) { s.testIdempotency(t, o) }},
 		{"Update", func(t *testing.T) { s.testUpdate(t, o) }},
 		{"ForeignOwnerKept", s.testForeignOwner},
+		{"ObserveOnly", s.testObserveOnly},
 		{"DeleteOrder", func(t *testing.T) { s.testDeleteOrder(t, o) }},
 		{"AccountProtection", func(t *testing.T) { s.testAccountProtection(t, o) }},
 		{"NamespaceTeardown", func(t *testing.T) { s.testNamespaceTeardown(t, o) }},
@@ -734,12 +735,7 @@ func (s *suite) testNamespaceTeardown(t *testing.T, o *objects) {
 			t.Errorf("flarefake still holds %d item(s) at %s: %v", len(items), p, items)
 		}
 	}
-	var tagged []map[string]any
-	if err := s.cfGet("/tags/resources", &tagged); err != nil {
-		t.Errorf("list tagged resources: %v", err)
-	} else if len(tagged) > 0 {
-		t.Logf("tag index still lists %d resource(s) after deletion: %v", len(tagged), tagged)
-	}
+	s.checkTagIndexClean(t)
 }
 
 // testManagerHealth checks the manager's logs for panics and RBAC denials and that neither the
@@ -748,6 +744,12 @@ func (s *suite) testManagerHealth(t *testing.T) {
 	for _, p := range s.managerPods() {
 		errs := s.checkLogs(p.Name, s.managerLogs(p.Name))
 		for _, e := range errs {
+			// The Tunnel controller requeues quietly when namespace teardown refuses the
+			// re-creation of its connector objects (internal/controller/tunnel/terminating.go).
+			if strings.Contains(e, `"controller":"tunnel"`) && strings.Contains(e, "being terminated") {
+				t.Errorf("the Tunnel controller logged a namespace-teardown error: %s", e)
+				continue
+			}
 			t.Logf("manager error log: %s", e)
 		}
 		for _, cs := range p.Status.ContainerStatuses {

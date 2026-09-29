@@ -40,6 +40,9 @@
 //   - Owned objects (Deployment, NetworkPolicy) are rewritten when the desired spec changes or
 //     a field the controller sets drifted (see drifted).
 //   - A reconcile without spec changes makes no Cloudflare writes (only GETs).
+//   - During namespace teardown an owned object can be deleted before the Tunnel is; its
+//     re-creation is refused (NamespaceTerminating), which requeues quietly, and a missing
+//     token Secret is detected before any Cloudflare call (see terminating.go).
 package tunnel
 
 import (
@@ -300,6 +303,13 @@ func (r *Reconciler) owner(t *tunnelsv1alpha1.Tunnel) string {
 
 // sync reconciles a live Tunnel.
 func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.Result, error) {
+	// Namespace teardown removed the token Secret before the Tunnel got its deletionTimestamp:
+	// wait for the deletion without calling Cloudflare (see terminating.go).
+	if torn, err := r.connectorRemovedByTeardown(ctx, t); err != nil {
+		return ctrl.Result{}, err
+	} else if torn {
+		return namespaceTerminatingRequeue(ctx, t)
+	}
 	acct, err := r.Accounts.Resolve(ctx, t)
 	if err != nil {
 		if reconcile.IsAccountNotReady(err) {
@@ -314,6 +324,10 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 	pol := reconcile.PoliciesOf(t)
 	cf, accountID := acct.Client, acct.AccountID
 	syncErr := func(err error) (ctrl.Result, error) {
+		if isNamespaceTerminating(err) {
+			// A create of an owned object refused during namespace teardown: not an error.
+			return namespaceTerminatingRequeue(ctx, t)
+		}
 		reconcile.MarkSyncError(t, "", err)
 		return ctrl.Result{}, err
 	}

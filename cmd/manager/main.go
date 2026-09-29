@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -44,6 +46,32 @@ func (s *stringList) String() string { return fmt.Sprint(*s) }
 func (s *stringList) Set(v string) error {
 	*s = append(*s, v)
 	return nil
+}
+
+// GracefulShutdownTimeout bounds how long the manager waits for running reconciles after
+// SIGTERM before it releases the leader lease and exits. It must stay below the chart's
+// terminationGracePeriodSeconds (charts/flare-operator/templates/deployment.yaml), or the
+// kubelet kills the pod before the lease is released and the next manager waits for it to
+// expire (LeaseDuration, 15 s).
+const GracefulShutdownTimeout = 5 * time.Second
+
+// managerOptions are the controller-runtime manager options for o.
+//
+// LeaderElectionReleaseOnCancel gives up the lease as soon as the manager stops, so a
+// restarted or rolled manager takes over at once instead of after the lease expires. That is
+// safe only because the process exits right after mgr.Start returns (run → main), so nothing
+// keeps acting as leader once the lease is released.
+func managerOptions(o Options, scheme *runtime.Scheme) ctrl.Options {
+	return ctrl.Options{
+		Scheme:                        scheme,
+		Metrics:                       metricsserver.Options{BindAddress: o.MetricsAddr},
+		HealthProbeBindAddress:        o.ProbeAddr,
+		LeaderElection:                o.LeaderElect,
+		LeaderElectionID:              "flare-operator.cloudflare.flare.dev",
+		LeaderElectionNamespace:       o.LeaderElectNS,
+		LeaderElectionReleaseOnCancel: true,
+		GracefulShutdownTimeout:       ptr.To(GracefulShutdownTimeout),
+	}
 }
 
 // Scheme returns a scheme with client-go types and every registered API group.
@@ -96,14 +124,7 @@ func run(o Options) error {
 	if err != nil {
 		return err
 	}
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                  scheme,
-		Metrics:                 metricsserver.Options{BindAddress: o.MetricsAddr},
-		HealthProbeBindAddress:  o.ProbeAddr,
-		LeaderElection:          o.LeaderElect,
-		LeaderElectionID:        "flare-operator.cloudflare.flare.dev",
-		LeaderElectionNamespace: o.LeaderElectNS,
-	})
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), managerOptions(o, scheme))
 	if err != nil {
 		return fmt.Errorf("create manager: %w", err)
 	}

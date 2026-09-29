@@ -4,7 +4,8 @@
 //
 //	make e2e-images e2e-install   # build images, load them into the cluster, helm install
 //	make e2e                      # go test -tags e2e ./test/e2e
-//	make e2e-uninstall            # helm uninstall, delete the CRDs and flare-system
+//	make e2e-uninstall            # helm uninstall, delete the CRDs and flare-system, and
+//	                              # remove the loaded images (E2E_IMAGE_REMOVE)
 //
 // The tests talk to the in-cluster flarefake through the API server's service proxy
 // (/api/v1/namespaces/<ns>/services/http:<svc>:<port>/proxy/...), so no port-forward is
