@@ -1,0 +1,34 @@
+{
+ "ts": "2026-09-29T08:21:29.343413+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/hyperdrive/configs",
+ "request_body": {
+  "name": "flare-spike-k8s-10",
+  "origin": {
+   "scheme": "postgresql",
+   "database": "spike",
+   "user": "spike",
+   "password": "REDACTED",
+   "service_id": "01a0ec40-eee6-7b11-ae54-57bd3f9e6609"
+  }
+ },
+ "status": 400,
+ "elapsed_ms": 1026,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 2012,
+    "message": "Databases must be configured to support SSL/TLS."
+   }
+  ],
+  "messages": null
+ }
+}

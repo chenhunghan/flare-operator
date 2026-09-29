@@ -1,0 +1,23 @@
+{
+ "ts": "2026-09-29T06:56:51.940407+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/storage/kv/namespaces/00000000000000000000000000000000",
+ "request_body": null,
+ "status": 404,
+ "elapsed_ms": 514,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "result": null,
+  "errors": [
+   {
+    "code": 10013,
+    "message": "get namespace: 'namespace not found'"
+   }
+  ],
+  "messages": [],
+  "success": false
+ }
+}

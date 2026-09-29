@@ -1,0 +1,20 @@
+{
+ "ts": "2026-09-29T06:57:21.311908+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/d1/database/18835cb0-653a-4e2f-a2e0-8dc2da0baefd/time_travel/bookmark",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 652,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "result": {
+   "bookmark": "00000000-0000000a-000050f5-0b1cd69ad03eb8e6ef6b8b0168788aa0"
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

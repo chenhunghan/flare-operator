@@ -1,0 +1,543 @@
+{
+ "ts": "2026-09-29T06:58:54.513235+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/workers/observability/telemetry/keys",
+ "request_body": {
+  "from": 1790664233962,
+  "to": 1790665133962,
+  "datasets": [],
+  "filters": [
+   {
+    "key": "$metadata.service",
+    "operation": "eq",
+    "type": "string",
+    "value": "flare-spike-logs-1"
+   }
+  ],
+  "limit": 200
+ },
+ "status": 200,
+ "elapsed_ms": 484,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": true,
+  "errors": [],
+  "messages": [
+   {
+    "message": "Successful request"
+   }
+  ],
+  "result": [
+   {
+    "key": "$metadata.message",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.messageTemplate",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.error",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.errorTemplate",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.origin",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.service",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.level",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.requestId",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.spanId",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.traceId",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.transactionName",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.spanName",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.trigger",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.fingerprint",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.account",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.type",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.id",
+    "type": "string",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.duration",
+    "type": "number",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.latency",
+    "type": "number",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.traceDuration",
+    "type": "number",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.startTime",
+    "type": "number",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$metadata.endTime",
+    "type": "number",
+    "lastSeenAt": 1790665134411
+   },
+   {
+    "key": "$workers.executionModel",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.isEUCountry",
+    "type": "boolean",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certIssuerSKI",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certRevoked",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.asOrganization",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.headers.cf-visitor",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientExtensionsSha1",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.scriptName",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certChainRFC9440",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.cpuTimeMs",
+    "type": "number",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "level",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.path",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.country",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsExportedAuthenticator.clientHandshake",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.headers.connection",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certSubjectDNLegacy",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.longitude",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certFingerprintSHA256",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientRandom",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsExportedAuthenticator.serverHandshake",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certFingerprintSHA1",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.search.phase",
+    "type": "number",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certChainRFC9440TooLarge",
+    "type": "boolean",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.edgeRequestKeepAliveStatus",
+    "type": "number",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.headers.accept-encoding",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certIssuerDN",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.headers.x-forwarded-proto",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.timezone",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.truncated",
+    "type": "boolean",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.outcome",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.url",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.region",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certNotAfter",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.eventType",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsCipher",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certIssuerDNLegacy",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certSKI",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.clientQuicRtt",
+    "type": "number",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientCiphersSha1",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.headers.cf-ray",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "message",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.latitude",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.httpProtocol",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.search.phase",
+    "type": "number",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certIssuerSerial",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsVersion",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.method",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.continent",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.edgeL4.deliveryRate",
+    "type": "number",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.headers.cf-ipcountry",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certPresented",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.city",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientExtensionsSha1Le",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certSubjectDN",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.headers.user-agent",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientHelloLength",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.regionCode",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.headers.host",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.asn",
+    "type": "number",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsExportedAuthenticator.clientFinished",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.wallTimeMs",
+    "type": "number",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.path",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.colo",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.scriptVersion.id",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certSerial",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.headers.x-real-ip",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certVerified",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.clientTcpRtt",
+    "type": "number",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certSubjectDNRFC2253",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certRFC9440TooLarge",
+    "type": "boolean",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsExportedAuthenticator.serverFinished",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.response.status",
+    "type": "number",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.requestPriority",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certIssuerDNRFC2253",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.headers.cf-connecting-ip",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.verifiedBotCategory",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.headers.accept",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certRFC9440",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   },
+   {
+    "key": "$workers.event.request.cf.tlsClientAuth.certNotBefore",
+    "type": "string",
+    "lastSeenAt": 1790665117798
+   }
+  ]
+ }
+}

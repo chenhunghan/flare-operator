@@ -1,0 +1,25 @@
+{
+ "ts": "2026-09-29T07:06:15.674819+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/cfd_tunnel/5456b9ca-8b73-4b44-93df-67ad7acc8e2c/configurations",
+ "request_body": null,
+ "status": 404,
+ "elapsed_ms": 307,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": false,
+  "errors": [
+   {
+    "code": 1055,
+    "message": "Configuration for tunnel not found"
+   }
+  ],
+  "messages": [],
+  "result": null
+ }
+}

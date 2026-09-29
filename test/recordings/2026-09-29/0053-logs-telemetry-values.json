@@ -1,0 +1,54 @@
+{
+ "ts": "2026-09-29T06:59:28.542331+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/workers/observability/telemetry/values",
+ "request_body": {
+  "timeframe": {
+   "from": 1790664268007,
+   "to": 1790665168007
+  },
+  "key": "$metadata.type",
+  "type": "string",
+  "datasets": [],
+  "filters": [
+   {
+    "key": "$metadata.service",
+    "operation": "eq",
+    "type": "string",
+    "value": "flare-spike-logs-1"
+   }
+  ],
+  "limit": 20
+ },
+ "status": 200,
+ "elapsed_ms": 463,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": true,
+  "errors": [],
+  "messages": [
+   {
+    "message": "Successful request"
+   }
+  ],
+  "result": [
+   {
+    "key": "$metadata.type",
+    "type": "string",
+    "value": "cf-worker-event",
+    "dataset": "cloudflare-workers"
+   },
+   {
+    "key": "$metadata.type",
+    "type": "string",
+    "value": "cf-worker",
+    "dataset": "cloudflare-workers"
+   }
+  ]
+ }
+}

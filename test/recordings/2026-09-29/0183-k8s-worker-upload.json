@@ -1,0 +1,40 @@
+{
+ "ts": "2026-09-29T08:14:00.136608+00:00",
+ "method": "PUT",
+ "path": "/accounts/ACCOUNT_ID/workers/scripts/flare-spike-k8s-w",
+ "request_body": "------flarespikek8sboundary\r\nContent-Disposition: form-data; name=\"metadata\"; filename=\"metadata.json\"\r\nContent-Type: application/json\r\n\r\n{\"main_module\": \"index.js\", \"compatibility_date\": \"2026-09-01\", \"bindings\": [{\"type\": \"vpc_service\", \"name\": \"A\", \"service_id\": \"01a0ec3a-0c1a-7893-aa05-d5d555c43551\"}, {\"type\": \"vpc_service\", \"name\": \"B\", \"service_id\": \"01a0ec3a-0e27-7b11-b267-edf225c0d9a6\"}, {\"type\": \"vpc_service\", \"name\": \"VA\", \"service_id\": \"01a0ec3a-118b-7dd2-8574-7151cdad9fc3\"}, {\"type\": \"vpc_service\", \"name\": \"VB1\", \"service_id\": \"01a0ec3a-142a-78f3-88e8-4da19c614541\"}, {\"type\": \"vpc_service\", \"name\": \"VB2\", \"service_id\": \"01a0ec3a-1647-7de2-840d-5768ba7cc78b\"}, {\"type\": \"vpc_service\", \"name\": \"VC\", \"service_id\": \"01a0ec3a-1893-7dc3-ada2-3633dd71bc62\"}, {\"type\": \"vpc_service\", \"name\": \"VD\", \"service_id\": \"01a0ec3a-1a90-7263-b178-5280954b2768\"}]}\r\n------flarespikek8sboundary\r\nContent-Disposition: form-data; name=\"index.js\"; filename=\"index.js\"\r\nContent-Type: application/javascript+module\r\n\r\nexport default {\n  async fetch(req, env) {\n    const u = new URL(req.url);\n    const which = u.searchParams.get(\"b\") || \"A\";\n    const target = u.searchParams.get(\"t\") || \"http://svc/\";\n    const t0 = Date.now();\n    try {\n      const r = await env[which].fetch(target);\n      const body = await r.text();\n      return new Response(JSON.stringify({binding: which, target, status: r.status, ms: Date.now() - t0, body}), {headers: {\"content-type\": \"application/json\"}});\n    } catch (e) {\n      return new Response(JSON.stringify({binding: which, target, error: String(e), ms: Date.now() - t0}), {status: 502, headers: {\"content-type\": \"application/json\"}});\n    }\n  }\n};\n\r\n------flarespikek8sboundary--\r\n",
+ "status": 200,
+ "elapsed_ms": 934,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"workers_script_upload\";r=179999;t=1",
+  "Ratelimit-Policy": "\"workers_script_upload\";q=180000;w=300"
+ },
+ "response_body": {
+  "result": {
+   "created_on": "2026-09-29T08:13:59.580423Z",
+   "modified_on": "2026-09-29T08:13:59.580423Z",
+   "id": "flare-spike-k8s-w",
+   "tag": "7fef574e072345ac9fa88b7df8e5a643",
+   "entry_point": "index.js",
+   "tags": null,
+   "deployment_id": "29701f991c744f29b400c376f7f1d585",
+   "tail_consumers": null,
+   "logpush": false,
+   "has_assets": false,
+   "has_modules": true,
+   "etag": "13e6d7f2cdbb55bcb2ab507b29c239c7909bb2281731582288f750baa27a538e",
+   "handlers": [
+    "fetch"
+   ],
+   "last_deployed_from": "api",
+   "compatibility_date": "2026-09-01",
+   "usage_model": "standard",
+   "startup_time_ms": 1
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

@@ -1,0 +1,30 @@
+{
+ "ts": "2026-09-29T07:07:59.172722+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/workers/observability/telemetry/live-tail",
+ "request_body": {
+  "scriptId": "flare-spike-logs-1",
+  "filters": [],
+  "filterCombination": "and"
+ },
+ "status": 200,
+ "elapsed_ms": 773,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": true,
+  "errors": [],
+  "messages": [
+   {
+    "message": "Successful request"
+   }
+  ],
+  "result": {
+   "wsUrl": "wss://live-tail.observability.cloudflare.com/connect?REDACTED"
+  }
+ }
+}

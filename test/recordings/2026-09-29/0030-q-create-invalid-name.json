@@ -1,0 +1,27 @@
+{
+ "ts": "2026-09-29T06:57:25.742327+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/queues",
+ "request_body": {
+  "queue_name": "Bad Name!"
+ },
+ "status": 400,
+ "elapsed_ms": 299,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 11003,
+    "message": "Queue name 'Bad Name!' is invalid: invalid queue name: Bad Name!. Must match ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$."
+   }
+  ],
+  "messages": []
+ }
+}

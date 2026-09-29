@@ -1,0 +1,276 @@
+{
+ "ts": "2026-09-29T07:05:06.824917+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/workers/observability/telemetry/query",
+ "request_body": {
+  "queryId": "flare-spike-logs-lag",
+  "view": "events",
+  "limit": 10,
+  "dry": true,
+  "timeframe": {
+   "from": 1790665421090,
+   "to": 1790665502925
+  },
+  "parameters": {
+   "datasets": [],
+   "filterCombination": "and",
+   "filters": [
+    {
+     "key": "$metadata.service",
+     "operation": "eq",
+     "type": "string",
+     "value": "flare-spike-logs-1"
+    }
+   ],
+   "needle": {
+    "value": "lagb81262",
+    "isRegex": false,
+    "matchCase": false
+   },
+   "calculations": [],
+   "groupBys": [],
+   "havings": []
+  }
+ },
+ "status": 200,
+ "elapsed_ms": 3811,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": true,
+  "errors": [],
+  "messages": [
+   {
+    "message": "Successful request"
+   }
+  ],
+  "result": {
+   "run": {
+    "id": "cr53id03t7ipqzee3c1uko65",
+    "query": {
+     "id": "flare-spike-logs-lag",
+     "description": "",
+     "name": "",
+     "generated": false,
+     "parameters": {
+      "datasets": [],
+      "filters": [
+       {
+        "key": "$metadata.service",
+        "operation": "eq",
+        "value": "flare-spike-logs-1",
+        "type": "string"
+       }
+      ],
+      "havings": [],
+      "filterCombination": "and",
+      "calculations": [],
+      "groupBys": [],
+      "needle": {
+       "value": "lagb81262",
+       "isRegex": false,
+       "matchCase": false
+      }
+     },
+     "workspaceId": "ACCOUNT_ID",
+     "environmentId": "cloudflare",
+     "userId": "USER_ID",
+     "created": "2026-09-29T07:05:06.628Z",
+     "updated": "2026-09-29T07:05:06.628Z"
+    },
+    "accountId": "ACCOUNT_ID",
+    "timeframe": {
+     "from": 1790665421090,
+     "to": 1790665502925
+    },
+    "userId": "USER_ID",
+    "status": "COMPLETED",
+    "granularity": 2000,
+    "dry": true,
+    "statistics": {
+     "elapsed": 0.043958327,
+     "rows_read": 1015819,
+     "bytes_read": 56274474,
+     "abr_level": 1
+    }
+   },
+   "events": {
+    "events": [],
+    "fields": [],
+    "count": 0,
+    "series": [
+     {
+      "time": "2026-09-29 07:03:44",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:46",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:48",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:50",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:52",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:54",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:56",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:58",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:00",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:02",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:04",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:06",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:08",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:10",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:12",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:14",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:16",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:18",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:20",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:22",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:24",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:26",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:28",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:30",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:32",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:34",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:36",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:38",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:40",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:42",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:44",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:46",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:48",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:50",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:52",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:54",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:56",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:58",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:05:00",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:05:02",
+      "data": []
+     }
+    ]
+   },
+   "statistics": {
+    "elapsed": 0.043958327,
+    "rows_read": 1015819,
+    "bytes_read": 56274474,
+    "abr_level": 1
+   }
+  }
+ }
+}

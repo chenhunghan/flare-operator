@@ -1,0 +1,23 @@
+{
+ "ts": "2026-09-29T06:57:21.732857+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/d1/database/00000000-0000-0000-0000-000000000000",
+ "request_body": null,
+ "status": 404,
+ "elapsed_ms": 325,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "messages": [],
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 7404,
+    "message": "The database 00000000-0000-0000-0000-000000000000 could not be found"
+   }
+  ]
+ }
+}

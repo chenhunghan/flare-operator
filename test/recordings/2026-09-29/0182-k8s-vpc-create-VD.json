@@ -1,0 +1,47 @@
+{
+ "ts": "2026-09-29T08:13:46.148330+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/connectivity/directory/services",
+ "request_body": {
+  "name": "flare-spike-k8s-8",
+  "type": "http",
+  "host": {
+   "ipv4": "10.244.0.5",
+   "network": {
+    "tunnel_id": "2c2ebad5-acd8-472f-8d20-bd5b78b34083"
+   }
+  },
+  "http_port": 80
+ },
+ "status": 200,
+ "elapsed_ms": 442,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": {
+   "service_id": "01a0ec3a-1a90-7263-b178-5280954b2768",
+   "type": "http",
+   "name": "flare-spike-k8s-8",
+   "http_port": 80,
+   "https_port": null,
+   "host": {
+    "ipv4": "10.244.0.5",
+    "ipv6": null,
+    "hostname": null,
+    "network": {
+     "tunnel_id": "2c2ebad5-acd8-472f-8d20-bd5b78b34083"
+    },
+    "resolver_network": null
+   },
+   "created_at": "2026-09-29T08:13:46Z",
+   "updated_at": "2026-09-29T08:13:46Z"
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

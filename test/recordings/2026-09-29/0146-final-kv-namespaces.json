@@ -1,0 +1,25 @@
+{
+ "ts": "2026-09-29T07:26:39.004443+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/storage/kv/namespaces",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 565,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "result": [],
+  "errors": [],
+  "messages": [],
+  "success": true,
+  "result_info": {
+   "count": 0,
+   "page": 1,
+   "per_page": 20,
+   "total_count": 0,
+   "total_pages": 0
+  }
+ }
+}

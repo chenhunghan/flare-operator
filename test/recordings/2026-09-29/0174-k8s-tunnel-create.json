@@ -1,0 +1,39 @@
+{
+ "ts": "2026-09-29T08:12:42.763504+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/cfd_tunnel",
+ "request_body": {
+  "name": "flare-spike-k8s-1",
+  "config_src": "cloudflare"
+ },
+ "status": 200,
+ "elapsed_ms": 1190,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": {
+   "id": "2c2ebad5-acd8-472f-8d20-bd5b78b34083",
+   "account_tag": "ACCOUNT_ID",
+   "created_at": "2026-09-29T08:12:41.993662Z",
+   "deleted_at": null,
+   "name": "flare-spike-k8s-1",
+   "connections": [],
+   "conns_active_at": null,
+   "conns_inactive_at": "2026-09-29T08:12:41.993662Z",
+   "tun_type": "cfd_tunnel",
+   "metadata": {},
+   "status": "inactive",
+   "remote_config": true,
+   "config_src": "cloudflare",
+   "credentials_file": "REDACTED",
+   "token": "REDACTED"
+  }
+ }
+}

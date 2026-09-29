@@ -1,0 +1,43 @@
+{
+ "ts": "2026-09-29T07:05:19.022908+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/workers/scripts/flare-spike-vpc-2/settings",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 424,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": {
+   "placement": {},
+   "compatibility_date": "2026-09-01",
+   "compatibility_flags": [],
+   "usage_model": "standard",
+   "tags": [],
+   "tail_consumers": [],
+   "logpush": false,
+   "annotations": {
+    "workers/triggered_by": "upload"
+   },
+   "bindings": [
+    {
+     "name": "PRIVATE",
+     "service_id": "01a0ebf6-0a78-73c3-b7cf-2126eda86c57",
+     "type": "vpc_service"
+    },
+    {
+     "name": "PRIVATE_HOST",
+     "service_id": "01a0ebf6-3394-7623-aa97-7b7faba0c1ab",
+     "type": "vpc_service"
+    }
+   ]
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

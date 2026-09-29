@@ -1,0 +1,6 @@
+# Pinned Cloudflare OpenAPI spec (see docs/testing-strategy.md §4.1)
+source: https://github.com/cloudflare/api-schemas
+commit: 780de88d0324b007c907a1782259b1a0e5e87c7d
+file: openapi.json (stored gzipped as openapi.json.gz)
+sha256: e514c72ea05ed98d709d09447d95d81f1dfb43372b23162474990498fe9577a7
+fetched: 2026-09-29

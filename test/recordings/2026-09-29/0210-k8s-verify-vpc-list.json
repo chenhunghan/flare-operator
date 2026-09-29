@@ -1,0 +1,20 @@
+{
+ "ts": "2026-09-29T08:25:15.865324+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/connectivity/directory/services?per_page=100",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 308,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": [],
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

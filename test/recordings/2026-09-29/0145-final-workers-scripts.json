@@ -1,0 +1,20 @@
+{
+ "ts": "2026-09-29T07:26:38.336100+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/workers/scripts",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 453,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": [],
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

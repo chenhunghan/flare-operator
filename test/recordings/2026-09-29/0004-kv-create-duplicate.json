@@ -1,0 +1,25 @@
+{
+ "ts": "2026-09-29T06:56:47.298960+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/storage/kv/namespaces",
+ "request_body": {
+  "title": "flare-spike-me-kv-1"
+ },
+ "status": 400,
+ "elapsed_ms": 833,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "result": null,
+  "errors": [
+   {
+    "code": 10014,
+    "message": "a namespace with this account ID and title already exists"
+   }
+  ],
+  "messages": [],
+  "success": false
+ }
+}

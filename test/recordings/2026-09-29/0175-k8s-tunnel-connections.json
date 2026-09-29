@@ -1,0 +1,77 @@
+{
+ "ts": "2026-09-29T08:13:10.943868+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/cfd_tunnel/2c2ebad5-acd8-472f-8d20-bd5b78b34083/connections",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 320,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": [
+   {
+    "id": "ca4bd566-6d2b-4d9c-8a76-f4ec8df8e30b",
+    "features": [
+     "support_datagram_v2",
+     "support_quic_eof",
+     "management_logs",
+     "allow_remote_config",
+     "serialized_headers"
+    ],
+    "version": "2026.9.3",
+    "arch": "linux_arm64",
+    "conns": [
+     {
+      "colo_name": "khh01",
+      "uuid": "10664f23-7f5e-494c-943a-7e733cff21a9",
+      "id": "10664f23-7f5e-494c-943a-7e733cff21a9",
+      "is_pending_reconnect": false,
+      "origin_ip": "203.0.113.10",
+      "opened_at": "2026-09-29T08:13:02.966068Z",
+      "client_id": "ca4bd566-6d2b-4d9c-8a76-f4ec8df8e30b",
+      "client_version": "2026.9.3"
+     },
+     {
+      "colo_name": "tpe01",
+      "uuid": "1ef5cd93-f276-4c62-b245-456b8f962a5b",
+      "id": "1ef5cd93-f276-4c62-b245-456b8f962a5b",
+      "is_pending_reconnect": false,
+      "origin_ip": "203.0.113.10",
+      "opened_at": "2026-09-29T08:13:03.695345Z",
+      "client_id": "ca4bd566-6d2b-4d9c-8a76-f4ec8df8e30b",
+      "client_version": "2026.9.3"
+     },
+     {
+      "colo_name": "tpe01",
+      "uuid": "165e1d50-f6f9-435d-9cfd-793abfe11ee1",
+      "id": "165e1d50-f6f9-435d-9cfd-793abfe11ee1",
+      "is_pending_reconnect": false,
+      "origin_ip": "203.0.113.10",
+      "opened_at": "2026-09-29T08:13:04.695575Z",
+      "client_id": "ca4bd566-6d2b-4d9c-8a76-f4ec8df8e30b",
+      "client_version": "2026.9.3"
+     },
+     {
+      "colo_name": "khh01",
+      "uuid": "42b8f68b-656f-46c1-b704-ac0cfd055308",
+      "id": "42b8f68b-656f-46c1-b704-ac0cfd055308",
+      "is_pending_reconnect": false,
+      "origin_ip": "203.0.113.10",
+      "opened_at": "2026-09-29T08:13:05.292152Z",
+      "client_id": "ca4bd566-6d2b-4d9c-8a76-f4ec8df8e30b",
+      "client_version": "2026.9.3"
+     }
+    ],
+    "run_at": "2026-09-29T08:13:02.966068Z",
+    "ha_status": null
+   }
+  ]
+ }
+}

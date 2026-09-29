@@ -1,0 +1,60 @@
+{
+ "ts": "2026-09-29T08:22:55.547659+00:00",
+ "method": "PUT",
+ "path": "/accounts/ACCOUNT_ID/connectivity/directory/services/01a0ec40-eee6-7b11-ae54-57bd3f9e6609",
+ "request_body": {
+  "name": "flare-spike-k8s-9",
+  "type": "tcp",
+  "app_protocol": "postgresql",
+  "tcp_port": 5432,
+  "tls_settings": {
+   "cert_verification_mode": "disabled"
+  },
+  "host": {
+   "hostname": "pg.flare-spike.svc.cluster.local",
+   "resolver_network": {
+    "tunnel_id": "2c2ebad5-acd8-472f-8d20-bd5b78b34083",
+    "resolver_ips": [
+     "10.96.0.10"
+    ]
+   }
+  }
+ },
+ "status": 200,
+ "elapsed_ms": 484,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": {
+   "service_id": "01a0ec40-eee6-7b11-ae54-57bd3f9e6609",
+   "type": "tcp",
+   "name": "flare-spike-k8s-9",
+   "tcp_port": 5432,
+   "app_protocol": "postgresql",
+   "host": {
+    "ipv4": null,
+    "ipv6": null,
+    "hostname": "pg.flare-spike.svc.cluster.local",
+    "network": null,
+    "resolver_network": {
+     "tunnel_id": "2c2ebad5-acd8-472f-8d20-bd5b78b34083",
+     "resolver_ips": [
+      "10.96.0.10"
+     ]
+    }
+   },
+   "tls_settings": {
+    "cert_verification_mode": "disabled"
+   },
+   "created_at": "2026-09-29T08:22:55Z",
+   "updated_at": "2026-09-29T08:22:55Z"
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

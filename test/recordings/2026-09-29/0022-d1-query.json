@@ -1,0 +1,28 @@
+{
+ "ts": "2026-09-29T06:57:19.690850+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/d1/database/18835cb0-653a-4e2f-a2e0-8dc2da0baefd/query",
+ "request_body": {
+  "sql": "CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT); INSERT INTO t(v) VALUES (?1); SELECT * FROM t;",
+  "params": [
+   "hello"
+  ]
+ },
+ "status": 400,
+ "elapsed_ms": 879,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "messages": [],
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 7400,
+    "message": "The request is malformed: params with multiple statements is not supported"
+   }
+  ]
+ }
+}

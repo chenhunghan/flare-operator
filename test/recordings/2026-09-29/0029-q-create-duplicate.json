@@ -1,0 +1,27 @@
+{
+ "ts": "2026-09-29T06:57:25.360929+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/queues",
+ "request_body": {
+  "queue_name": "flare-spike-me-q-1"
+ },
+ "status": 409,
+ "elapsed_ms": 378,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 11009,
+    "message": "Queue name 'flare-spike-me-q-1' is already taken. Please use a different name and try again."
+   }
+  ],
+  "messages": []
+ }
+}

@@ -1,0 +1,20 @@
+{
+ "ts": "2026-09-29T08:24:20.807872+00:00",
+ "method": "DELETE",
+ "path": "/accounts/ACCOUNT_ID/connectivity/directory/services/01a0ec3a-142a-78f3-88e8-4da19c614541",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 559,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": null,
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

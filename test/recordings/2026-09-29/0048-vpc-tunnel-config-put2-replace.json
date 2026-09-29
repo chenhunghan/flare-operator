@@ -1,0 +1,51 @@
+{
+ "ts": "2026-09-29T06:59:10.025058+00:00",
+ "method": "PUT",
+ "path": "/accounts/ACCOUNT_ID/cfd_tunnel/5456b9ca-8b73-4b44-93df-67ad7acc8e2c/configurations",
+ "request_body": {
+  "config": {
+   "ingress": [
+    {
+     "hostname": "c.flare-spike-vpc.invalid",
+     "service": "http://127.0.0.1:18080"
+    },
+    {
+     "service": "http_status:404"
+    }
+   ]
+  }
+ },
+ "status": 200,
+ "elapsed_ms": 862,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": {
+   "tunnel_id": "5456b9ca-8b73-4b44-93df-67ad7acc8e2c",
+   "version": 2,
+   "config": {
+    "ingress": [
+     {
+      "service": "http://127.0.0.1:18080",
+      "hostname": "c.flare-spike-vpc.invalid"
+     },
+     {
+      "service": "http_status:404"
+     }
+    ],
+    "warp-routing": {
+     "enabled": false
+    }
+   },
+   "source": "cloudflare",
+   "created_at": "2026-09-29T06:59:09.488881Z"
+  }
+ }
+}

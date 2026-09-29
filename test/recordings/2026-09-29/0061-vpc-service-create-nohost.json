@@ -1,0 +1,28 @@
+{
+ "ts": "2026-09-29T06:59:49.402492+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/connectivity/directory/services",
+ "request_body": {
+  "name": "flare-spike-vpc-7",
+  "type": "http"
+ },
+ "status": 400,
+ "elapsed_ms": 340,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 5102,
+    "message": "invalid json: bad json data: missing field `host` at line 1 column 42"
+   }
+  ],
+  "messages": []
+ }
+}

@@ -1,0 +1,813 @@
+{
+ "ts": "2026-09-29T07:11:25.685512+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/workers/observability/telemetry/query",
+ "request_body": {
+  "queryId": "flare-spike-logs-lag",
+  "view": "events",
+  "limit": 10,
+  "dry": true,
+  "timeframe": {
+   "from": 1790665798891,
+   "to": 1790665885009
+  },
+  "parameters": {
+   "datasets": [],
+   "filterCombination": "and",
+   "filters": [
+    {
+     "key": "$metadata.service",
+     "operation": "eq",
+     "type": "string",
+     "value": "flare-spike-logs-1"
+    }
+   ],
+   "needle": {
+    "value": "lag664d2f",
+    "isRegex": false,
+    "matchCase": false
+   },
+   "calculations": [],
+   "groupBys": [],
+   "havings": []
+  }
+ },
+ "status": 200,
+ "elapsed_ms": 554,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": true,
+  "errors": [],
+  "messages": [
+   {
+    "message": "Successful request"
+   }
+  ],
+  "result": {
+   "run": {
+    "id": "3v7z0u9fuh00pjijhx10e1uk",
+    "query": {
+     "id": "flare-spike-logs-lag",
+     "description": "",
+     "name": "",
+     "generated": false,
+     "parameters": {
+      "datasets": [],
+      "filters": [
+       {
+        "key": "$metadata.service",
+        "operation": "eq",
+        "value": "flare-spike-logs-1",
+        "type": "string"
+       }
+      ],
+      "havings": [],
+      "filterCombination": "and",
+      "calculations": [],
+      "groupBys": [],
+      "needle": {
+       "value": "lag664d2f",
+       "isRegex": false,
+       "matchCase": false
+      }
+     },
+     "workspaceId": "ACCOUNT_ID",
+     "environmentId": "cloudflare",
+     "userId": "USER_ID",
+     "created": "2026-09-29T07:11:25.492Z",
+     "updated": "2026-09-29T07:11:25.492Z"
+    },
+    "accountId": "ACCOUNT_ID",
+    "timeframe": {
+     "from": 1790665798891,
+     "to": 1790665885009
+    },
+    "userId": "USER_ID",
+    "status": "COMPLETED",
+    "granularity": 2000,
+    "dry": true,
+    "statistics": {
+     "elapsed": 0.048499171,
+     "rows_read": 1045802,
+     "bytes_read": 44266849,
+     "abr_level": 1
+    }
+   },
+   "events": {
+    "events": [
+     {
+      "source": {
+       "level": "info",
+       "message": "GET https://flare-spike-logs-1.example-subdomain.workers.dev/lag664d2f?phase=lag"
+      },
+      "dataset": "cloudflare-workers",
+      "timestamp": 1790665859285,
+      "$workers": {
+       "truncated": false,
+       "event": {
+        "request": {
+         "cf": {
+          "isEUCountry": false,
+          "tlsClientAuth": {
+           "certRFC9440TooLarge": false,
+           "certChainRFC9440TooLarge": false,
+           "certPresented": "0",
+           "certVerified": "NONE",
+           "certRevoked": "0",
+           "certIssuerDN": "",
+           "certSubjectDN": "",
+           "certIssuerDNRFC2253": "",
+           "certSubjectDNRFC2253": "",
+           "certIssuerDNLegacy": "",
+           "certSubjectDNLegacy": "",
+           "certSerial": "",
+           "certIssuerSerial": "",
+           "certSKI": "",
+           "certIssuerSKI": "",
+           "certFingerprintSHA1": "",
+           "certFingerprintSHA256": "",
+           "certNotBefore": "",
+           "certNotAfter": "",
+           "certRFC9440": "",
+           "certChainRFC9440": ""
+          },
+          "httpProtocol": "HTTP/2",
+          "requestPriority": "weight=16;exclusive=0;group=0;group-weight=0",
+          "colo": "SJC",
+          "asOrganization": "Example ISP",
+          "country": "XX",
+          "city": "Example City",
+          "continent": "AS",
+          "region": "Example Region",
+          "regionCode": "XX",
+          "timezone": "Etc/UTC",
+          "longitude": "0.00000",
+          "latitude": "0.00000",
+          "tlsVersion": "TLSv1.3",
+          "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+          "tlsClientRandom": "xtpsb6amat0IBxQ7wwAt9TQHBJwiePMu2nEC7GK2YGw=",
+          "tlsClientCiphersSha1": "eDGmD1H99AwNYzOR+7eoGLo6eLU=",
+          "tlsClientExtensionsSha1": "Ub+nUmIm1U57hdNSUph0R+kx9Gc=",
+          "tlsClientExtensionsSha1Le": "NMNf2YIpLBhtroOEBooGFi+jtJ8=",
+          "tlsExportedAuthenticator": {
+           "clientHandshake": "55f39682df0a4e185cda62598051b40841c52dbc00124190bfe6e2c0c4167762",
+           "serverHandshake": "24a458ad0f39f17b72505ecb78fd1d3742720502d61ef609ee9e0357c392356f",
+           "clientFinished": "059f5a5af8ab84e2d8b88cc14b6b715f69e285883545d1237f0c1556aa5383d7",
+           "serverFinished": "bfc18cdb925df89301e236ea095e2e007c82e0433776e1a52df7ace9dd09be36"
+          },
+          "tlsClientHelloLength": "341",
+          "verifiedBotCategory": "",
+          "edgeRequestKeepAliveStatus": 1,
+          "clientTcpRtt": 10,
+          "clientQuicRtt": 0,
+          "asn": 64496,
+          "edgeL4": {
+           "deliveryRate": 21657
+          }
+         },
+         "headers": {
+          "accept": "*/*",
+          "accept-encoding": "gzip, br",
+          "cf-connecting-ip": "203.0.113.10",
+          "cf-ipcountry": "TW",
+          "CF-Ray": "REDACTED",
+          "cf-visitor": "{\"scheme\": \"https\"}",
+          "connection": "Keep-Alive",
+          "host": "flare-spike-logs-1.example-subdomain.workers.dev",
+          "user-agent": "curl/8.7.1",
+          "x-forwarded-proto": "https",
+          "x-real-ip": "203.0.113.10"
+         },
+         "method": "GET",
+         "url": "https://flare-spike-logs-1.example-subdomain.workers.dev/lag664d2f?phase=lag"
+        },
+        "path": "/lag664d2f",
+        "search": {
+         "phase": "lag"
+        },
+        "response": {
+         "status": 200
+        }
+       },
+       "scriptName": "flare-spike-logs-1",
+       "scriptVersion": {
+        "id": "1b8ff0e5-5b98-4a00-9f78-f3894e14c37b"
+       },
+       "eventType": "fetch",
+       "executionModel": "stateless",
+       "outcome": "ok",
+       "wallTimeMs": 0,
+       "cpuTimeMs": 0
+      },
+      "$metadata": {
+       "id": "01M3P0186N0000000000000004",
+       "requestId": "0b664badea9e5b89bcadc181c4e61ef8",
+       "rayId": "a4292bd47a962c2d",
+       "traceId": "f014db448c94b904069115298a5a66ef",
+       "trigger": "GET /lag664d2f",
+       "service": "flare-spike-logs-1",
+       "level": "info",
+       "message": "GET https://flare-spike-logs-1.example-subdomain.workers.dev/lag664d2f?phase=lag",
+       "account": "ACCOUNT_ID",
+       "type": "cf-worker-event",
+       "origin": "fetch"
+      }
+     },
+     {
+      "source": {
+       "level": "error",
+       "message": "FSLMARK7c57e9c4 err path=/lag664d2f counter=2"
+      },
+      "dataset": "cloudflare-workers",
+      "timestamp": 1790665859285,
+      "$workers": {
+       "truncated": false,
+       "scriptName": "flare-spike-logs-1",
+       "scriptVersion": {
+        "id": "1b8ff0e5-5b98-4a00-9f78-f3894e14c37b"
+       },
+       "eventType": "fetch",
+       "executionModel": "stateless",
+       "event": {
+        "request": {
+         "method": "GET",
+         "url": "https://flare-spike-logs-1.example-subdomain.workers.dev/lag664d2f?phase=lag",
+         "path": "/lag664d2f",
+         "search": {
+          "phase": "lag"
+         }
+        }
+       }
+      },
+      "$metadata": {
+       "id": "01M3P0186N0000000000000002",
+       "requestId": "0b664badea9e5b89bcadc181c4e61ef8",
+       "rayId": "a4292bd47a962c2d",
+       "traceId": "f014db448c94b904069115298a5a66ef",
+       "spanId": "28f0654e47e921cc",
+       "trigger": "GET /lag664d2f",
+       "service": "flare-spike-logs-1",
+       "level": "error",
+       "error": "FSLMARK7c57e9c4 err path=/lag664d2f counter=2",
+       "message": "FSLMARK7c57e9c4 err path=/lag664d2f counter=2",
+       "account": "ACCOUNT_ID",
+       "type": "cf-worker",
+       "origin": "fetch"
+      }
+     },
+     {
+      "source": {
+       "message": "FSLMARK7c57e9c4 v2info path=/lag664d2f counter=2 t=2026-09-29T07:10:59.285Z"
+      },
+      "dataset": "cloudflare-workers",
+      "timestamp": 1790665859285,
+      "$workers": {
+       "truncated": false,
+       "scriptName": "flare-spike-logs-1",
+       "scriptVersion": {
+        "id": "1b8ff0e5-5b98-4a00-9f78-f3894e14c37b"
+       },
+       "eventType": "fetch",
+       "executionModel": "stateless",
+       "event": {
+        "request": {
+         "method": "GET",
+         "url": "https://flare-spike-logs-1.example-subdomain.workers.dev/lag664d2f?phase=lag",
+         "path": "/lag664d2f",
+         "search": {
+          "phase": "lag"
+         }
+        }
+       }
+      },
+      "$metadata": {
+       "id": "01M3P0186N0000000000000001",
+       "requestId": "0b664badea9e5b89bcadc181c4e61ef8",
+       "rayId": "a4292bd47a962c2d",
+       "traceId": "f014db448c94b904069115298a5a66ef",
+       "spanId": "28f0654e47e921cc",
+       "trigger": "GET /lag664d2f",
+       "service": "flare-spike-logs-1",
+       "message": "FSLMARK7c57e9c4 v2info path=/lag664d2f counter=2 t=2026-09-29T07:10:59.285Z",
+       "account": "ACCOUNT_ID",
+       "type": "cf-worker",
+       "origin": "fetch"
+      }
+     }
+    ],
+    "fields": [
+     {
+      "type": "string",
+      "key": "level"
+     },
+     {
+      "type": "string",
+      "key": "$workers.scriptName"
+     },
+     {
+      "type": "string",
+      "key": "$workers.scriptVersion.id"
+     },
+     {
+      "type": "string",
+      "key": "$workers.eventType"
+     },
+     {
+      "type": "string",
+      "key": "$workers.executionModel"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.httpProtocol"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.requestPriority"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.colo"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.asOrganization"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.country"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.city"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.continent"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.region"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.regionCode"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.timezone"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.longitude"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.latitude"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsVersion"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsCipher"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientRandom"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientCiphersSha1"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientExtensionsSha1"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientExtensionsSha1Le"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsExportedAuthenticator.clientHandshake"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsExportedAuthenticator.serverHandshake"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsExportedAuthenticator.clientFinished"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsExportedAuthenticator.serverFinished"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientHelloLength"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certPresented"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certVerified"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certRevoked"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certIssuerDN"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certSubjectDN"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certIssuerDNRFC2253"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certSubjectDNRFC2253"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certIssuerDNLegacy"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certSubjectDNLegacy"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certSerial"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certIssuerSerial"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certSKI"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certIssuerSKI"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certFingerprintSHA1"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certFingerprintSHA256"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certNotBefore"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certNotAfter"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certRFC9440"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.tlsClientAuth.certChainRFC9440"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.cf.verifiedBotCategory"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.headers.accept"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.headers.accept-encoding"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.headers.cf-connecting-ip"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.headers.cf-ipcountry"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.headers.cf-ray"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.headers.cf-visitor"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.headers.connection"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.headers.host"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.headers.user-agent"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.headers.x-forwarded-proto"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.headers.x-real-ip"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.method"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.url"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.path"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.search.phase"
+     },
+     {
+      "type": "string",
+      "key": "$workers.outcome"
+     },
+     {
+      "type": "string",
+      "key": "message"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.path"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.search.phase"
+     },
+     {
+      "type": "boolean",
+      "key": "$workers.truncated"
+     },
+     {
+      "type": "boolean",
+      "key": "$workers.event.request.cf.isEUCountry"
+     },
+     {
+      "type": "boolean",
+      "key": "$workers.event.request.cf.tlsClientAuth.certRFC9440TooLarge"
+     },
+     {
+      "type": "boolean",
+      "key": "$workers.event.request.cf.tlsClientAuth.certChainRFC9440TooLarge"
+     },
+     {
+      "type": "number",
+      "key": "$workers.event.request.cf.edgeRequestKeepAliveStatus"
+     },
+     {
+      "type": "number",
+      "key": "$workers.event.request.cf.clientTcpRtt"
+     },
+     {
+      "type": "number",
+      "key": "$workers.event.request.cf.clientQuicRtt"
+     },
+     {
+      "type": "number",
+      "key": "$workers.event.request.cf.asn"
+     },
+     {
+      "type": "number",
+      "key": "$workers.event.request.cf.edgeL4.deliveryRate"
+     },
+     {
+      "type": "number",
+      "key": "$workers.event.response.status"
+     },
+     {
+      "type": "number",
+      "key": "$workers.wallTimeMs"
+     },
+     {
+      "type": "number",
+      "key": "$workers.cpuTimeMs"
+     }
+    ],
+    "count": 3,
+    "series": [
+     {
+      "time": "2026-09-29 07:10:02",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:04",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:06",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:08",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:10",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:12",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:14",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:16",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:18",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:20",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:22",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:24",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:26",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:28",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:30",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:32",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:34",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:36",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:38",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:40",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:42",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:44",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:46",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:48",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:50",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:52",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:54",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:56",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:10:58",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 3,
+         "_countErrors": 1,
+         "_interval": 1
+        },
+        "count": 3,
+        "errors": 1,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:11:00",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:02",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:04",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:06",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:08",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:10",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:12",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:14",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:16",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:18",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:20",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:22",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:11:24",
+      "data": []
+     }
+    ]
+   },
+   "statistics": {
+    "elapsed": 0.048499171,
+    "rows_read": 1045802,
+    "bytes_read": 44266849,
+    "abr_level": 1
+   }
+  }
+ }
+}

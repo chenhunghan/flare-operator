@@ -1,0 +1,43 @@
+{
+ "ts": "2026-09-29T06:57:48.454282+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/workers/scripts/flare-spike-logs-1/versions",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 307,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": {
+   "items": [
+    {
+     "id": "2bbbf05d-a4dd-495b-bbb3-7121f176550e",
+     "number": 1,
+     "metadata": {
+      "created_on": "2026-09-29T06:57:41.141552Z",
+      "source": "api",
+      "author_id": "USER_ID",
+      "author_email": "user@example.com",
+      "has_preview": true
+     },
+     "annotations": {
+      "workers/triggered_by": "upload"
+     }
+    }
+   ]
+  },
+  "success": true,
+  "errors": null,
+  "messages": null,
+  "result_info": {
+   "page": 1,
+   "per_page": 10,
+   "count": 1,
+   "total_count": 1
+  }
+ }
+}

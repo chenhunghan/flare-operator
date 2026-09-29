@@ -1,0 +1,24 @@
+{
+ "ts": "2026-09-29T06:56:48.391083+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/storage/kv/namespaces",
+ "request_body": {
+  "title": "flare-spike-me-kv-2"
+ },
+ "status": 200,
+ "elapsed_ms": 1001,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "result": {
+   "id": "2cac323229094260b0307350bccc8a76",
+   "title": "flare-spike-me-kv-2",
+   "supports_url_encoding": true
+  },
+  "errors": [],
+  "messages": [],
+  "success": true
+ }
+}

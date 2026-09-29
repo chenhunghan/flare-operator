@@ -1,0 +1,26 @@
+{
+ "ts": "2026-09-29T07:15:47.307392+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/workers/observability/telemetry/live-tail/heartbeat",
+ "request_body": {
+  "scriptId": "flare-spike-logs-1"
+ },
+ "status": 200,
+ "elapsed_ms": 491,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": true,
+  "errors": [],
+  "messages": [
+   {
+    "message": "Successful request"
+   }
+  ],
+  "result": {}
+ }
+}

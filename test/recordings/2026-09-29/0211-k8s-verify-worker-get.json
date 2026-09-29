@@ -1,0 +1,25 @@
+{
+ "ts": "2026-09-29T08:25:16.380066+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/workers/scripts/flare-spike-k8s-w/settings",
+ "request_body": null,
+ "status": 404,
+ "elapsed_ms": 424,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 10007,
+    "message": "This Worker does not exist on your account."
+   }
+  ],
+  "messages": []
+ }
+}

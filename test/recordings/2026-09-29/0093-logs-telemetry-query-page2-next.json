@@ -1,0 +1,696 @@
+{
+ "ts": "2026-09-29T07:05:32.588183+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/workers/observability/telemetry/query",
+ "request_body": {
+  "queryId": "flare-spike-logs-page",
+  "view": "events",
+  "limit": 4,
+  "dry": true,
+  "timeframe": {
+   "from": 1790665100000,
+   "to": 1790665528177
+  },
+  "parameters": {
+   "datasets": [],
+   "filterCombination": "and",
+   "filters": [
+    {
+     "key": "$metadata.service",
+     "operation": "eq",
+     "type": "string",
+     "value": "flare-spike-logs-1"
+    },
+    {
+     "key": "$metadata.type",
+     "operation": "eq",
+     "type": "string",
+     "value": "cf-worker"
+    }
+   ],
+   "calculations": [],
+   "groupBys": [],
+   "havings": []
+  },
+  "offset": "01M3NZMY9W0000000000000001",
+  "offsetDirection": "next"
+ },
+ "status": 200,
+ "elapsed_ms": 604,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": true,
+  "errors": [],
+  "messages": [
+   {
+    "message": "Successful request"
+   }
+  ],
+  "result": {
+   "run": {
+    "id": "kbcj0b4pa1gtp5azfw4woepx",
+    "query": {
+     "id": "flare-spike-logs-page",
+     "description": "",
+     "name": "",
+     "generated": false,
+     "parameters": {
+      "datasets": [],
+      "filters": [
+       {
+        "key": "$metadata.service",
+        "operation": "eq",
+        "value": "flare-spike-logs-1",
+        "type": "string"
+       },
+       {
+        "key": "$metadata.type",
+        "operation": "eq",
+        "value": "cf-worker",
+        "type": "string"
+       }
+      ],
+      "havings": [],
+      "filterCombination": "and",
+      "calculations": [],
+      "groupBys": []
+     },
+     "workspaceId": "ACCOUNT_ID",
+     "environmentId": "cloudflare",
+     "userId": "USER_ID",
+     "created": "2026-09-29T07:05:32.381Z",
+     "updated": "2026-09-29T07:05:32.381Z"
+    },
+    "accountId": "ACCOUNT_ID",
+    "timeframe": {
+     "from": 1790665100000,
+     "to": 1790665528177
+    },
+    "userId": "USER_ID",
+    "status": "COMPLETED",
+    "granularity": 8000,
+    "dry": true,
+    "statistics": {
+     "elapsed": 0.079990986,
+     "rows_read": 1272920,
+     "bytes_read": 191308182,
+     "abr_level": 1
+    }
+   },
+   "events": {
+    "events": [
+     {
+      "source": {
+       "level": "error",
+       "message": "FSLMARK7c57e9c4 err path=/x2 counter=4"
+      },
+      "dataset": "cloudflare-workers",
+      "timestamp": 1790665426441,
+      "$workers": {
+       "truncated": false,
+       "scriptName": "flare-spike-logs-1",
+       "scriptVersion": {
+        "id": "2bbbf05d-a4dd-495b-bbb3-7121f176550e"
+       },
+       "eventType": "fetch",
+       "executionModel": "stateless",
+       "event": {
+        "request": {
+         "method": "GET",
+         "url": "https://flare-spike-logs-1.example-subdomain.workers.dev/x2?phase=5",
+         "path": "/x2",
+         "search": {
+          "phase": 5
+         }
+        }
+       }
+      },
+      "$metadata": {
+       "id": "01M3NZM1G90000000000000002",
+       "requestId": "e3c3a00691eec2c9ff988d22e99e4153",
+       "rayId": "a42921433e33c12c",
+       "traceId": "d37d9d1d34010443f9c1fe865a0f3071",
+       "spanId": "f80fce4b8ccf951e",
+       "trigger": "GET /x2",
+       "service": "flare-spike-logs-1",
+       "level": "error",
+       "error": "FSLMARK7c57e9c4 err path=/x2 counter=4",
+       "message": "FSLMARK7c57e9c4 err path=/x2 counter=4",
+       "account": "ACCOUNT_ID",
+       "type": "cf-worker",
+       "origin": "fetch"
+      }
+     },
+     {
+      "source": {
+       "message": "FSLMARK7c57e9c4 info path=/x2 counter=4 t=2026-09-29T07:03:46.441Z"
+      },
+      "dataset": "cloudflare-workers",
+      "timestamp": 1790665426441,
+      "$workers": {
+       "truncated": false,
+       "scriptName": "flare-spike-logs-1",
+       "scriptVersion": {
+        "id": "2bbbf05d-a4dd-495b-bbb3-7121f176550e"
+       },
+       "eventType": "fetch",
+       "executionModel": "stateless",
+       "event": {
+        "request": {
+         "method": "GET",
+         "url": "https://flare-spike-logs-1.example-subdomain.workers.dev/x2?phase=5",
+         "path": "/x2",
+         "search": {
+          "phase": 5
+         }
+        }
+       }
+      },
+      "$metadata": {
+       "id": "01M3NZM1G90000000000000001",
+       "requestId": "e3c3a00691eec2c9ff988d22e99e4153",
+       "rayId": "a42921433e33c12c",
+       "traceId": "d37d9d1d34010443f9c1fe865a0f3071",
+       "spanId": "f80fce4b8ccf951e",
+       "trigger": "GET /x2",
+       "service": "flare-spike-logs-1",
+       "message": "FSLMARK7c57e9c4 info path=/x2 counter=4 t=2026-09-29T07:03:46.441Z",
+       "account": "ACCOUNT_ID",
+       "type": "cf-worker",
+       "origin": "fetch"
+      }
+     },
+     {
+      "source": {
+       "level": "error",
+       "message": "FSLMARK7c57e9c4 err path=/x1 counter=1"
+      },
+      "dataset": "cloudflare-workers",
+      "timestamp": 1790665424952,
+      "$workers": {
+       "truncated": false,
+       "scriptName": "flare-spike-logs-1",
+       "scriptVersion": {
+        "id": "2bbbf05d-a4dd-495b-bbb3-7121f176550e"
+       },
+       "eventType": "fetch",
+       "executionModel": "stateless",
+       "event": {
+        "request": {
+         "method": "GET",
+         "url": "https://flare-spike-logs-1.example-subdomain.workers.dev/x1?phase=5",
+         "path": "/x1",
+         "search": {
+          "phase": 5
+         }
+        }
+       }
+      },
+      "$metadata": {
+       "id": "01M3NZM01R0000000000000002",
+       "requestId": "7cbcbd413c75b64416291421ffb7825e",
+       "rayId": "a4292139e8705f02",
+       "traceId": "241687cd50c853d560a34e681480fb7d",
+       "spanId": "a9dc35a40a8b3f7e",
+       "trigger": "GET /x1",
+       "service": "flare-spike-logs-1",
+       "level": "error",
+       "error": "FSLMARK7c57e9c4 err path=/x1 counter=1",
+       "message": "FSLMARK7c57e9c4 err path=/x1 counter=1",
+       "account": "ACCOUNT_ID",
+       "type": "cf-worker",
+       "origin": "fetch"
+      }
+     },
+     {
+      "source": {
+       "message": "FSLMARK7c57e9c4 info path=/x1 counter=1 t=2026-09-29T07:03:44.952Z"
+      },
+      "dataset": "cloudflare-workers",
+      "timestamp": 1790665424952,
+      "$workers": {
+       "truncated": false,
+       "scriptName": "flare-spike-logs-1",
+       "scriptVersion": {
+        "id": "2bbbf05d-a4dd-495b-bbb3-7121f176550e"
+       },
+       "eventType": "fetch",
+       "executionModel": "stateless",
+       "event": {
+        "request": {
+         "method": "GET",
+         "url": "https://flare-spike-logs-1.example-subdomain.workers.dev/x1?phase=5",
+         "path": "/x1",
+         "search": {
+          "phase": 5
+         }
+        }
+       }
+      },
+      "$metadata": {
+       "id": "01M3NZM01R0000000000000001",
+       "requestId": "7cbcbd413c75b64416291421ffb7825e",
+       "rayId": "a4292139e8705f02",
+       "traceId": "241687cd50c853d560a34e681480fb7d",
+       "spanId": "a9dc35a40a8b3f7e",
+       "trigger": "GET /x1",
+       "service": "flare-spike-logs-1",
+       "message": "FSLMARK7c57e9c4 info path=/x1 counter=1 t=2026-09-29T07:03:44.952Z",
+       "account": "ACCOUNT_ID",
+       "type": "cf-worker",
+       "origin": "fetch"
+      }
+     }
+    ],
+    "fields": [
+     {
+      "type": "string",
+      "key": "level"
+     },
+     {
+      "type": "string",
+      "key": "$workers.scriptName"
+     },
+     {
+      "type": "string",
+      "key": "$workers.scriptVersion.id"
+     },
+     {
+      "type": "string",
+      "key": "$workers.eventType"
+     },
+     {
+      "type": "string",
+      "key": "$workers.executionModel"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.method"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.url"
+     },
+     {
+      "type": "string",
+      "key": "$workers.event.request.path"
+     },
+     {
+      "type": "string",
+      "key": "message"
+     },
+     {
+      "type": "boolean",
+      "key": "$workers.truncated"
+     },
+     {
+      "type": "number",
+      "key": "$workers.event.request.search.phase"
+     }
+    ],
+    "count": 4,
+    "series": [
+     {
+      "time": "2026-09-29 06:58:32",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 9,
+         "_countErrors": 5,
+         "_interval": 1
+        },
+        "count": 9,
+        "errors": 5,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 06:58:40",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 4,
+         "_countErrors": 2,
+         "_interval": 1
+        },
+        "count": 4,
+        "errors": 2,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 06:58:48",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 06:58:56",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 06:59:04",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 06:59:12",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 06:59:20",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 06:59:28",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 06:59:36",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 06:59:44",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 06:59:52",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:00:00",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:00:08",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:00:16",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:00:24",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 4,
+         "_countErrors": 2,
+         "_interval": 1
+        },
+        "count": 4,
+        "errors": 2,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:00:32",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:00:40",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:00:48",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:00:56",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:01:04",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:01:12",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:01:20",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 4,
+         "_countErrors": 2,
+         "_interval": 1
+        },
+        "count": 4,
+        "errors": 2,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:01:28",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 3,
+         "_countErrors": 2,
+         "_interval": 1
+        },
+        "count": 3,
+        "errors": 2,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:01:36",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:01:44",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:01:52",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:02:00",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:02:08",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:02:16",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 4,
+         "_countErrors": 2,
+         "_interval": 1
+        },
+        "count": 4,
+        "errors": 2,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:02:24",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 11,
+         "_countErrors": 6,
+         "_interval": 1
+        },
+        "count": 11,
+        "errors": 6,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:02:32",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 6,
+         "_countErrors": 3,
+         "_interval": 1
+        },
+        "count": 6,
+        "errors": 3,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:02:40",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:02:48",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 2,
+         "_countErrors": 1,
+         "_interval": 1
+        },
+        "count": 2,
+        "errors": 1,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:02:56",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 7,
+         "_countErrors": 4,
+         "_interval": 1
+        },
+        "count": 7,
+        "errors": 4,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:03:04",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:12",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:20",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:28",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:36",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:03:44",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 4,
+         "_countErrors": 2,
+         "_interval": 1
+        },
+        "count": 4,
+        "errors": 2,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:03:52",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:00",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:08",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 2,
+         "_countErrors": 1,
+         "_interval": 1
+        },
+        "count": 2,
+        "errors": 1,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:04:16",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:24",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:32",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:40",
+      "data": [
+       {
+        "aggregates": {
+         "_count": 2,
+         "_countErrors": 1,
+         "_interval": 1
+        },
+        "count": 2,
+        "errors": 1,
+        "interval": 1,
+        "sampleInterval": 1
+       }
+      ]
+     },
+     {
+      "time": "2026-09-29 07:04:48",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:04:56",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:05:04",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:05:12",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:05:20",
+      "data": []
+     },
+     {
+      "time": "2026-09-29 07:05:28",
+      "data": []
+     }
+    ]
+   },
+   "statistics": {
+    "elapsed": 0.079990986,
+    "rows_read": 1272920,
+    "bytes_read": 191308182,
+    "abr_level": 1
+   }
+  }
+ }
+}

@@ -1,0 +1,20 @@
+{
+ "ts": "2026-09-29T08:24:17.790238+00:00",
+ "method": "DELETE",
+ "path": "/accounts/ACCOUNT_ID/hyperdrive/configs/53583382d57447d4acbb8f3d724ef984",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 1076,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": null,
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

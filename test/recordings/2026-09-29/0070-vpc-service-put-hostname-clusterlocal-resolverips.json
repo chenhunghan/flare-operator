@@ -1,0 +1,53 @@
+{
+ "ts": "2026-09-29T07:03:11.532454+00:00",
+ "method": "PUT",
+ "path": "/accounts/ACCOUNT_ID/connectivity/directory/services/01a0ebf6-3394-7623-aa97-7b7faba0c1ab",
+ "request_body": {
+  "name": "flare-spike-vpc-4",
+  "type": "http",
+  "host": {
+   "hostname": "marker.flare-spike-vpc.svc.cluster.local",
+   "resolver_network": {
+    "tunnel_id": "5456b9ca-8b73-4b44-93df-67ad7acc8e2c",
+    "resolver_ips": [
+     "127.0.0.1"
+    ]
+   }
+  },
+  "http_port": 18080
+ },
+ "status": 200,
+ "elapsed_ms": 573,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": {
+   "service_id": "01a0ebf6-3394-7623-aa97-7b7faba0c1ab",
+   "type": "http",
+   "name": "flare-spike-vpc-4",
+   "http_port": 18080,
+   "https_port": null,
+   "host": {
+    "ipv4": null,
+    "ipv6": null,
+    "hostname": "marker.flare-spike-vpc.svc.cluster.local",
+    "network": null,
+    "resolver_network": {
+     "tunnel_id": "5456b9ca-8b73-4b44-93df-67ad7acc8e2c",
+     "resolver_ips": [
+      "127.0.0.1"
+     ]
+    }
+   },
+   "created_at": "2026-09-29T07:03:11Z",
+   "updated_at": "2026-09-29T07:03:11Z"
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

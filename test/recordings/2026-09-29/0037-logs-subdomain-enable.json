@@ -1,0 +1,26 @@
+{
+ "ts": "2026-09-29T06:57:48.067228+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/workers/scripts/flare-spike-logs-1/subdomain",
+ "request_body": {
+  "enabled": true,
+  "previews_enabled": false
+ },
+ "status": 200,
+ "elapsed_ms": 427,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"workers_route_update\";r=179999;t=1",
+  "Ratelimit-Policy": "\"workers_route_update\";q=180000;w=300"
+ },
+ "response_body": {
+  "result": {
+   "enabled": true,
+   "previews_enabled": false
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

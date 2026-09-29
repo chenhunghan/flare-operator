@@ -1,0 +1,23 @@
+{
+ "ts": "2026-09-29T06:57:23.376209+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/d1/database/18835cb0-653a-4e2f-a2e0-8dc2da0baefd",
+ "request_body": null,
+ "status": 404,
+ "elapsed_ms": 444,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "messages": [],
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 7404,
+    "message": "The database 18835cb0-653a-4e2f-a2e0-8dc2da0baefd could not be found"
+   }
+  ]
+ }
+}

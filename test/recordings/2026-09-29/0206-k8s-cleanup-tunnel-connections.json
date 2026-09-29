@@ -1,0 +1,20 @@
+{
+ "ts": "2026-09-29T08:24:42.969366+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/cfd_tunnel/2c2ebad5-acd8-472f-8d20-bd5b78b34083/connections",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 338,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": []
+ }
+}

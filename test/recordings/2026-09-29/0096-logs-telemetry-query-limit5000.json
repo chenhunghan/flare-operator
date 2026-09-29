@@ -1,0 +1,94 @@
+{
+ "ts": "2026-09-29T07:05:53.548833+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/workers/observability/telemetry/query",
+ "request_body": {
+  "queryId": "flare-spike-logs-page",
+  "view": "events",
+  "limit": 5000,
+  "dry": true,
+  "timeframe": {
+   "from": 1790661953045,
+   "to": 1790665553045
+  },
+  "parameters": {
+   "datasets": [],
+   "filterCombination": "and",
+   "filters": [
+    {
+     "key": "$metadata.service",
+     "operation": "eq",
+     "type": "string",
+     "value": "flare-spike-logs-1"
+    },
+    {
+     "key": "$metadata.type",
+     "operation": "eq",
+     "type": "string",
+     "value": "cf-worker"
+    }
+   ],
+   "calculations": [],
+   "groupBys": [],
+   "havings": []
+  }
+ },
+ "status": 400,
+ "elapsed_ms": 391,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "success": false,
+  "_e": null,
+  "_i": {
+   "queryId": "flare-spike-logs-page",
+   "view": "events",
+   "limit": 5000,
+   "dry": true,
+   "timeframe": {
+    "from": 1790661953045,
+    "to": 1790665553045
+   },
+   "parameters": {
+    "datasets": [],
+    "filterCombination": "and",
+    "filters": [
+     {
+      "key": "$metadata.service",
+      "operation": "eq",
+      "type": "string",
+      "value": "flare-spike-logs-1"
+     },
+     {
+      "key": "$metadata.type",
+      "operation": "eq",
+      "type": "string",
+      "value": "cf-worker"
+     }
+    ],
+    "calculations": [],
+    "groupBys": [],
+    "havings": []
+   }
+  },
+  "_c": {
+   "issues": [
+    {
+     "origin": "number",
+     "code": "too_big",
+     "maximum": 2000,
+     "inclusive": true,
+     "path": [
+      "limit"
+     ],
+     "message": "Invalid input"
+    }
+   ],
+   "name": "ZodError"
+  }
+ }
+}

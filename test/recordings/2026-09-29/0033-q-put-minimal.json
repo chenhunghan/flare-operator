@@ -1,0 +1,31 @@
+{
+ "ts": "2026-09-29T06:57:27.472083+00:00",
+ "method": "PUT",
+ "path": "/accounts/ACCOUNT_ID/queues/5d4442cb016f46fe91ecda2bbf4efdcf",
+ "request_body": {
+  "queue_name": "flare-spike-me-q-1"
+ },
+ "status": 200,
+ "elapsed_ms": 721,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": {
+   "queue_id": "5d4442cb016f46fe91ecda2bbf4efdcf",
+   "queue_name": "flare-spike-me-q-1",
+   "settings": {
+    "delivery_delay": 0,
+    "message_retention_period": 86400
+   },
+   "created_on": "2026-09-29T06:57:23.776651Z",
+   "modified_on": "2026-09-29T06:57:27.032143Z"
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

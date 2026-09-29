@@ -1,0 +1,35 @@
+{
+ "ts": "2026-09-29T07:06:30.819599+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/connectivity/directory/services",
+ "request_body": {
+  "name": "flare-spike-vpc-8",
+  "type": "http",
+  "host": {
+   "ipv4": "127.0.0.1",
+   "network": {
+    "tunnel_id": "5456b9ca-8b73-4b44-93df-67ad7acc8e2c"
+   }
+  },
+  "http_port": 18080
+ },
+ "status": 400,
+ "elapsed_ms": 509,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 5101,
+    "message": "request contained invalid parameters: Tunnel ID Not Found"
+   }
+  ],
+  "messages": []
+ }
+}

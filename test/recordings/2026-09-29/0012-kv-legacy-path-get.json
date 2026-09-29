@@ -1,0 +1,24 @@
+{
+ "ts": "2026-09-29T06:56:52.399408+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/workers/namespaces/f26124ca9e664890a5d8149bab4d0d56",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 377,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": {
+   "id": "f26124ca9e664890a5d8149bab4d0d56",
+   "title": "flare-spike-me-kv-1-renamed",
+   "supports_url_encoding": true
+  },
+  "errors": [],
+  "messages": [],
+  "success": true
+ }
+}

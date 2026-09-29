@@ -1,0 +1,22 @@
+{
+ "ts": "2026-09-29T07:06:44.386062+00:00",
+ "method": "DELETE",
+ "path": "/accounts/ACCOUNT_ID/workers/scripts/flare-spike-vpc-2",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 406,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"workers_script_modify\";r=179999;t=1",
+  "Ratelimit-Policy": "\"workers_script_modify\";q=180000;w=300"
+ },
+ "response_body": {
+  "result": {
+   "id": "0c4f57ff0b02429388f1a47846ec4778"
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

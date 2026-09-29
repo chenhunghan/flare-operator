@@ -1,0 +1,30 @@
+{
+ "ts": "2026-09-29T06:57:18.163061+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/d1/database/18835cb0-653a-4e2f-a2e0-8dc2da0baefd",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 623,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "result": {
+   "uuid": "18835cb0-653a-4e2f-a2e0-8dc2da0baefd",
+   "name": "flare-spike-me-d1-1",
+   "created_at": "2026-09-29T06:57:15.905Z",
+   "version": "production",
+   "num_tables": 0,
+   "file_size": 12288,
+   "running_in_region": "APAC",
+   "read_replication": {
+    "mode": "disabled"
+   },
+   "jurisdiction": null
+  },
+  "errors": [],
+  "messages": [],
+  "success": true
+ }
+}

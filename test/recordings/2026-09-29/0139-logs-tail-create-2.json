@@ -1,0 +1,24 @@
+{
+ "ts": "2026-09-29T07:19:56.708823+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/workers/scripts/flare-spike-logs-1/tails",
+ "request_body": {},
+ "status": 200,
+ "elapsed_ms": 532,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": {
+   "id": "51a8d4b1029248e6803ffdc31ee52ca1",
+   "url": "wss://tail.developers.workers.dev/REDACTED",
+   "expires_at": "2026-09-29T13:19:56Z"
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

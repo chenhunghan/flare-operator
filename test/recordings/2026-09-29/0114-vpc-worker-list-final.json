@@ -1,0 +1,57 @@
+{
+ "ts": "2026-09-29T07:06:47.325463+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/workers/scripts",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 352,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": [
+   {
+    "created_on": "2026-09-29T06:57:41.141552Z",
+    "modified_on": "2026-09-29T07:06:17.718943Z",
+    "id": "flare-spike-logs-1",
+    "tag": "f96f372e1ac34f71af8a7a12573f0d01",
+    "tags": null,
+    "deployment_id": "",
+    "tail_consumers": null,
+    "logpush": false,
+    "observability": {
+     "enabled": true,
+     "head_sampling_rate": 1,
+     "redact_query_string": false,
+     "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+     },
+     "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+     }
+    },
+    "has_assets": false,
+    "has_modules": true,
+    "etag": "c9a68a769728b1405d3215a896f01f6ebbadd7f2800dd61b52fe7b6079ce06e1",
+    "handlers": [
+     "fetch"
+    ],
+    "last_deployed_from": "api",
+    "compatibility_date": "2026-09-01",
+    "usage_model": "standard",
+    "routes": null
+   }
+  ],
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

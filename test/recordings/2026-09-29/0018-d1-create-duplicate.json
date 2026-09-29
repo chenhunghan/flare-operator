@@ -1,0 +1,25 @@
+{
+ "ts": "2026-09-29T06:57:16.982288+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/d1/database",
+ "request_body": {
+  "name": "flare-spike-me-d1-1"
+ },
+ "status": 400,
+ "elapsed_ms": 838,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "messages": [],
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 7502,
+    "message": "Database with name: 'flare-spike-me-d1-1' already exists"
+   }
+  ]
+ }
+}

@@ -1,0 +1,24 @@
+{
+ "ts": "2026-09-29T07:58:43.169063+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/storage/kv/namespaces",
+ "request_body": {
+  "title": "flare-spike-order-a"
+ },
+ "status": 200,
+ "elapsed_ms": 833,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "result": {
+   "id": "bbad088f039b46d0b174ca75e99824f1",
+   "title": "flare-spike-order-a",
+   "supports_url_encoding": true
+  },
+  "errors": [],
+  "messages": [],
+  "success": true
+ }
+}

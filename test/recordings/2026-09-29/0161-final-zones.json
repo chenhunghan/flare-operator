@@ -1,0 +1,27 @@
+{
+ "ts": "2026-09-29T07:26:47.400140+00:00",
+ "method": "GET",
+ "path": "/zones",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 444,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"list_zones\";r=1200;t=1",
+  "Ratelimit-Policy": "\"list_zones\";q=1201;w=300"
+ },
+ "response_body": {
+  "result": [],
+  "result_info": {
+   "page": 1,
+   "per_page": 20,
+   "total_pages": 0,
+   "count": 0,
+   "total_count": 0
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

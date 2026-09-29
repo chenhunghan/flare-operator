@@ -1,0 +1,41 @@
+{
+ "ts": "2026-09-29T07:58:46.978632+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/storage/kv/namespaces",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 534,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "result": [
+   {
+    "id": "25f2d15b866b486e8d0680ad65703a6b",
+    "title": "flare-spike-order-b",
+    "supports_url_encoding": true
+   },
+   {
+    "id": "bbad088f039b46d0b174ca75e99824f1",
+    "title": "flare-spike-order-a",
+    "supports_url_encoding": true
+   },
+   {
+    "id": "c6c4d07de15b44d0b2c7abc12bf4bae2",
+    "title": "flare-spike-order-c",
+    "supports_url_encoding": true
+   }
+  ],
+  "errors": [],
+  "messages": [],
+  "success": true,
+  "result_info": {
+   "count": 3,
+   "page": 1,
+   "per_page": 20,
+   "total_count": 3,
+   "total_pages": 1
+  }
+ }
+}

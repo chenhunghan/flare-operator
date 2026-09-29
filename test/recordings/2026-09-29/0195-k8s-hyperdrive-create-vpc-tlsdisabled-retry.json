@@ -1,0 +1,45 @@
+{
+ "ts": "2026-09-29T08:23:43.174379+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/hyperdrive/configs",
+ "request_body": {
+  "name": "flare-spike-k8s-10",
+  "origin": {
+   "scheme": "postgresql",
+   "database": "spike",
+   "user": "spike",
+   "password": "REDACTED",
+   "service_id": "01a0ec40-eee6-7b11-ae54-57bd3f9e6609"
+  }
+ },
+ "status": 200,
+ "elapsed_ms": 2123,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": {
+   "id": "53583382d57447d4acbb8f3d724ef984",
+   "name": "flare-spike-k8s-10",
+   "origin": {
+    "database": "spike",
+    "scheme": "postgresql",
+    "user": "spike",
+    "service_id": "01a0ec40-eee6-7b11-ae54-57bd3f9e6609"
+   },
+   "origin_connection_limit": 20,
+   "caching": {
+    "disabled": false
+   },
+   "mtls": {},
+   "created_on": "2026-09-29T08:23:41.560058Z",
+   "modified_on": "2026-09-29T08:23:41.560058Z"
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

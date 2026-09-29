@@ -1,0 +1,48 @@
+{
+ "ts": "2026-09-29T06:59:36.600494+00:00",
+ "method": "POST",
+ "path": "/accounts/ACCOUNT_ID/connectivity/directory/services",
+ "request_body": {
+  "name": "flare-spike-vpc-5",
+  "type": "tcp",
+  "app_protocol": "postgresql",
+  "tcp_port": 5432,
+  "host": {
+   "ipv4": "127.0.0.1",
+   "network": {
+    "tunnel_id": "5456b9ca-8b73-4b44-93df-67ad7acc8e2c"
+   }
+  }
+ },
+ "status": 200,
+ "elapsed_ms": 430,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": {
+   "service_id": "01a0ebf6-35bb-7370-ba3f-203b840b718c",
+   "type": "tcp",
+   "name": "flare-spike-vpc-5",
+   "tcp_port": 5432,
+   "app_protocol": "postgresql",
+   "host": {
+    "ipv4": "127.0.0.1",
+    "ipv6": null,
+    "hostname": null,
+    "network": {
+     "tunnel_id": "5456b9ca-8b73-4b44-93df-67ad7acc8e2c"
+    },
+    "resolver_network": null
+   },
+   "created_at": "2026-09-29T06:59:36Z",
+   "updated_at": "2026-09-29T06:59:36Z"
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+ }
+}

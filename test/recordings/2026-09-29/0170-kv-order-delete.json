@@ -1,0 +1,18 @@
+{
+ "ts": "2026-09-29T07:58:48.341967+00:00",
+ "method": "DELETE",
+ "path": "/accounts/ACCOUNT_ID/storage/kv/namespaces/25f2d15b866b486e8d0680ad65703a6b",
+ "request_body": null,
+ "status": 200,
+ "elapsed_ms": 446,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-RAY": "REDACTED"
+ },
+ "response_body": {
+  "result": null,
+  "errors": [],
+  "messages": [],
+  "success": true
+ }
+}

@@ -1,0 +1,26 @@
+{
+ "ts": "2026-09-29T07:06:31.378614+00:00",
+ "method": "PUT",
+ "path": "/accounts/ACCOUNT_ID/workers/scripts/flare-spike-vpc-2",
+ "request_body": "------flarespikevpcboundary\r\nContent-Disposition: form-data; name=\"metadata\"; filename=\"metadata.json\"\r\nContent-Type: application/json\r\n\r\n{\"main_module\": \"index.js\", \"compatibility_date\": \"2026-09-01\", \"bindings\": [{\"type\": \"vpc_service\", \"name\": \"PRIVATE\", \"service_id\": \"01a0ebf6-0a78-73c3-b7cf-2126eda86c57\"}, {\"type\": \"vpc_service\", \"name\": \"PRIVATE_HOST\", \"service_id\": \"00000000-0000-7000-8000-000000000000\"}]}\r\n------flarespikevpcboundary\r\nContent-Disposition: form-data; name=\"index.js\"; filename=\"index.js\"\r\nContent-Type: application/javascript+module\r\n\r\nexport default {\n  async fetch(req, env) {\n    const u = new URL(req.url);\n    const which = u.searchParams.get(\"b\") || \"PRIVATE\";\n    const target = u.searchParams.get(\"t\") || \"http://127.0.0.1:18080/marker.txt\";\n    const t0 = Date.now();\n    try {\n      const r = await env[which].fetch(target);\n      const body = await r.text();\n      return new Response(JSON.stringify({binding: which, target, status: r.status, ms: Date.now() - t0, body}), {headers: {\"content-type\": \"application/json\"}});\n    } catch (e) {\n      return new Response(JSON.stringify({binding: which, target, error: String(e), stack: e && e.stack, ms: Date.now() - t0}), {status: 502, headers: {\"content-type\": \"application/json\"}});\n    }\n  }\n};\n\r\n------flarespikevpcboundary--\r\n",
+ "status": 400,
+ "elapsed_ms": 437,
+ "response_headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"workers_script_upload\";r=179999;t=1",
+  "Ratelimit-Policy": "\"workers_script_upload\";q=180000;w=300"
+ },
+ "response_body": {
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 10180,
+    "message": "VPC Service '00000000-0000-7000-8000-000000000000' not found. Verify the service exists in your account and that the service_id in your configuration is correct.",
+    "documentation_url": "https://developers.cloudflare.com/workers-vpc/get-started/"
+   }
+  ],
+  "messages": []
+ }
+}

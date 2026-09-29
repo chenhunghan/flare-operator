@@ -1,0 +1,25 @@
+{
+ "ts": "2026-09-29T07:06:45.873854+00:00",
+ "method": "GET",
+ "path": "/accounts/ACCOUNT_ID/connectivity/directory/services/01a0ebf6-0a78-73c3-b7cf-2126eda86c57",
+ "request_body": null,
+ "status": 404,
+ "elapsed_ms": 373,
+ "response_headers": {
+  "Content-Type": "application/json",
+  "CF-Ray": "REDACTED",
+  "Ratelimit": "\"default\";r=1199;t=1",
+  "Ratelimit-Policy": "\"default\";q=1200;w=300"
+ },
+ "response_body": {
+  "result": null,
+  "success": false,
+  "errors": [
+   {
+    "code": 5104,
+    "message": "Service (ID: \"01a0ebf6-0a78-73c3-b7cf-2126eda86c57\") not found"
+   }
+  ],
+  "messages": []
+ }
+}

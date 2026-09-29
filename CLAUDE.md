@@ -1,0 +1,56 @@
+# flare-operator: working notes for Claude
+
+A Kubernetes-native interface to **all** Cloudflare resources and settings, in the style of AWS ACK or GCP Config Connector:
+- one CRD per Cloudflare resource, generated from Cloudflare's OpenAPI spec
+- a virtual kubelet that runs Pods on Cloudflare Containers
+
+It is a standalone Go operator, packaged as one Helm chart, following Crossplane-style conventions.
+
+## Status (2026-09-29)
+- **Done:**
+  - design docs (`docs/`)
+  - pinned spec (`spec/`)
+  - the `flarefake` emulator (`internal/fake`, `cmd/flarefake`), which replays 122 real-API recordings
+  - live spikes, summarized in `docs/spike-results-2026-09-29.md`
+- **Not started:** operator controllers, CRD types, the CRD generator.
+- **Blocked:** the Container spikes (S2–S6 in `docs/virtual-kubelet-design.md` §9) need the Workers Paid plan. The test account is Free with no payment method, so never upgrade it without asking.
+- **Next steps** (the user chose among these):
+  1. operator scaffold: `CloudflareAccount`, then KV / Queues / Tunnel (managed `cloudflared` plus a generated NetworkPolicy) / VPC service controllers, tested against flarefake
+  2. CRD generator from the `x-fern-sdk-group-name` / `x-fern-sdk-method-name` annotations
+  3. Workers script upload in flarefake
+
+## How to work in a long session
+Follow `docs/plan-parallel.md`:
+- **The main session orchestrates.** It writes the contracts, launches worktree-isolated agents (implementers on `opus`, reviewers on `sonnet`, at most 4 at a time), verifies with tests and review agents, merges, and keeps `docs/STATUS.md` current.
+- **Delegate** file reading, writing and debugging to agents, and keep agent reports ≤ 400 words.
+- **Read `docs/STATUS.md` first** in any new session.
+
+## Commands
+```sh
+make test            # all tests (the full run loads the 26 MB spec, ~3 s); make test-short skips that
+make conformance     # replay test/recordings against flarefake
+go test -race ./...  # run this before claiming emulator changes are done
+make fake            # emulator on 127.0.0.1:8787 (/client/v4 for the API, /_fake for control)
+make spec-check      # spec/openapi.json.gz must match spec/LOCK
+```
+
+## Rules
+- **Emulator fidelity:**
+  - Every emulator behavior must cite the recording it came from (`// 0029`), or be marked `UNVERIFIED`.
+  - When you change a profile, keep `TestConformance` passing. Don't loosen its normalization to make a test pass.
+  - Add new recordings to a scenario; the test fails if a recording hits an emulated route that no scenario replays.
+- **Live Cloudflare account** (the user's own; `cf` CLI logged in; `CLOUDFLARE_ACCOUNT_ID` must be exported):
+  - Take a baseline inventory first.
+  - Name everything `flare-spike-*` and log each resource in a ledger as it's created.
+  - Delete everything afterwards, then independently re-list and compare with the baseline.
+  - Never touch pre-existing resources. The `default` virtual network can't be deleted (400/1049); leave it.
+  - A pre-existing `python -m http.server 8765` process is not ours.
+- **Recordings:**
+  - Sanitize them with `hack/sanitize_recordings.py`. Its substitution list is at `~/.config/flare-operator/sanitize.json`, outside the repo; never commit personal values.
+  - After sanitizing, scan for leaks: IDs, IPs, geolocation, hostnames, user tags, tunnel tokens, tail URLs.
+- **Local cluster:** a Lima k0s VM. The kubeconfig is at `~/.lima/<instance>/kubeconfig.yaml`. Instance names change when the user recreates the VM, so check `limactl list`.
+- **Shell is zsh:**
+  - An unquoted `$var` does not word-split; use `${=var}`.
+  - Never name a variable `path`; it clobbers `PATH`.
+  - A glob with no matches aborts the whole command line.
+- **Subagents:** parallel agents are welcome, but their results must be verified by you or a peer-review agent before you report them to the user.
