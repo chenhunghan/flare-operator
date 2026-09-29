@@ -51,12 +51,11 @@ func Names() []string {
 // NewReconciler builds the generic reconciler of a generated kind from the shared runtime.
 func NewReconciler(e descriptors.Entry, c client.Client, d controller.Deps) *generic.Reconciler {
 	return &generic.Reconciler{
-		Client:          c,
-		Accounts:        d.Accounts,
-		Tagger:          d.Tagger,
-		ClusterName:     d.ClusterName,
-		Descriptor:      e.Descriptor,
-		TagResourceType: e.TagResourceType,
+		Client:      c,
+		Accounts:    d.Accounts,
+		Tagger:      d.Tagger,
+		ClusterName: d.ClusterName,
+		Descriptor:  e.Descriptor,
 		New: func() reconcile.ManagedObject {
 			return e.New().(reconcile.ManagedObject)
 		},

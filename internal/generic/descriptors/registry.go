@@ -16,9 +16,6 @@ type Entry struct {
 
 	// FernGroup is the x-fern-sdk-group-name the kind was generated from.
 	FernGroup string
-	// TagResourceType is the Resource Tagging resource_type used for the
-	// ownership tag (generator.yaml tagResourceType); "" disables tagging.
-	TagResourceType string
 
 	// New returns an empty object of the kind; NewList an empty list.
 	New     func() commonv1alpha1.Managed

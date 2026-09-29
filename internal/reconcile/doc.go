@@ -24,4 +24,9 @@
 //     Resource Tagging with GET-merge-PUT (PUT replaces all tags), guarded by If-Match with a
 //     bounded retry on 412; an ambiguous 500 read is checked against the tag index before any
 //     write. NoopTagger disables it.
+//   - Ownership proof (ownership.go): RecordOwnership writes AnnotationOwnershipProof
+//     (<uid>/<external ID>) right after a create or a successful EnsureOwner; MayDeleteExternal
+//     decides whether a Delete-policy finalization may delete: only with that record, an owner
+//     tag naming the object, or (tagging off) a pinned external-id annotation. status.id and
+//     an ambiguous tags read are never proof. Every kind must use it before a DELETE.
 package reconcile

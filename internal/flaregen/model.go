@@ -308,9 +308,8 @@ type KindModel struct {
 
 	// Descriptor carries CreateFields/UpdateFields: the top-level forProvider
 	// fields the create and update bodies accept.
+	// Descriptor.TagResourceType comes from generator.yaml tagResourceType.
 	Descriptor generic.Descriptor
-	// TagResourceType is the Resource Tagging resource_type (generator.yaml).
-	TagResourceType string
 	// CreateRequired are the top-level forProvider fields the create body
 	// requires; required (by a CEL rule) only when the object may create.
 	CreateRequired []string
@@ -570,8 +569,8 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 			d.DefaultDeletionPolicy = "Orphan"
 		}
 	}
+	d.TagResourceType = kc.TagResourceType
 	m.Descriptor = d
-	m.TagResourceType = kc.TagResourceType
 	return m, nil
 }
 

@@ -48,9 +48,11 @@ const accountRefIndex = ".spec.accountRef.name"
 //     whose NameField equals forProvider's is adopted from ListPath.
 //   - Missing resource: created from forProvider ∩ CreateFields (unless the policies forbid
 //     Create); set fields of UpdateFields \ CreateFields are applied by an update right after.
-//     The new ID is written to the annotation at once, so a crash cannot orphan it.
-//   - Existing resource: GET → status.atProvider/status.id; the ownership tag is ensured (a
-//     resource owned by another object is not touched); a change of an Immutable field sets
+//     The new ID and the ownership record (reconcile.RecordOwnership) are written to the
+//     annotations at once, so a crash cannot orphan it.
+//   - Existing resource: GET → status.atProvider/status.id; the ownership tag is ensured and
+//     recorded (a resource owned by another object is not touched; Observe-only objects neither
+//     tag, record nor pin an adopted ID); a change of an Immutable field sets
 //     Synced=False/Immutable and writes nothing; set UpdateFields that differ from the observed
 //     object (write-only paths, top-level or nested: from status.writeOnlyHash) are updated
 //     with UpdateMethod — PATCH sends the changed fields, PUT the full body (unset fields keep
@@ -58,7 +60,7 @@ const accountRefIndex = ".spec.accountRef.name"
 //   - A 404 on the known ID recreates the resource (Observe-only: Ready=False/ExternalNotFound).
 //   - Deletion follows deletionPolicy (DefaultDeletionPolicy when unset) and the management
 //     policies (reconcile.Finalize); DELETE sends no body. Only a resource the object provably
-//     owns is deleted (never one whose owner tag names another object). An orphaned resource
+//     owns is deleted (reconcile.MayDeleteExternal; status.id is not proof). An orphaned resource
 //     loses its owner tag. Without the CloudflareAccount (deleted) the resource is left as is.
 //     Both cases emit a Warning event. Singletons are never created or deleted.
 //
@@ -76,8 +78,6 @@ type Reconciler struct {
 	// CloudflareAccount changes do not wake the kind's objects).
 	New     func() reconcile.ManagedObject
 	NewList func() client.ObjectList
-	// TagResourceType is the Resource Tagging resource_type; "" disables ownership tags.
-	TagResourceType string
 
 	// PollInterval defaults to DefaultPollInterval.
 	PollInterval time.Duration
@@ -133,7 +133,7 @@ func (r *Reconciler) poll() time.Duration {
 }
 
 func (r *Reconciler) tagger() reconcile.Tagger {
-	if r.Tagger == nil || r.TagResourceType == "" {
+	if r.Tagger == nil || r.Descriptor.TagResourceType == "" {
 		return reconcile.NoopTagger{}
 	}
 	return r.Tagger
@@ -269,7 +269,7 @@ func (r *Reconciler) owner(obj reconcile.ManagedObject) string {
 }
 
 func (r *Reconciler) tagTarget(id string) reconcile.TagTarget {
-	return reconcile.TagTarget{Type: r.TagResourceType, ID: id}
+	return reconcile.TagTarget{Type: r.Descriptor.TagResourceType, ID: id}
 }
 
 // errResult reports err as Synced=False and returns it for a rate-limited retry.
@@ -413,7 +413,8 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 	if id == "" {
 		return errResult(obj, fmt.Errorf("create: the result has no %s", d.IDField))
 	}
-	if err := reconcile.PersistExternalID(ctx, r.Client, obj, id); err != nil {
+	// This object created the resource: that is proof of ownership (for deletion).
+	if err := reconcile.RecordOwnership(ctx, r.Client, obj, id); err != nil {
 		// The resource exists; the next reconcile adopts it by name (when the kind has one).
 		return errResult(obj, fmt.Errorf("record external ID %s: %w", id, err))
 	}
@@ -478,12 +479,20 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 			}
 			return errResult(obj, fmt.Errorf("ownership tag: %w", err))
 		}
-	}
-	if adopted && pol.CanWrite() {
-		if err := reconcile.PersistExternalID(ctx, r.Client, obj, id); err != nil {
-			return errResult(obj, fmt.Errorf("record external ID %s: %w", id, err))
+		// With tagging, our owner tag is now on the resource: record that proof of ownership
+		// (and pin the ID) durably. Without tagging, only an adopted ID is pinned.
+		persist := reconcile.PersistExternalID
+		if r.tagging() {
+			persist = reconcile.RecordOwnership
 		}
-		log.FromContext(ctx).Info("adopted by name", "id", id, d.NameField, desired[d.NameField])
+		if adopted || r.tagging() {
+			if err := persist(ctx, r.Client, obj, id); err != nil {
+				return errResult(obj, fmt.Errorf("record external ID %s: %w", id, err))
+			}
+		}
+		if adopted {
+			log.FromContext(ctx).Info("adopted by name", "id", id, d.NameField, desired[d.NameField])
+		}
 	}
 	obj.GetResourceStatus().ID = id
 	if err := SetAtProvider(obj, observed); err != nil {
@@ -607,16 +616,19 @@ func (r *Reconciler) update(ctx context.Context, sc scope, id string, changed, d
 // finalize handles a deleted object.
 //
 //   - deletionPolicy Delete: the resource is deleted only when the object provably owns it
-//     (mayDelete: its owner tag names this object, or status.id shows it created or claimed
-//     it). Otherwise it is left alone with a Warning event: deleting must not destroy what
-//     someone else manages, and an unreadable tag (500) proves nothing.
-//   - Orphan: the owner tag is released, so another object may adopt the resource; a failure is
-//     retried (a permanent 4xx is logged and skipped).
+//     (reconcile.MayDeleteExternal: its ownership record, its owner tag, or with tagging off the
+//     external-id annotation). Otherwise it is left alone with a Warning event: deleting must
+//     not destroy what someone else manages, and an unreadable tag (500) proves nothing.
+//   - Orphan: the owner tag is released, so another object may adopt the resource. A tags GET
+//     that answers 500 is checked against the tag index (reconcile.ResourceTagger), so a
+//     transient 500 on a tagged resource releases the tag or fails and is retried; a permanent
+//     4xx is logged and skipped.
 //   - Both need the account. While it exists but is not Ready, the finalizer stays and the
 //     object is retried. Once the CloudflareAccount is gone, nothing can reach Cloudflare: the
-//     resource is left in place (owner tag included), a Warning event says so when the policy
-//     was Delete, and the finalizer is removed, so deleting a namespace does not hang on its
-//     managed objects.
+//     resource is left in place (owner tag included), a Warning event ExternalResourceKept says
+//     so (policy Delete, or an owner tag that Orphan could not release), and the finalizer is
+//     removed, so finalization never hangs. The account's in-use finalizer normally keeps it
+//     until its dependents are gone, so this happens only when that finalizer was forced off.
 func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) (ctrl.Result, error) {
 	d := r.Descriptor
 	if !controllerutil.ContainsFinalizer(obj, commonv1alpha1.Finalizer) {
@@ -649,10 +661,15 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 			}
 			logger.Info("CloudflareAccount is gone: leaving the Cloudflare resource in place", "id", id,
 				"account", obj.GetResourceSpec().AccountRef.Name, "deletionPolicy", reconcile.EffectiveDeletionPolicy(obj, kindDefault))
-			if deleteExternal {
+			switch {
+			case deleteExternal:
 				r.warn(obj, "ExternalResourceKept", "Delete", fmt.Sprintf(
 					"%s %s was left in Cloudflare despite deletionPolicy Delete: CloudflareAccount %q no longer exists (delete managed objects before their account)",
 					d.Kind, id, obj.GetResourceSpec().AccountRef.Name))
+			case release && reconcile.HasOwnershipProof(obj, id):
+				r.warn(obj, "ExternalResourceKept", "Orphan", fmt.Sprintf(
+					"%s %s was orphaned but keeps its %s tag: CloudflareAccount %q no longer exists, so the tag cannot be released (remove it by hand to allow adoption)",
+					d.Kind, id, reconcile.OwnerTagKey, obj.GetResourceSpec().AccountRef.Name))
 			}
 			deleteExternal, release = false, false
 		}
@@ -666,7 +683,7 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 		}
 	}
 	if acct != nil && deleteExternal {
-		ok, why, err := r.mayDelete(ctx, sc, obj, id)
+		ok, why, err := reconcile.MayDeleteExternal(ctx, r.tagger(), sc.cf, sc.accountID, r.tagTarget(id), r.owner(obj), obj, id)
 		if err != nil {
 			reconcile.MarkDeleting(obj, fmt.Sprintf("read ownership tag: %v", err))
 			return ctrl.Result{}, err
@@ -723,62 +740,6 @@ func (r *Reconciler) accountGone(ctx context.Context, obj reconcile.ManagedObjec
 		return true, nil
 	}
 	return false, err
-}
-
-// ownerReader reads the owner tag without writing (reconcile.ResourceTagger implements it).
-// tagged=false: the tags could not be read (a never-tagged resource and a transient failure
-// both answer 500).
-type ownerReader interface {
-	Owner(ctx context.Context, cf cfclient.Client, accountID string, t reconcile.TagTarget) (owner string, tagged bool, err error)
-}
-
-// mayDelete decides whether finalizing obj may DELETE resource id; why explains a refusal.
-// Deleting is fail-safe: it needs proof that obj owns the resource, because a data-bearing
-// resource deleted by mistake cannot be restored.
-//
-//   - Tagging off: there is no ownership record; the resource is obj's.
-//   - The owner tag names another object: never.
-//   - The owner tag names obj: yes.
-//   - No readable owner tag: only if obj has proven ownership before — status.id == id, which
-//     is set only after obj created the resource or its EnsureOwner succeeded (an object stuck
-//     on an ownership conflict never gets there). A 500 from the tags endpoint (never tagged,
-//     or a transient failure: indistinguishable) is therefore never enough on its own.
-//   - The resource is gone (404): yes (the DELETE is a no-op).
-func (r *Reconciler) mayDelete(ctx context.Context, sc scope, obj reconcile.ManagedObject, id string) (ok bool, why string, err error) {
-	if !r.tagging() {
-		return true, "", nil
-	}
-	me := r.owner(obj)
-	proven := obj.GetResourceStatus().ID == id
-	tg := r.tagger()
-	if rd, isReader := tg.(ownerReader); isReader {
-		o, tagged, err := rd.Owner(ctx, sc.cf, sc.accountID, r.tagTarget(id))
-		switch {
-		case cfclient.IsNotFound(err):
-			return true, "", nil
-		case err != nil:
-			return false, "", err
-		case o != "" && o != me:
-			return false, fmt.Sprintf("it is owned by %q (tag %s)", o, reconcile.OwnerTagKey), nil
-		case o == me || proven:
-			return true, "", nil
-		case !tagged:
-			return false, fmt.Sprintf("this object never established ownership (status.id is not %s) and the %s tag could not be read", id, reconcile.OwnerTagKey), nil
-		}
-		return false, fmt.Sprintf("this object never established ownership (status.id is not %s) and the resource has no %s tag", id, reconcile.OwnerTagKey), nil
-	}
-	// Other taggers: EnsureOwner reports a foreign owner without writing, or makes obj the owner.
-	err = tg.EnsureOwner(ctx, sc.cf, sc.accountID, r.tagTarget(id), me)
-	var conflict *reconcile.OwnershipConflictError
-	switch {
-	case errors.As(err, &conflict):
-		return false, fmt.Sprintf("it is owned by %q (tag %s)", conflict.Owner, reconcile.OwnerTagKey), nil
-	case cfclient.IsNotFound(err):
-		return true, "", nil
-	case err != nil:
-		return false, "", err
-	}
-	return true, "", nil
 }
 
 // permanent reports whether a Cloudflare error will not go away by retrying (a 4xx other than

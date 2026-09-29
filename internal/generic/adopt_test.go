@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
@@ -16,6 +18,7 @@ import (
 
 	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
+	"flare.dev/operator/internal/cfclient"
 	"flare.dev/operator/internal/generic"
 	"flare.dev/operator/internal/reconcile"
 	"flare.dev/operator/internal/testenv"
@@ -241,8 +244,10 @@ func TestOwnershipConflict(t *testing.T) {
 }
 
 // TestDeleteAccountStates: deletion waits while the CloudflareAccount exists but is not Ready
-// (both Delete and Orphan need it: the Orphan path releases the owner tag), and completes
-// without touching Cloudflare once the account is gone (e.g. a namespace deletion).
+// (both Delete and Orphan need it: the Orphan path releases the owner tag). A deleting account
+// is held by its in-use finalizer and still serves the deletion of its dependents. Once the
+// account is really gone (its finalizer removed by hand), deletion completes without touching
+// Cloudflare and a Warning event says the resource was kept.
 func TestDeleteAccountStates(t *testing.T) {
 	h := newHarness(t, recorded)
 	en := entry(t, "KVNamespace")
@@ -286,19 +291,58 @@ func TestDeleteAccountStates(t *testing.T) {
 		t.Errorf("orphaned resource still owned by %q", o)
 	}
 
-	// Account gone: the Delete-policy object is finalized without reaching Cloudflare.
-	mark := h.rec.mark()
+	// Account deleting: held by its in-use finalizer while del exists, and del's deletion
+	// still deletes in Cloudflare (it owns the resource: it created it).
+	kept := h.newObj(en, "kept", `{"deletionPolicy":"Delete","forProvider":{"title":"`+randName("flare-spike")+`"}}`)
+	h.create(kept)
+	h.waitSynced(kept, en)
+	keptID := kept.GetResourceStatus().ID
 	if err := h.e.Client.Delete(h.ctx(), acct); err != nil {
 		t.Fatal(err)
 	}
 	h.delete(del)
 	h.waitGone(del)
+	if _, err := h.api(http.MethodGet, h.path(en.ItemPath, delID), nil); !cfclient.IsNotFound(err) {
+		t.Errorf("resource of an object deleted while its account was deleting: %v, want 404", err)
+	}
+
+	// Account gone (its in-use finalizer removed by hand): kept is finalized without reaching
+	// Cloudflare, with a Warning event.
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := h.e.Client.Get(h.ctx(), client.ObjectKey{Namespace: h.ns, Name: "acct"}, acct); err != nil {
+			return err
+		}
+		acct.Finalizers = nil
+		return h.e.Client.Update(h.ctx(), acct)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
+		err := h.e.Client.Get(h.ctx(), client.ObjectKey{Namespace: h.ns, Name: "acct"}, &cloudflarev1alpha1.CloudflareAccount{})
+		return apierrors.IsNotFound(err), "account still there"
+	})
+	mark := h.rec.mark()
+	h.delete(kept)
+	h.waitGone(kept)
 	if w := writesOf(h.rec.since(mark)); len(w) != 0 {
 		t.Errorf("wrote without an account:\n%s", summary(w))
 	}
-	if _, err := h.api(http.MethodGet, h.path(en.ItemPath, delID), nil); err != nil {
+	if _, err := h.api(http.MethodGet, h.path(en.ItemPath, keptID), nil); err != nil {
 		t.Errorf("resource of the deleted account's object: %v", err)
 	}
+	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
+		var evs eventsv1.EventList
+		if err := h.e.Client.List(h.ctx(), &evs, client.InNamespace(h.ns)); err != nil {
+			return false, err.Error()
+		}
+		for _, ev := range evs.Items {
+			if ev.Regarding.Name == "kept" && ev.Reason == "ExternalResourceKept" && ev.Type == corev1.EventTypeWarning && strings.Contains(ev.Note, keptID) {
+				return true, ""
+			}
+		}
+		return false, "no ExternalResourceKept event"
+	})
 }
 
 // TestSingleton runs the singleton path directly (no generated singleton kind exists yet): a
@@ -316,7 +360,7 @@ func TestSingleton(t *testing.T) {
 	rec := &recorder{}
 	r := &generic.Reconciler{
 		Client:      h.e.Client,
-		Accounts:    reconcile.NewAccounts(h.e.Client, reconcile.WithHTTPClient(&http.Client{Transport: rec})),
+		Accounts:    reconcile.NewAccounts(h.e.Client, reconcile.WithHTTPClient(&http.Client{Transport: rec}), anyBaseURL),
 		Tagger:      reconcile.ResourceTagger{},
 		ClusterName: "testenv",
 		Descriptor:  d,
