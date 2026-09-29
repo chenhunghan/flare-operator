@@ -30,6 +30,11 @@ type ManagerOptions struct {
 	ClusterName string
 	// AccountVerifyInterval overrides the CloudflareAccount re-verify interval.
 	AccountVerifyInterval time.Duration
+	// AccountDependencyRequeue overrides how often a CloudflareAccount deletion blocked by
+	// managed objects is re-checked (default 1s in tests).
+	AccountDependencyRequeue time.Duration
+	// BaseURLPolicy defaults to allowing every spec.baseURL (accounts point at flarefake).
+	BaseURLPolicy *reconcile.BaseURLPolicy
 }
 
 // Manager is a running controller manager.
@@ -60,12 +65,22 @@ func (e *Env) StartManager(t testing.TB, o ManagerOptions) *Manager {
 	if o.ClusterName == "" {
 		o.ClusterName = "testenv"
 	}
+	if o.AccountDependencyRequeue == 0 {
+		o.AccountDependencyRequeue = time.Second
+	}
+	// CloudflareAccounts point at the in-process flarefake: the equivalent of the manager's
+	// --allow-base-url-override.
+	policy := reconcile.BaseURLPolicy{AllowAny: true}
+	if o.BaseURLPolicy != nil {
+		policy = *o.BaseURLPolicy
+	}
 	deps := controller.Deps{
-		Accounts:    reconcile.NewAccounts(mgr.GetClient(), reconcile.WithUserAgent("flare-operator-testenv")),
+		Accounts:    reconcile.NewAccounts(mgr.GetClient(), reconcile.WithUserAgent("flare-operator-testenv"), reconcile.WithBaseURLPolicy(policy)),
 		Tagger:      o.Tagger,
 		ClusterName: o.ClusterName,
 	}
-	ar := &account.Reconciler{Client: mgr.GetClient(), Accounts: deps.Accounts, VerifyInterval: o.AccountVerifyInterval}
+	ar := &account.Reconciler{Client: mgr.GetClient(), Accounts: deps.Accounts, VerifyInterval: o.AccountVerifyInterval,
+		DependencyRequeue: o.AccountDependencyRequeue}
 	if err := ar.SetupWithManager(mgr); err != nil {
 		t.Fatalf("setup account controller: %v", err)
 	}

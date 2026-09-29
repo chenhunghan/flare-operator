@@ -1,21 +1,37 @@
 // Package account implements the CloudflareAccount controller: it reads the token Secret,
 // builds (and caches, through reconcile.Accounts) the account's Cloudflare client, verifies the
 // token against the account, and reports Ready/Synced plus token status and expiry.
+//
+// Usage protection: every account carries the finalizer AccountInUseFinalizer. When it is
+// deleted, the controller keeps verifying it (so managed objects can still use it to clean up
+// in Cloudflare) and keeps the finalizer, with Synced=False reason DependencyNotReady, while any
+// object of an API group ending in ".cloudflare.flare.dev" in the same namespace carries the
+// label cloudflare.flare.dev/account=<name> (set by reconcile.Accounts.Resolve).
 package account
 
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
+	"sort"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/metadata"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -23,6 +39,7 @@ import (
 
 	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
+	"flare.dev/operator/internal/cfclient"
 	"flare.dev/operator/internal/controller"
 	"flare.dev/operator/internal/reconcile"
 )
@@ -32,6 +49,15 @@ const Name = "cloudflareaccount"
 
 // DefaultVerifyInterval is how often a Ready token is re-verified.
 const DefaultVerifyInterval = 10 * time.Minute
+
+// DefaultDependencyRequeue is how often a deletion blocked by managed objects is re-checked.
+const DefaultDependencyRequeue = 10 * time.Second
+
+// ManagedGroupSuffix selects the API groups whose objects can use an account.
+const ManagedGroupSuffix = ".cloudflare.flare.dev"
+
+// maxListedUsers bounds the objects named in the DependencyNotReady message.
+const maxListedUsers = 5
 
 const secretNameIndex = ".spec.tokenSecretRef.name"
 
@@ -51,17 +77,42 @@ type Reconciler struct {
 	Accounts *reconcile.Accounts
 	// VerifyInterval defaults to DefaultVerifyInterval.
 	VerifyInterval time.Duration
+	// DependencyRequeue defaults to DefaultDependencyRequeue.
+	DependencyRequeue time.Duration
 	// Now defaults to time.Now.
 	Now func() time.Time
+	// Discovery finds the managed kinds and Metadata lists them (metadata only). Both default
+	// to clients built from the manager's config in SetupWithManager.
+	Discovery discovery.DiscoveryInterface
+	Metadata  metadata.Interface
 }
 
 // +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+//
+// Usage protection lists every kind of the *.cloudflare.flare.dev groups (metadata only). RBAC
+// cannot match a group suffix, so each group is listed here; a group missing from this list is
+// skipped (logged) because the operator could not manage its objects either.
+// +kubebuilder:rbac:groups=kv.cloudflare.flare.dev;queues.cloudflare.flare.dev;d1.cloudflare.flare.dev,resources=*,verbs=get;list;watch
 
 // SetupWithManager registers the controller. It watches CloudflareAccounts (spec changes only,
 // so its own status writes do not loop) and the Secrets they reference.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.Discovery == nil {
+		d, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
+		if err != nil {
+			return err
+		}
+		r.Discovery = d
+	}
+	if r.Metadata == nil {
+		m, err := metadata.NewForConfig(mgr.GetConfig())
+		if err != nil {
+			return err
+		}
+		r.Metadata = m
+	}
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &cloudflarev1alpha1.CloudflareAccount{}, secretNameIndex,
 		func(o client.Object) []string {
 			return []string{o.(*cloudflarev1alpha1.CloudflareAccount).Spec.TokenSecretRef.Name}
@@ -70,7 +121,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(Name).
-		For(&cloudflarev1alpha1.CloudflareAccount{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&cloudflarev1alpha1.CloudflareAccount{}, builder.WithPredicates(predicate.Or(
+			predicate.GenerationChangedPredicate{}, deletionStarted{}))).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.accountsForSecret)).
 		Complete(r)
 }
@@ -95,6 +147,22 @@ func (r *Reconciler) now() time.Time {
 	return time.Now()
 }
 
+func (r *Reconciler) dependencyRequeue() time.Duration {
+	if r.DependencyRequeue > 0 {
+		return r.DependencyRequeue
+	}
+	return DefaultDependencyRequeue
+}
+
+// deletionStarted passes the update that sets deletionTimestamp (the API server also bumps the
+// generation then, but that is not guaranteed for every storage path).
+type deletionStarted struct{ predicate.Funcs }
+
+func (deletionStarted) Update(e event.UpdateEvent) bool {
+	return e.ObjectOld != nil && e.ObjectNew != nil &&
+		e.ObjectOld.GetDeletionTimestamp().IsZero() && !e.ObjectNew.GetDeletionTimestamp().IsZero()
+}
+
 func (r *Reconciler) interval() time.Duration {
 	if r.VerifyInterval > 0 {
 		return r.VerifyInterval
@@ -113,8 +181,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 	if !acct.DeletionTimestamp.IsZero() {
-		r.Accounts.Forget(req.NamespacedName)
-		return ctrl.Result{}, nil
+		return r.reconcileDelete(ctx, &acct)
+	}
+	if !controllerutil.ContainsFinalizer(&acct, cloudflarev1alpha1.AccountInUseFinalizer) {
+		base := acct.DeepCopy()
+		controllerutil.AddFinalizer(&acct, cloudflarev1alpha1.AccountInUseFinalizer)
+		if err := r.Patch(ctx, &acct, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsNotFound(err) {
+				return ctrl.Result{}, nil
+			}
+			return ctrl.Result{}, err
+		}
 	}
 	base := acct.DeepCopy()
 	res, verr := r.verify(ctx, &acct)
@@ -126,6 +203,110 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 	return res, verr
+}
+
+// reconcileDelete keeps the account (verified, so its users can still clean up) until no
+// managed object uses it, then removes the finalizer.
+func (r *Reconciler) reconcileDelete(ctx context.Context, acct *cloudflarev1alpha1.CloudflareAccount) (ctrl.Result, error) {
+	nn := types.NamespacedName{Namespace: acct.Namespace, Name: acct.Name}
+	if !controllerutil.ContainsFinalizer(acct, cloudflarev1alpha1.AccountInUseFinalizer) {
+		r.Accounts.Forget(nn)
+		return ctrl.Result{}, nil
+	}
+	users, more, uerr := r.usersOf(ctx, acct)
+	if uerr == nil && len(users) == 0 {
+		base := acct.DeepCopy()
+		controllerutil.RemoveFinalizer(acct, cloudflarev1alpha1.AccountInUseFinalizer)
+		if err := r.Patch(ctx, acct, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil && !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+		r.Accounts.Forget(nn)
+		return ctrl.Result{}, nil
+	}
+
+	base := acct.DeepCopy()
+	res, verr := r.verify(ctx, acct)
+	acct.Status.ObservedGeneration = acct.Generation
+	if uerr != nil {
+		r.setCond(acct, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, commonv1alpha1.ReasonReconcileError,
+			"deletion blocked: cannot check for managed objects using this account: "+uerr.Error())
+	} else {
+		msg := fmt.Sprintf("deletion blocked: %d managed object(s) in namespace %s still use this account (label %s=%s): %s",
+			len(users), acct.Namespace, reconcile.AccountLabel, reconcile.AccountLabelValue(acct.Name), strings.Join(users, ", "))
+		if more {
+			msg = fmt.Sprintf("deletion blocked: more than %d managed objects in namespace %s still use this account (label %s=%s), e.g. %s",
+				len(users), acct.Namespace, reconcile.AccountLabel, reconcile.AccountLabelValue(acct.Name), strings.Join(users, ", "))
+		}
+		r.setCond(acct, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, commonv1alpha1.ReasonDependency, msg)
+	}
+	if err := r.Status().Patch(ctx, acct, client.MergeFrom(base)); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
+	}
+	if uerr != nil {
+		return ctrl.Result{}, uerr
+	}
+	if verr != nil {
+		return ctrl.Result{}, verr
+	}
+	return ctrl.Result{RequeueAfter: min(res.RequeueAfter, r.dependencyRequeue())}, nil
+}
+
+// usersOf lists (metadata only) the objects of every *.cloudflare.flare.dev kind in acct's
+// namespace that carry the account label. It returns up to maxListedUsers "Kind.group/name"
+// strings and whether there are more.
+func (r *Reconciler) usersOf(ctx context.Context, acct *cloudflarev1alpha1.CloudflareAccount) ([]string, bool, error) {
+	lists, err := discovery.ServerPreferredNamespacedResources(r.Discovery)
+	if err != nil {
+		var gdf *discovery.ErrGroupDiscoveryFailed
+		if !errors.As(err, &gdf) {
+			return nil, false, fmt.Errorf("discovery: %w", err)
+		}
+		for gv, gerr := range gdf.Groups {
+			if strings.HasSuffix(gv.Group, ManagedGroupSuffix) {
+				return nil, false, fmt.Errorf("discovery of %s: %w", gv, gerr)
+			}
+		}
+	}
+	sel := labels.SelectorFromSet(labels.Set{reconcile.AccountLabel: reconcile.AccountLabelValue(acct.Name)}).String()
+	var users []string
+	more := false
+	for _, l := range lists {
+		gv, err := schema.ParseGroupVersion(l.GroupVersion)
+		if err != nil || !strings.HasSuffix(gv.Group, ManagedGroupSuffix) {
+			continue
+		}
+		for _, res := range l.APIResources {
+			if strings.Contains(res.Name, "/") || !slices.Contains(res.Verbs, "list") {
+				continue
+			}
+			gvr := gv.WithResource(res.Name)
+			got, err := r.Metadata.Resource(gvr).Namespace(acct.Namespace).List(ctx, metav1.ListOptions{LabelSelector: sel, Limit: maxListedUsers + 1})
+			switch {
+			case apierrors.IsNotFound(err) || apierrors.IsMethodNotSupported(err):
+				continue // the CRD went away since discovery
+			case apierrors.IsForbidden(err):
+				log.FromContext(ctx).Info("cannot list managed kind for account usage protection; skipping it (grant list on it)", "resource", gvr.String())
+				continue
+			case err != nil:
+				return nil, false, fmt.Errorf("list %s: %w", gvr, err)
+			}
+			for _, it := range got.Items {
+				if len(users) == maxListedUsers {
+					more = true
+					break
+				}
+				users = append(users, fmt.Sprintf("%s.%s/%s", res.Kind, gv.Group, it.Name))
+			}
+			if got.Continue != "" {
+				more = true
+			}
+		}
+	}
+	sort.Strings(users)
+	return users, more, nil
 }
 
 // verify updates acct.Status in memory and returns the requeue policy.
@@ -201,8 +382,11 @@ func clearToken(acct *cloudflarev1alpha1.CloudflareAccount) {
 	acct.Status.TokenExpiresOn = nil
 }
 
+// maxConditionMessage bounds condition messages (they may quote API error text).
+const maxConditionMessage = reconcile.MaxConditionMessage
+
 func (r *Reconciler) setCond(acct *cloudflarev1alpha1.CloudflareAccount, typ string, st metav1.ConditionStatus, reason, msg string) {
 	meta.SetStatusCondition(&acct.Status.Conditions, metav1.Condition{
-		Type: typ, Status: st, Reason: reason, Message: msg, ObservedGeneration: acct.Generation,
+		Type: typ, Status: st, Reason: reason, Message: cfclient.Sanitize(msg, maxConditionMessage), ObservedGeneration: acct.Generation,
 	})
 }

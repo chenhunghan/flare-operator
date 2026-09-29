@@ -44,7 +44,9 @@ type CloudflareAccountSpec struct {
 	AccountID string `json:"accountID"`
 	// TokenSecretRef names the Secret (same namespace) holding the API token.
 	TokenSecretRef SecretKeySelector `json:"tokenSecretRef"`
-	// BaseURL overrides the API base URL, e.g. http://flarefake:8787/client/v4 in tests.
+	// BaseURL overrides the API base URL, e.g. http://flarefake:8787/client/v4 in tests. The
+	// operator ignores overrides unless it runs with --allow-base-url-override or lists this URL
+	// in --allowed-base-url; otherwise the account reports Ready=False, reason BaseURLNotAllowed.
 	// +optional
 	// +kubebuilder:validation:Pattern=`^https?://`
 	BaseURL string `json:"baseURL,omitempty"`
@@ -69,6 +71,18 @@ const (
 	ReasonTokenNotYetValid = "TokenNotYetValid"
 	ReasonAccountMismatch  = "AccountMismatch"
 	ReasonClientError      = "ClientError"
+	// ReasonBaseURLNotAllowed: spec.baseURL is set but the operator does not allow that override.
+	ReasonBaseURLNotAllowed = "BaseURLNotAllowed"
+)
+
+// Labels and finalizers of the account usage protection.
+const (
+	// AccountLabel is set on every managed object to the name of the CloudflareAccount it uses
+	// (see AccountLabelValue in internal/reconcile for names longer than a label value allows).
+	AccountLabel = "cloudflare.flare.dev/account"
+	// AccountInUseFinalizer keeps a CloudflareAccount until no managed object in its namespace
+	// carries AccountLabel for it.
+	AccountInUseFinalizer = "cloudflare.flare.dev/account-in-use"
 )
 
 // CloudflareAccountStatus reports the result of the last token verification.

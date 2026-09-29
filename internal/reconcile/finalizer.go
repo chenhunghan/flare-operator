@@ -32,7 +32,7 @@ func RemoveFinalizer(ctx context.Context, c client.Client, obj client.Object) er
 }
 
 // patchMeta applies mutate to a copy of obj, sends a merge patch with optimistic locking, and
-// copies back only metadata (resourceVersion, finalizers, annotations) so in-memory status
+// copies back only metadata (resourceVersion, finalizers, annotations, labels) so in-memory status
 // changes on obj survive (the patch response carries the stored, older status).
 func patchMeta(ctx context.Context, c client.Client, obj client.Object, mutate func(client.Object)) error {
 	cp, ok := obj.DeepCopyObject().(client.Object)
@@ -47,6 +47,7 @@ func patchMeta(ctx context.Context, c client.Client, obj client.Object, mutate f
 	obj.SetResourceVersion(cp.GetResourceVersion())
 	obj.SetFinalizers(cp.GetFinalizers())
 	obj.SetAnnotations(cp.GetAnnotations())
+	obj.SetLabels(cp.GetLabels())
 	obj.SetGeneration(cp.GetGeneration())
 	return nil
 }
