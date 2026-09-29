@@ -29,13 +29,18 @@ import (
 func TestDeleteRequiresOwnership(t *testing.T) {
 	h := newHarness(t, accountOnly)
 	en := entry(t, "KVNamespace")
-	tagsFault := func(t *testing.T) {
+	tagsFaultStatus := func(t *testing.T, status int) {
 		t.Helper()
-		// Every tags read of this account answers 500 (Times is far above what one finalize uses).
-		if err := h.e.Control.InjectFault(h.ctx(), fake.Fault{Method: http.MethodGet, PathRegex: "^/accounts/" + h.acct.AccountID + "/tags$", Status: 500, Times: 50}); err != nil {
+		// Every tags read of this account fails (Times is far above what one finalize uses).
+		if err := h.e.Control.InjectFault(h.ctx(), fake.Fault{Method: http.MethodGet, PathRegex: "^/accounts/" + h.acct.AccountID + "/tags$", Status: status, Times: 50}); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = h.e.Control.ClearFaults(context.Background()) })
+	}
+	tagsFault := func(t *testing.T) { t.Helper(); tagsFaultStatus(t, 500) }
+	deleteExternal := func(t *testing.T, id string) {
+		t.Helper()
+		h.mustAPI(http.MethodDelete, h.path(en.ItemPath, id), nil)
 	}
 	setTag := func(id, owner string) {
 		h.mustAPI(http.MethodPut, h.path("/accounts/{account_id}/tags", ""), map[string]any{
@@ -48,6 +53,9 @@ func TestDeleteRequiresOwnership(t *testing.T) {
 		setup            func(t *testing.T, id, me string)
 		statusID, record bool
 		deleted          bool
+		// gone: the resource no longer exists before the finalizer runs; nothing is deleted
+		// and no Warning is due.
+		gone bool
 	}{
 		{name: "foreign owner, tags unreadable", setup: func(t *testing.T, id, _ string) { setTag(id, "other/ns/obj"); tagsFault(t) }},
 		{name: "never tagged, never synced", setup: func(*testing.T, string, string) {}},
@@ -60,6 +68,15 @@ func TestDeleteRequiresOwnership(t *testing.T) {
 		{name: "owner tag names the object", setup: func(_ *testing.T, id, me string) { setTag(id, me) }, deleted: true},
 		{name: "foreign owner despite status.id", setup: func(_ *testing.T, id, _ string) { setTag(id, "other/ns/obj") }, statusID: true},
 		{name: "foreign owner despite the ownership record", setup: func(_ *testing.T, id, _ string) { setTag(id, "other/ns/obj") }, statusID: true, record: true},
+		// A token without Resource Tagging permission: the tag can never be read, so the resource
+		// is kept (with a Warning) instead of retrying forever.
+		{name: "tags read forbidden, no record", setup: func(t *testing.T, _, _ string) { tagsFaultStatus(t, http.StatusForbidden) }, statusID: true},
+		{name: "tags read forbidden, ownership recorded", setup: func(t *testing.T, _, _ string) { tagsFaultStatus(t, http.StatusForbidden) }, statusID: true, record: true, deleted: true},
+		// Already gone, no record: no spurious ExternalResourceKept, whatever the tags read says.
+		{name: "already gone, tags 404", setup: func(t *testing.T, id, _ string) { deleteExternal(t, id); tagsFaultStatus(t, http.StatusNotFound) }, statusID: true, gone: true},
+		{name: "already gone, never tagged", setup: func(t *testing.T, id, _ string) { deleteExternal(t, id) }, statusID: true, gone: true},
+		{name: "already gone, tags unreadable", setup: func(t *testing.T, id, _ string) { deleteExternal(t, id); tagsFault(t) }, gone: true},
+		{name: "tags 404, resource exists", setup: func(t *testing.T, _, _ string) { tagsFaultStatus(t, http.StatusNotFound) }, statusID: true},
 	}
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -115,6 +132,17 @@ func TestDeleteRequiresOwnership(t *testing.T) {
 				}
 			}
 			_, gerr := h.api(http.MethodGet, h.path(en.ItemPath, id), nil)
+			if tc.gone {
+				if len(dels) != 0 {
+					t.Errorf("DELETE sent for a resource that was already gone:\n%s", summary(rec.since(0)))
+				}
+				select {
+				case e := <-ev.Events:
+					t.Errorf("event for a resource that was already gone: %q", e)
+				default:
+				}
+				return
+			}
 			if tc.deleted {
 				if len(dels) != 1 || gerr == nil {
 					t.Errorf("not deleted (DELETEs %d, GET err %v):\n%s", len(dels), gerr, summary(rec.since(0)))

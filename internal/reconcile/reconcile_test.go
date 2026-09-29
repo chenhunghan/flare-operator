@@ -222,6 +222,7 @@ func TestFinalize(t *testing.T) {
 		wantCalled  bool
 		wantErr     bool
 		wantRemoved bool
+		wantRequeue time.Duration
 	}{
 		{name: "delete", externalID: "x", wantCalled: true, wantRemoved: true},
 		{name: "orphan-spec", spec: "Orphan", externalID: "x", wantRemoved: true},
@@ -230,6 +231,9 @@ func TestFinalize(t *testing.T) {
 		{name: "no-external-id", wantRemoved: true},
 		{name: "already-gone", externalID: "x", deleteErr: notFound, wantCalled: true, wantRemoved: true},
 		{name: "delete-fails", externalID: "x", deleteErr: errors.New("500"), wantCalled: true, wantErr: true},
+		// A multi-step delete in progress: no error, a requeue, the finalizer stays.
+		{name: "delete-waits", externalID: "x", deleteErr: &reconcile.WaitError{After: 7 * time.Second, Reason: "draining"},
+			wantCalled: true, wantRequeue: 7 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -246,15 +250,15 @@ func TestFinalize(t *testing.T) {
 				t.Fatal(err)
 			}
 			called := false
-			done, err := reconcile.Finalize(ctx, kube, w, tc.kind, func(_ context.Context, id string) error {
+			res, err := reconcile.Finalize(ctx, kube, w, tc.kind, func(_ context.Context, id string) error {
 				called = true
 				if id != tc.externalID {
 					t.Errorf("deleteExternal(%q)", id)
 				}
 				return tc.deleteErr
 			})
-			if !done || called != tc.wantCalled || (err != nil) != tc.wantErr {
-				t.Fatalf("done=%v called=%v err=%v", done, called, err)
+			if called != tc.wantCalled || (err != nil) != tc.wantErr || res.RequeueAfter != tc.wantRequeue {
+				t.Fatalf("called=%v err=%v requeue=%v", called, err, res.RequeueAfter)
 			}
 			var stored Widget
 			getErr := kube.Get(ctx, client.ObjectKeyFromObject(w), &stored)
@@ -262,21 +266,26 @@ func TestFinalize(t *testing.T) {
 			if removed != tc.wantRemoved {
 				t.Errorf("finalizer removed=%v (get err %v)", removed, getErr)
 			}
-			if tc.wantErr {
+			if tc.wantErr || tc.wantRequeue > 0 {
 				if c := reconcile.GetCondition(w, commonv1alpha1.ConditionReady); c == nil || c.Reason != commonv1alpha1.ReasonDeleting {
 					t.Errorf("Ready %+v", c)
+				}
+			}
+			if we, ok := reconcile.AsWait(tc.deleteErr); ok {
+				if c := reconcile.GetCondition(w, commonv1alpha1.ConditionReady); c == nil || c.Message != we.Reason {
+					t.Errorf("Ready message %+v, want the wait reason %q", c, we.Reason)
 				}
 			}
 		})
 	}
 	// Not being deleted: nothing happens.
 	w := widget(nil, "")
-	done, err := reconcile.Finalize(context.Background(), newKube(t, w), w, "", func(context.Context, string) error {
+	res, err := reconcile.Finalize(context.Background(), newKube(t, w), w, "", func(context.Context, string) error {
 		t.Error("deleteExternal called for a live object")
 		return nil
 	})
-	if done || err != nil {
-		t.Errorf("done=%v err=%v", done, err)
+	if res.RequeueAfter != 0 || err != nil {
+		t.Errorf("res=%v err=%v", res, err)
 	}
 }
 

@@ -6,9 +6,19 @@
 // Behavior follows docs/spike-results-2026-09-29.md §2–§3 and the recordings cited in api.go:
 //
 //   - Create/adopt: the external-id annotation pins a tunnel; otherwise a live tunnel with the
-//     same name is adopted once the ownership tag was written (with tagging disabled it is
-//     tracked in status.id only, so it is never deleted); otherwise one is created and the
-//     annotations external-id and created-by-uid are persisted at once. An observe-only object
+//     same name is adopted once the ownership tag was written (reconcile.RecordOwnership then
+//     pins it and records the proof). With tagging disabled nothing can prove that a
+//     same-named tunnel is ours, so it is not adopted by name: Ready/Synced=False, reason
+//     NameConflict, no connectors (as VPCService); pin it to adopt it. A tunnel known only
+//     through status.id (an untagged adoption by an older build) is treated the same way, and
+//     the connector Deployment and token Secret such a build made are deleted.
+//     Otherwise one is created and the ownership record is written at once
+//     (reconcile.RecordCreated, which a concurrent change of the object cannot make fail).
+//     Known gap (as for VPCService): with tagging disabled, should that write fail for another
+//     reason (API server unavailable), the new tunnel's ID may reach status.id without the
+//     record, and the next sync reports the object's own tunnel as NameConflict; set the
+//     external-id annotation to adopt it. An
+//     older build's created-by-uid annotation is honoured and migrated. An observe-only object
 //     that finds a tunnel by name keeps its ID only in status.atProvider. A pinned tunnel that
 //     is gone (404, or soft-deleted: GET answers 200 with deleted_at) is reported as
 //     ExternalNotFound and never silently recreated.
@@ -20,12 +30,13 @@
 //     the Tunnel, because Cloudflare lets a referenced tunnel be deleted (0099). With the Delete
 //     policy it then scales cloudflared to zero, waits until the pods are gone and the tunnel
 //     reports no active connections (a connected tunnel refuses deletion with 400/1022, 0095),
-//     and soft-deletes it. Only a tunnel whose ownership is proven is deleted (see
-//     tunnelnet/ownership.go: the owner tag names this object, or it is untagged and this
-//     object created it, or tagging is disabled and the object created or pins it); any other
-//     is kept with a Warning Event (ForeignOwnerTunnelKept, ExternalResourceKept). If the
+//     and soft-deletes it; each wait is a reconcile.WaitError (requeue, no error). Only a
+//     tunnel whose ownership is proven is deleted (reconcile.MayDeleteExternal: the ownership
+//     record, the owner tag naming this object, or with tagging disabled the pin); any other is
+//     kept with a Warning Event (ForeignOwnerTunnelKept, ExternalResourceKept). If the
 //     CloudflareAccount no longer exists the tunnel is kept (ExternalResourceKept) and the
-//     finalizer removed; an account that exists but is not Ready is waited for.
+//     finalizer removed; an account that exists but is not Ready is waited for
+//     (reconcile.FinalizeAccount).
 //   - Owned objects (Deployment, NetworkPolicy) are rewritten when the desired spec changes or
 //     a field the controller sets drifted (see drifted).
 //   - A reconcile without spec changes makes no Cloudflare writes (only GETs).
@@ -48,6 +59,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -308,6 +320,13 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 
 	// Observe (and adopt or create).
 	var tun *apiTunnel
+	tagging := reconcile.TaggingEnabled(r.tagger())
+	if id := reconcile.ExternalID(t); id != "" && !tagging && pol.CanWrite() && !reconcile.HasExternalIDAnnotation(t) && !reconcile.HasOwnershipProof(t, id) {
+		// Without tagging, a tunnel known through status.id alone (an untagged adoption by an
+		// older build) is not proven to be ours: look it up by name again, which reports
+		// NameConflict instead of running connectors on it.
+		t.Status.ID = ""
+	}
 	if id := reconcile.ExternalID(t); id != "" {
 		if tun, err = getTunnel(ctx, cf, accountID, id); err != nil {
 			return syncErr(err)
@@ -338,25 +357,38 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 			reconcile.MarkAvailable(t)
 			reconcile.MarkSynced(t)
 			return ctrl.Result{RequeueAfter: r.resync()}, nil
+		case tun != nil && !tagging:
+			// Without an ownership tag nothing proves that this object owns a same-named
+			// tunnel: it may be another cluster's, and running connectors on it would take a
+			// share of that tunnel's traffic. Adoption is explicit, through the external-id
+			// annotation (as for VPCService).
+			msg := fmt.Sprintf("a tunnel named %q already exists (id %s) and ownership tagging is disabled, so this object cannot prove "+
+				"that it owns it; set the %s annotation to that ID to adopt it, or choose another forProvider.name",
+				t.TunnelName(), tun.ID, commonv1alpha1.AnnotationExternalID)
+			t.Status.ID = ""
+			t.Status.AtProvider = tunnelsv1alpha1.TunnelObservation{}
+			// An older build may have run connectors on it (an untagged adoption through
+			// status.id): stop them and drop that tunnel's token.
+			if err := r.stopConnector(ctx, t); err != nil {
+				return syncErr(fmt.Errorf("stop the connector of an unproven tunnel: %w", err))
+			}
+			reconcile.SetReady(t, metav1.ConditionFalse, reconcile.ReasonNameConflict, msg)
+			reconcile.SetSynced(t, metav1.ConditionFalse, reconcile.ReasonNameConflict, msg)
+			return ctrl.Result{RequeueAfter: DependencyRetry}, nil
 		case tun != nil:
+			// Adopt by name once the owner tag is ours (recorded below).
 			if err := r.tagger().EnsureOwner(ctx, cf, accountID, reconcile.TagTarget{Type: tagResourceType, ID: tun.ID}, r.owner(t)); err != nil {
 				return r.ownershipError(t, err)
 			}
 			tagged = true
-			// Pin the ID only when the owner tag proves ownership; with tagging disabled the
-			// adopted tunnel is tracked in status.id alone and never deleted by this object.
-			if r.taggingEnabled() {
-				if err := reconcile.PersistExternalID(ctx, r.Client, t, tun.ID); err != nil {
-					return ctrl.Result{}, err
-				}
-			}
 		case pol.CanCreate():
 			if tun, err = createTunnel(ctx, cf, accountID, t.TunnelName()); err != nil {
 				return syncErr(err)
 			}
 			token = tun.Token
-			if err := tunnelnet.PersistCreated(ctx, r.Client, t, tun.ID); err != nil {
-				return ctrl.Result{}, err
+			// Created by this object: proof of ownership, written so a Conflict cannot lose it.
+			if err := reconcile.RecordCreated(ctx, r.Client, t, tun.ID); err != nil {
+				return syncErr(fmt.Errorf("record the new tunnel %s: %w", tun.ID, err))
 			}
 			reconcile.MarkCreating(t, "tunnel created")
 		default:
@@ -382,6 +414,16 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 		if err := r.tagger().EnsureOwner(ctx, cf, accountID, reconcile.TagTarget{Type: tagResourceType, ID: tun.ID}, r.owner(t)); err != nil {
 			return r.ownershipError(t, err)
 		}
+	}
+	// With tagging, our owner tag is on the tunnel now: record that proof (and pin the ID)
+	// durably. Without tagging the object created or pins it; only an older build's
+	// created-by-uid record is rewritten.
+	record := reconcile.MigrateLegacyOwnership
+	if tagging {
+		record = reconcile.RecordOwnership
+	}
+	if err := record(ctx, r.Client, t, tun.ID); err != nil {
+		return syncErr(fmt.Errorf("record ownership of tunnel %s: %w", tun.ID, err))
 	}
 
 	// Connector.
@@ -508,6 +550,31 @@ func (r *Reconciler) ensureDeployment(ctx context.Context, t *tunnelsv1alpha1.Tu
 	return dep, err
 }
 
+// stopConnector deletes t's cloudflared Deployment and token Secret (only those t controls)
+// and clears status.connector: t runs no connector on a tunnel it cannot prove it owns.
+func (r *Reconciler) stopConnector(ctx context.Context, t *tunnelsv1alpha1.Tunnel) error {
+	for _, o := range []client.Object{
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: t.Namespace, Name: DeploymentName(t)}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: t.Namespace, Name: TokenSecretName(t)}},
+	} {
+		if err := r.Get(ctx, client.ObjectKeyFromObject(o), o); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		if !metav1.IsControlledBy(o, t) || !o.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+		if err := r.Delete(ctx, o, client.Preconditions{UID: ptr.To(o.GetUID())},
+			client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	t.Status.Connector = tunnelsv1alpha1.ConnectorStatus{}
+	return nil
+}
+
 // ensureNetworkPolicy keeps (or, when disabled, removes) the egress NetworkPolicy.
 func (r *Reconciler) ensureNetworkPolicy(ctx context.Context, t *tunnelsv1alpha1.Tunnel) error {
 	np := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: t.Namespace, Name: NetworkPolicyName(t)}}
@@ -569,24 +636,19 @@ func (r *Reconciler) finalize(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (c
 			fmt.Sprintf("waiting for %d VPCService(s) that reference this Tunnel to be deleted: %s", len(names), strings.Join(names, ", ")))
 		return ctrl.Result{RequeueAfter: DependencyRetry}, false, nil
 	}
-	id := reconcile.ExternalID(t)
-	switch {
+	var del func(context.Context, string) error
+	switch id := reconcile.ExternalID(t); {
 	case id == "":
 	case reconcile.ShouldDeleteExternal(t, commonv1alpha1.DeletionDelete):
-		acct, accountGone, err := tunnelnet.ResolveForDelete(ctx, r.Accounts, r.apiReader(), t)
-		switch {
-		case accountGone:
-			r.warn(t, tunnelnet.EventReasonExternalResourceKept,
-				"deletionPolicy is Delete, but CloudflareAccount %s no longer exists; tunnel %s was kept in Cloudflare", t.Spec.AccountRef.Name, id)
-		case reconcile.IsAccountNotReady(err):
-			reconcile.MarkAccountNotReady(t, err)
-			return ctrl.Result{RequeueAfter: reconcile.AccountRetryInterval}, false, nil
-		case err != nil:
-			return ctrl.Result{}, false, err
-		default:
-			done, res, err := r.deleteExternal(ctx, t, acct.Client, acct.AccountID, id)
-			if !done || err != nil {
-				return res, false, err
+		acct, err := reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, t, "Delete",
+			fmt.Sprintf("Tunnel %s was left in Cloudflare despite deletionPolicy Delete", id))
+		if err != nil {
+			res, err := reconcile.DeletionResult(t, err)
+			return res, false, err
+		}
+		if acct != nil { // nil: the account is gone, the tunnel is kept
+			del = func(ctx context.Context, id string) error {
+				return r.deleteExternal(ctx, t, acct.Client, acct.AccountID, id)
 			}
 		}
 	case reconcile.PoliciesOf(t).CanWrite():
@@ -597,10 +659,8 @@ func (r *Reconciler) finalize(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (c
 			}
 		}
 	}
-	if err := reconcile.RemoveFinalizer(ctx, r.Client, t); err != nil {
-		return ctrl.Result{}, false, client.IgnoreNotFound(err)
-	}
-	return ctrl.Result{}, true, nil
+	res, err := reconcile.Finalize(ctx, r.Client, t, commonv1alpha1.DeletionDelete, del)
+	return res, !controllerutil.ContainsFinalizer(t, commonv1alpha1.Finalizer), err
 }
 
 func (r *Reconciler) apiReader() client.Reader {
@@ -617,96 +677,39 @@ func (r *Reconciler) warn(t *tunnelsv1alpha1.Tunnel, reason, format string, args
 	}
 }
 
-// taggingEnabled reports whether ownership tags are maintained (not a NoopTagger).
-func (r *Reconciler) taggingEnabled() bool {
-	switch r.tagger().(type) {
-	case reconcile.NoopTagger, *reconcile.NoopTagger:
-		return false
-	}
-	return true
-}
-
-// tagReader reads a resource's tags (reconcile.ResourceTagger).
-type tagReader interface {
-	Get(ctx context.Context, cf cfclient.Client, accountID string, t reconcile.TagTarget) (map[string]string, bool, error)
-}
-
-func (r *Reconciler) ownerTagKey() string {
-	switch tg := r.tagger().(type) {
-	case reconcile.ResourceTagger:
-		if tg.Key != "" {
-			return tg.Key
-		}
-	case *reconcile.ResourceTagger:
-		if tg != nil && tg.Key != "" {
-			return tg.Key
-		}
-	}
-	return reconcile.OwnerTagKey
-}
-
-// owns reports whether t has proven ownership of tunnel id (see tunnelnet's ownership policy):
-// the owner tag names t, or the tunnel is untagged and t created it, or tagging is disabled
-// and t created or pins it. foreign is the other owner named by the tag, if any. A tag read
-// that fails (including an ambiguous 500 the tag index cannot settle) is returned as err: it
-// proves nothing either way, so the caller retries.
-func (r *Reconciler) owns(ctx context.Context, t *tunnelsv1alpha1.Tunnel, cf cfclient.Client, accountID, id string) (owned bool, foreign string, err error) {
-	if !r.taggingEnabled() {
-		return tunnelnet.CreatedByThis(t) || reconcile.HasExternalIDAnnotation(t), "", nil
-	}
-	rd, ok := r.tagger().(tagReader)
-	if !ok { // a tagger that cannot read tags: only a recorded create proves ownership
-		return tunnelnet.CreatedByThis(t), "", nil
-	}
-	tags, tagged, err := rd.Get(ctx, cf, accountID, reconcile.TagTarget{Type: tagResourceType, ID: id})
-	if err != nil {
-		return false, "", err
-	}
-	switch cur := tags[r.ownerTagKey()]; {
-	case tagged && cur == r.owner(t):
-		return true, "", nil
-	case tagged && cur != "":
-		return false, cur, nil
-	}
-	return tunnelnet.CreatedByThis(t), "", nil
-}
-
-// deleteExternal deletes tunnel id if t proves ownership of it: it scales cloudflared to zero,
-// waits for the pods and the tunnel's connections to go away, then deletes the tunnel. A
-// tunnel whose ownership is not proven is kept (Warning Event). done=false means "requeue
-// after res".
-func (r *Reconciler) deleteExternal(ctx context.Context, t *tunnelsv1alpha1.Tunnel, cf cfclient.Client, accountID, id string) (bool, ctrl.Result, error) {
-	wait := func(msg string) (bool, ctrl.Result, error) {
-		reconcile.MarkDeleting(t, msg)
-		return false, ctrl.Result{RequeueAfter: r.drain()}, nil
-	}
+// deleteExternal is the deleteExternal step of reconcile.Finalize for tunnel id. It deletes the
+// tunnel only when t provably owns it (reconcile.MayDeleteExternal): it scales cloudflared to
+// zero, waits for the pods and the tunnel's connections to go away (each wait is a
+// *reconcile.WaitError: requeue after DrainInterval, no error), then deletes the tunnel. A
+// tunnel whose ownership is not proven, or that another owner's tag names, is kept with a
+// Warning Event and nil is returned (the finalizer is removed).
+func (r *Reconciler) deleteExternal(ctx context.Context, t *tunnelsv1alpha1.Tunnel, cf cfclient.Client, accountID, id string) error {
+	wait := func(msg string) error { return &reconcile.WaitError{After: r.drain(), Reason: msg} }
 	tun, err := getTunnel(ctx, cf, accountID, id)
 	if err != nil {
-		reconcile.MarkDeleting(t, err.Error())
-		return false, ctrl.Result{}, err
+		return err
 	}
 	if tun == nil { // 404 or already soft-deleted (0101)
-		return true, ctrl.Result{}, nil
+		return nil
 	}
 	t.Status.AtProvider = tun.observation()
 	// sync refuses to manage a (pinned) tunnel tagged for another owner; deleting it would
 	// break that owner, and waiting for its connectors to drain would never end. Such a
-	// tunnel, like one whose ownership is not proven, is released as with Orphan.
-	owned, foreign, err := r.owns(ctx, t, cf, accountID, id)
+	// tunnel, like one whose ownership is not proven, is released as with Orphan. The tunnel
+	// was just read, so no existence check is needed.
+	dec, err := reconcile.MayDeleteExternal(ctx, r.tagger(), cf, accountID, reconcile.TagTarget{Type: tagResourceType, ID: id}, r.owner(t), t, id, nil)
 	switch {
 	case err != nil:
-		reconcile.MarkDeleting(t, "cannot verify the tunnel's ownership tag: "+err.Error())
-		return false, ctrl.Result{}, err
-	case foreign != "":
-		log.FromContext(ctx).Info("not deleting a tunnel owned by someone else", "tunnel", id, "owner", foreign)
+		return fmt.Errorf("cannot verify the tunnel's ownership tag: %w", err)
+	case dec.Foreign != "":
+		log.FromContext(ctx).Info("not deleting a tunnel owned by someone else", "tunnel", id, "owner", dec.Foreign)
 		r.warn(t, EventReasonTunnelKept,
-			"deletionPolicy is Delete, but tunnel %s is owned by %s; it was kept in Cloudflare (released as with Orphan)", id, foreign)
-		return true, ctrl.Result{}, nil
-	case !owned:
-		log.FromContext(ctx).Info("not deleting a tunnel whose ownership is not proven", "tunnel", id)
-		r.warn(t, tunnelnet.EventReasonExternalResourceKept,
-			"deletionPolicy is Delete, but this Tunnel neither created tunnel %s nor holds its ownership tag; it was kept in Cloudflare", id)
-		return true, ctrl.Result{}, nil
+			"deletionPolicy is Delete, but tunnel %s is owned by %s; it was kept in Cloudflare (released as with Orphan)", id, dec.Foreign)
+		return nil
+	case !dec.Delete:
+		log.FromContext(ctx).Info("not deleting a tunnel whose ownership is not proven: "+dec.Why, "tunnel", id)
+		reconcile.WarnExternalKept(r.Recorder, t, "Delete", fmt.Sprintf("Tunnel %s was left in Cloudflare despite deletionPolicy Delete: %s", id, dec.Why))
+		return nil
 	}
 
 	var dep appsv1.Deployment
@@ -714,14 +717,14 @@ func (r *Reconciler) deleteExternal(ctx context.Context, t *tunnelsv1alpha1.Tunn
 	switch {
 	case apierrors.IsNotFound(err):
 	case err != nil:
-		return false, ctrl.Result{}, err
+		return err
 	case metav1.IsControlledBy(&dep, t):
 		if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 0 {
 			base := dep.DeepCopy()
 			zero := int32(0)
 			dep.Spec.Replicas = &zero
-			if err := r.Patch(ctx, &dep, client.MergeFrom(base)); err != nil {
-				return false, ctrl.Result{}, client.IgnoreNotFound(err)
+			if err := r.Patch(ctx, &dep, client.MergeFrom(base)); err != nil && !apierrors.IsNotFound(err) {
+				return err
 			}
 			return wait("scaling cloudflared to zero before deleting the tunnel")
 		}
@@ -733,14 +736,10 @@ func (r *Reconciler) deleteExternal(ctx context.Context, t *tunnelsv1alpha1.Tunn
 		return wait(fmt.Sprintf("waiting for the tunnel's connections to drain (status %s)", tun.Status))
 	}
 	if err := deleteTunnel(ctx, cf, accountID, id); err != nil {
-		switch {
-		case cfclient.IsNotFound(err):
-			return true, ctrl.Result{}, nil
-		case cfclient.HasCode(err, codeActiveConnections): // 0095
+		if cfclient.HasCode(err, codeActiveConnections) { // 0095
 			return wait("the tunnel still has active connections (1022); waiting for them to close")
 		}
-		reconcile.MarkDeleting(t, err.Error())
-		return false, ctrl.Result{}, err
+		return err // a 404 counts as deleted (reconcile.Finalize)
 	}
-	return true, ctrl.Result{}, nil
+	return nil
 }

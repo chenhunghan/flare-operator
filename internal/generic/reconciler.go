@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -48,7 +47,7 @@ const accountRefIndex = ".spec.accountRef.name"
 //     whose NameField equals forProvider's is adopted from ListPath.
 //   - Missing resource: created from forProvider ∩ CreateFields (unless the policies forbid
 //     Create); set fields of UpdateFields \ CreateFields are applied by an update right after.
-//     The new ID and the ownership record (reconcile.RecordOwnership) are written to the
+//     The new ID and the ownership record (reconcile.RecordCreated) are written to the
 //     annotations at once, so a crash cannot orphan it.
 //   - Existing resource: GET → status.atProvider/status.id; the ownership tag is ensured and
 //     recorded (a resource owned by another object is not touched; Observe-only objects neither
@@ -85,6 +84,9 @@ type Reconciler struct {
 	// Recorder emits Warning events (e.g. a resource deliberately left in Cloudflare on
 	// deletion). SetupWithManager sets it; nil disables events.
 	Recorder events.EventRecorder
+	// APIReader confirms, uncached, that a CloudflareAccount is gone before a finalizer gives
+	// up on its Cloudflare resource (SetupWithManager sets it; default: Client).
+	APIReader client.Reader
 
 	// applied remembers the write-only hash last applied per object (namespace/name →
 	// appliedWriteOnly of that object's UID): the next reconcile may read the object from a
@@ -113,13 +115,6 @@ func (r *Reconciler) lastWriteOnly(obj reconcile.ManagedObject, id string) strin
 		}
 	}
 	return obj.GetResourceStatus().WriteOnlyHash
-}
-
-// warn emits a Warning event on obj (no-op without a Recorder).
-func (r *Reconciler) warn(obj reconcile.ManagedObject, reason, action, note string) {
-	if r.Recorder != nil {
-		r.Recorder.Eventf(obj, nil, corev1.EventTypeWarning, reason, action, "%s", note)
-	}
 }
 
 // Name is the controller name of the kind (lower-case kind).
@@ -151,6 +146,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, name string) error {
 	}
 	if r.Recorder == nil {
 		r.Recorder = mgr.GetEventRecorder(name)
+	}
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
 	}
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), r.New(), accountRefIndex, func(o client.Object) []string {
 		if m, ok := o.(commonv1alpha1.Managed); ok {
@@ -413,8 +411,10 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 	if id == "" {
 		return errResult(obj, fmt.Errorf("create: the result has no %s", d.IDField))
 	}
-	// This object created the resource: that is proof of ownership (for deletion).
-	if err := reconcile.RecordOwnership(ctx, r.Client, obj, id); err != nil {
+	// This object created the resource: that is proof of ownership (for deletion). The record
+	// is written without an optimistic lock, so a concurrent change of the object cannot lose
+	// the new ID.
+	if err := reconcile.RecordCreated(ctx, r.Client, obj, id); err != nil {
 		// The resource exists; the next reconcile adopts it by name (when the kind has one).
 		return errResult(obj, fmt.Errorf("record external ID %s: %w", id, err))
 	}
@@ -618,17 +618,18 @@ func (r *Reconciler) update(ctx context.Context, sc scope, id string, changed, d
 //   - deletionPolicy Delete: the resource is deleted only when the object provably owns it
 //     (reconcile.MayDeleteExternal: its ownership record, its owner tag, or with tagging off the
 //     external-id annotation). Otherwise it is left alone with a Warning event: deleting must
-//     not destroy what someone else manages, and an unreadable tag (500) proves nothing.
+//     not destroy what someone else manages, and an unreadable tag (500) proves nothing. A tag
+//     read refused for good (a 4xx such as 403) without an ownership record keeps the resource
+//     too, so the finalizer never waits forever. A resource that is already gone needs neither.
 //   - Orphan: the owner tag is released, so another object may adopt the resource. A tags GET
 //     that answers 500 is checked against the tag index (reconcile.ResourceTagger), so a
 //     transient 500 on a tagged resource releases the tag or fails and is retried; a permanent
 //     4xx is logged and skipped.
-//   - Both need the account. While it exists but is not Ready, the finalizer stays and the
-//     object is retried. Once the CloudflareAccount is gone, nothing can reach Cloudflare: the
-//     resource is left in place (owner tag included), a Warning event ExternalResourceKept says
-//     so (policy Delete, or an owner tag that Orphan could not release), and the finalizer is
-//     removed, so finalization never hangs. The account's in-use finalizer normally keeps it
-//     until its dependents are gone, so this happens only when that finalizer was forced off.
+//   - Both need the account (reconcile.FinalizeAccount). While it exists but is not Ready, the
+//     finalizer stays and the object is retried. Once the CloudflareAccount is gone, nothing can
+//     reach Cloudflare: the resource is left in place (owner tag included), a Warning event
+//     ExternalResourceKept says so (policy Delete, or an owner tag that Orphan could not
+//     release), and the finalizer is removed, so finalization never hangs.
 func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) (ctrl.Result, error) {
 	d := r.Descriptor
 	if !controllerutil.ContainsFinalizer(obj, commonv1alpha1.Finalizer) {
@@ -644,68 +645,69 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 	release := id != "" && !deleteExternal && reconcile.PoliciesOf(obj).CanWrite() && r.tagging()
 	deleteExternal = deleteExternal && id != ""
 
-	acct, err := r.Accounts.Resolve(ctx, obj)
-	if err != nil {
-		acct = nil
-		if deleteExternal || release {
-			gone, gerr := r.accountGone(ctx, obj)
-			if gerr != nil {
-				return ctrl.Result{}, gerr
-			}
-			if !gone {
-				reconcile.MarkDeleting(obj, err.Error())
-				if reconcile.IsAccountNotReady(err) {
-					return ctrl.Result{RequeueAfter: reconcile.AccountRetryInterval}, nil
-				}
-				return ctrl.Result{}, err
-			}
-			logger.Info("CloudflareAccount is gone: leaving the Cloudflare resource in place", "id", id,
-				"account", obj.GetResourceSpec().AccountRef.Name, "deletionPolicy", reconcile.EffectiveDeletionPolicy(obj, kindDefault))
-			switch {
-			case deleteExternal:
-				r.warn(obj, "ExternalResourceKept", "Delete", fmt.Sprintf(
-					"%s %s was left in Cloudflare despite deletionPolicy Delete: CloudflareAccount %q no longer exists (delete managed objects before their account)",
-					d.Kind, id, obj.GetResourceSpec().AccountRef.Name))
-			case release && reconcile.HasOwnershipProof(obj, id):
-				r.warn(obj, "ExternalResourceKept", "Orphan", fmt.Sprintf(
-					"%s %s was orphaned but keeps its %s tag: CloudflareAccount %q no longer exists, so the tag cannot be released (remove it by hand to allow adoption)",
-					d.Kind, id, reconcile.OwnerTagKey, obj.GetResourceSpec().AccountRef.Name))
-			}
+	var acct *reconcile.Resolved
+	if deleteExternal || release {
+		action, note := "Delete", ""
+		switch {
+		case deleteExternal:
+			note = fmt.Sprintf("%s %s was left in Cloudflare despite deletionPolicy Delete", d.Kind, id)
+		case reconcile.HasOwnershipProof(obj, id):
+			action = "Orphan"
+			note = fmt.Sprintf("%s %s was orphaned but keeps its %s tag, which cannot be released (remove it by hand to allow adoption)",
+				d.Kind, id, reconcile.OwnerTagKey)
+		default:
+			action = "Orphan"
+		}
+		var err error
+		if acct, err = reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, obj, action, note); err != nil {
+			return reconcile.DeletionResult(obj, err)
+		}
+		if acct == nil { // the account is gone: nothing can reach Cloudflare
 			deleteExternal, release = false, false
 		}
 	}
 	var sc scope
 	if acct != nil {
 		// sc carries the client and account ID even when the zone is unresolvable.
+		var err error
 		if sc, err = r.scopeFor(obj, acct); err != nil && deleteExternal {
-			reconcile.MarkDeleting(obj, err.Error())
-			return ctrl.Result{}, err
+			return reconcile.DeletionResult(obj, err)
 		}
 	}
-	if acct != nil && deleteExternal {
-		ok, why, err := reconcile.MayDeleteExternal(ctx, r.tagger(), sc.cf, sc.accountID, r.tagTarget(id), r.owner(obj), obj, id)
-		if err != nil {
-			reconcile.MarkDeleting(obj, fmt.Sprintf("read ownership tag: %v", err))
-			return ctrl.Result{}, err
+	if deleteExternal {
+		exists := func(ctx context.Context) (bool, error) {
+			_, err := r.get(ctx, sc, id)
+			if cfclient.IsNotFound(err) {
+				return false, nil
+			}
+			return err == nil, err
 		}
-		if !ok {
-			logger.Info("not deleting the Cloudflare resource: "+why, "id", id)
-			r.warn(obj, "ExternalResourceKept", "Delete", fmt.Sprintf("%s %s was left in Cloudflare despite deletionPolicy Delete: %s", d.Kind, id, why))
+		dec, err := reconcile.MayDeleteExternal(ctx, r.tagger(), sc.cf, sc.accountID, r.tagTarget(id), r.owner(obj), obj, id, exists)
+		if err != nil {
+			return reconcile.DeletionResult(obj, fmt.Errorf("read ownership tag: %w", err))
+		}
+		switch {
+		case dec.Gone:
+			logger.Info("the Cloudflare resource is already gone", "id", id)
+			deleteExternal = false
+		case !dec.Delete:
+			logger.Info("not deleting the Cloudflare resource: "+dec.Why, "id", id)
+			reconcile.WarnExternalKept(r.Recorder, obj, "Delete",
+				fmt.Sprintf("%s %s was left in Cloudflare despite deletionPolicy Delete: %s", d.Kind, id, dec.Why))
 			deleteExternal = false
 		}
 	}
-	if acct != nil && release {
+	if release {
 		// Orphaned: release ownership so another object (or cluster) may adopt it.
 		if err := r.tagger().RemoveOwner(ctx, sc.cf, sc.accountID, r.tagTarget(id), r.owner(obj)); err != nil {
-			if !permanent(err) {
-				reconcile.MarkDeleting(obj, fmt.Sprintf("release ownership tag: %v", err))
-				return ctrl.Result{}, err
+			if !reconcile.IsPermanent(err) {
+				return reconcile.DeletionResult(obj, fmt.Errorf("release ownership tag: %w", err))
 			}
 			logger.Error(err, "cannot remove the ownership tag of the orphaned resource", "id", id)
 		}
 	}
 	var del func(ctx context.Context, id string) error
-	if deleteExternal && acct != nil {
+	if deleteExternal {
 		del = func(ctx context.Context, id string) error {
 			_, err := sc.cf.Do(ctx, cfclient.Request{Method: http.MethodDelete, Path: sc.path(d.ItemPath, id)})
 			if err == nil {
@@ -715,37 +717,20 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 		}
 	}
 	reconcile.MarkDeleting(obj, "")
-	if _, err := reconcile.Finalize(ctx, r.Client, obj, kindDefault, del); err != nil {
-		return ctrl.Result{}, err
+	res, err := reconcile.Finalize(ctx, r.Client, obj, kindDefault, del)
+	if err == nil && !controllerutil.ContainsFinalizer(obj, commonv1alpha1.Finalizer) {
+		r.applied.Delete(client.ObjectKeyFromObject(obj))
 	}
-	r.applied.Delete(client.ObjectKeyFromObject(obj))
-	return ctrl.Result{}, nil
+	return res, err
 }
 
 // tagging reports whether ownership tags are maintained for the kind.
-func (r *Reconciler) tagging() bool {
-	_, noop := r.tagger().(reconcile.NoopTagger)
-	return !noop
-}
+func (r *Reconciler) tagging() bool { return reconcile.TaggingEnabled(r.tagger()) }
 
-// accountGone reports whether obj's CloudflareAccount no longer exists.
-func (r *Reconciler) accountGone(ctx context.Context, obj reconcile.ManagedObject) (bool, error) {
-	name := obj.GetResourceSpec().AccountRef.Name
-	if name == "" {
-		return true, nil
+// apiReader reads CloudflareAccounts uncached when a finalizer checks that one is gone.
+func (r *Reconciler) apiReader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
 	}
-	var acct cloudflarev1alpha1.CloudflareAccount
-	err := r.Client.Get(ctx, types.NamespacedName{Namespace: obj.GetNamespace(), Name: name}, &acct)
-	if apierrors.IsNotFound(err) {
-		return true, nil
-	}
-	return false, err
-}
-
-// permanent reports whether a Cloudflare error will not go away by retrying (a 4xx other than
-// 408, 409 and 429).
-func permanent(err error) bool {
-	ae, ok := cfclient.AsAPIError(err)
-	return ok && ae.Status >= 400 && ae.Status < 500 &&
-		ae.Status != http.StatusRequestTimeout && ae.Status != http.StatusConflict && ae.Status != http.StatusTooManyRequests
+	return r.Client
 }

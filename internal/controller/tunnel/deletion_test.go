@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -20,7 +21,6 @@ import (
 	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
 	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller/tunnelnet"
 	"flare.dev/operator/internal/fake"
 	"flare.dev/operator/internal/reconcile"
 	"flare.dev/operator/internal/testenv"
@@ -71,8 +71,8 @@ func TestNamespaceDeletion(t *testing.T) {
 		if o.GetLabels()[reconcile.AccountLabel] != "acct" {
 			t.Fatalf("%s has no account label: %v", o.GetName(), o.GetLabels())
 		}
-		if o.GetAnnotations()[tunnelnet.AnnotationCreatedByUID] != string(o.GetUID()) {
-			t.Errorf("%s: created-by-uid %q, want its UID %s", o.GetName(), o.GetAnnotations()[tunnelnet.AnnotationCreatedByUID], o.GetUID())
+		if !reconcile.HasOwnershipProof(o.(client.Object), o.GetAnnotations()[commonv1alpha1.AnnotationExternalID]) {
+			t.Errorf("%s: no ownership record after create: %v", o.GetName(), o.GetAnnotations())
 		}
 	}
 
@@ -156,8 +156,8 @@ func TestAccountGoneKeepsExternal(t *testing.T) {
 		}
 	}
 	h.waitAllGone(30*time.Second, vs, tun)
-	h.waitEvent("svc", tunnelnet.EventReasonExternalResourceKept, vs.Status.ID, "no longer exists")
-	h.waitEvent("tun", tunnelnet.EventReasonExternalResourceKept, tun.Status.ID, "no longer exists")
+	h.waitEvent("svc", reconcile.EventReasonExternalResourceKept, vs.Status.ID, "no longer exists")
+	h.waitEvent("tun", reconcile.EventReasonExternalResourceKept, tun.Status.ID, "no longer exists")
 	if w := testenv.Writes(h.since(m)); len(w) != 0 {
 		t.Errorf("writes after the account was gone:\n%s", testenv.Summary(w))
 	}
@@ -214,46 +214,155 @@ func TestTunnelObserveOnlyByNameNotPinned(t *testing.T) {
 	}
 }
 
-// TestTunnelUntaggedAdoptionNotDeleted: with ownership tags disabled, a tunnel adopted by name
-// is never proven to be ours, so it is tracked in status.id only and kept on deletion
-// (ExternalResourceKept). A tunnel the Tunnel created (created-by-uid) is deleted.
-func TestTunnelUntaggedAdoptionNotDeleted(t *testing.T) {
+// TestTunnelUntaggedNoAdoptionByName: with ownership tags disabled nothing can prove that a
+// same-named tunnel is ours, so a managing Tunnel does not adopt it by name (NameConflict, as
+// VPCService) and runs no connectors on it, not even when an older build left its ID in
+// status.id. Pinning the ID with the external-id annotation adopts it, and then (pinned, tagging
+// off) its deletion deletes it. A tunnel the Tunnel created carries the ownership record and is
+// deleted too.
+func TestTunnelUntaggedNoAdoptionByName(t *testing.T) {
 	h := startWith(t, testenv.ManagerOptions{Tagger: reconcile.NoopTagger{}})
-	id, _ := h.apiCreateTunnel("legacy")
-	h.newTunnel("legacy", nil)
-	h.setDeploymentStatus("legacy", 2, 2)
-	tun := h.waitTunnel("legacy", func(t *tunnelsv1alpha1.Tunnel) bool { return tunnelReady(t) && t.Status.ID == id })
-	if a := tun.Annotations; a[commonv1alpha1.AnnotationExternalID] != "" || a[tunnelnet.AnnotationCreatedByUID] != "" {
-		t.Errorf("untagged adoption pinned the tunnel: %v", a)
+	id, _ := h.apiCreateTunnel("foreign")
+	m := h.mark()
+	h.newTunnel("foreign", nil)
+	conflict := func(t *tunnelsv1alpha1.Tunnel) bool {
+		return hasCond(t.Status.Conditions, t.Generation, "Ready", metav1.ConditionFalse, reconcile.ReasonNameConflict) &&
+			hasCond(t.Status.Conditions, t.Generation, "Synced", metav1.ConditionFalse, reconcile.ReasonNameConflict) && t.Status.ID == ""
 	}
+	tun := h.waitTunnel("foreign", conflict)
+	if c := meta.FindStatusCondition(tun.Status.Conditions, "Synced"); !strings.Contains(c.Message, id) || !strings.Contains(c.Message, commonv1alpha1.AnnotationExternalID) {
+		t.Errorf("NameConflict message %q should name the tunnel and the annotation", c.Message)
+	}
+	noConnector := func() {
+		t.Helper()
+		var dep appsv1.Deployment
+		if err := h.e.Client.Get(h.ctx(), client.ObjectKey{Namespace: h.ns, Name: "foreign-cloudflared"}, &dep); !apierrors.IsNotFound(err) {
+			t.Errorf("connector Deployment for an unproven tunnel: %v", err)
+		}
+		var s corev1.Secret
+		if err := h.e.Client.Get(h.ctx(), client.ObjectKey{Namespace: h.ns, Name: "foreign-cloudflared-token"}, &s); !apierrors.IsNotFound(err) {
+			t.Errorf("token Secret for an unproven tunnel: %v", err)
+		}
+	}
+	noConnector()
+	if a := tun.Annotations; a[commonv1alpha1.AnnotationExternalID] != "" || a[reconcile.AnnotationOwnershipProof] != "" {
+		t.Errorf("unproven tunnel pinned: %v", a)
+	}
+	for _, e := range h.since(m) {
+		if strings.Contains(e.Path, "/cfd_tunnel/"+id+"/token") {
+			t.Errorf("fetched the token of an unproven tunnel: %s %s", e.Method, e.Path)
+		}
+	}
+	// An older build's untagged adoption left the ID in status.id only, and ran connectors on
+	// it: still no proof, so its connector Deployment and token Secret are removed.
+	ctrlRef := []metav1.OwnerReference{*metav1.NewControllerRef(tun, tunnelsv1alpha1.GroupVersion.WithKind("Tunnel"))}
+	labels := map[string]string{"app": "legacy-cloudflared"}
+	legacy := []client.Object{
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: "foreign-cloudflared", OwnerReferences: ctrlRef},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: labels},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: labels},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "cloudflared", Image: "cloudflare/cloudflared"}}},
+				},
+			},
+		},
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: "foreign-cloudflared-token", OwnerReferences: ctrlRef},
+			Data:       map[string][]byte{"token": []byte("legacy-token")},
+		},
+	}
+	for _, o := range legacy {
+		if err := h.e.Client.Create(h.ctx(), o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := tun.DeepCopy()
+	tun.Status.ID = id
+	if err := h.e.Client.Status().Patch(h.ctx(), tun, client.MergeFrom(base)); err != nil {
+		t.Fatal(err)
+	}
+	h.poke(tun)
+	h.waitTunnel("foreign", conflict)
+	h.waitAllGone(30*time.Second, legacy...)
+	noConnector()
+
 	h.newTunnel("made", nil)
 	h.setDeploymentStatus("made", 2, 2)
 	made := h.waitTunnel("made", tunnelReady)
-	if made.Annotations[tunnelnet.AnnotationCreatedByUID] != string(made.UID) || made.Annotations[commonv1alpha1.AnnotationExternalID] != made.Status.ID {
+	if !reconcile.HasOwnershipProof(made, made.Status.ID) || made.Annotations[commonv1alpha1.AnnotationExternalID] != made.Status.ID {
 		t.Errorf("created tunnel annotations %v", made.Annotations)
 	}
 
-	m := h.mark()
+	// Explicit adoption.
+	h.updateTunnel("foreign", func(t *tunnelsv1alpha1.Tunnel) {
+		if t.Annotations == nil {
+			t.Annotations = map[string]string{}
+		}
+		t.Annotations[commonv1alpha1.AnnotationExternalID] = id
+	})
+	h.setDeploymentStatus("foreign", 2, 2)
+	tun = h.waitTunnel("foreign", func(t *tunnelsv1alpha1.Tunnel) bool { return tunnelReady(t) && t.Status.ID == id })
+
+	m = h.mark()
 	for _, o := range []client.Object{tun, made} {
 		if err := h.e.Client.Delete(h.ctx(), o); err != nil {
 			t.Fatal(err)
 		}
 	}
-	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
-		return *h.deployment("made").Spec.Replicas == 0, "made not scaled down"
-	})
-	h.setDeploymentStatus("made", 0, 0)
+	for _, name := range []string{"foreign", "made"} {
+		testenv.Eventually(t, 30*time.Second, func() (bool, string) {
+			return *h.deployment(name).Spec.Replicas == 0, name + " not scaled down"
+		})
+		h.setDeploymentStatus(name, 0, 0)
+	}
 	h.waitAllGone(30*time.Second, tun, made)
-	h.waitEvent("legacy", tunnelnet.EventReasonExternalResourceKept, id)
-	if got := h.cfTunnel(id); got.DeletedAt != nil {
-		t.Error("tunnel adopted without an ownership tag was deleted")
+	for _, tid := range []string{id, made.Status.ID} {
+		if got := h.cfTunnel(tid); got.DeletedAt == nil {
+			t.Errorf("tunnel %s not deleted", tid)
+		}
 	}
-	if got := h.cfTunnel(made.Status.ID); got.DeletedAt == nil {
-		t.Error("tunnel created by the Tunnel was not deleted")
+	if order := deleteOrder(h.since(m)); len(order) != 2 {
+		t.Errorf("DELETEs %v, want both tunnels", order)
 	}
-	if order := deleteOrder(h.since(m)); len(order) != 1 || !strings.Contains(order[0], made.Status.ID) {
-		t.Errorf("DELETEs %v, want only %s", order, made.Status.ID)
+}
+
+// TestLegacyCreatedByUIDMigrated: objects of an older build recorded ownership in the
+// created-by-uid annotation. It still counts as proof, and the next sync rewrites it as the
+// shared ownership-proof annotation, for Tunnels and VPCServices alike.
+func TestLegacyCreatedByUIDMigrated(t *testing.T) {
+	h := startWith(t, testenv.ManagerOptions{Tagger: reconcile.NoopTagger{}})
+	id, _ := h.apiCreateTunnel("old")
+	serviceID := h.apiCreateService("old-svc", id)
+	h.newTunnel("old", func(t *tunnelsv1alpha1.Tunnel) {
+		t.Annotations = map[string]string{commonv1alpha1.AnnotationExternalID: id}
+	})
+	h.newVPC("old-svc", &workersvpcv1alpha1.VPCServiceParameters{Type: "tcp", TCPPort: i32(5432),
+		Host: workersvpcv1alpha1.VPCServiceHost{IPv4: str("10.0.0.5"), Network: &workersvpcv1alpha1.VPCServiceNetwork{TunnelID: str(id)}}},
+		func(vs *workersvpcv1alpha1.VPCService) {
+			vs.Annotations = map[string]string{commonv1alpha1.AnnotationExternalID: serviceID}
+		})
+	h.setDeploymentStatus("old", 2, 2)
+	tun := h.waitTunnel("old", tunnelReady)
+	vs := h.waitVPC("old-svc", vpcReady)
+	// What the older build wrote after its create.
+	for _, o := range []client.Object{tun, vs} {
+		base := o.DeepCopyObject().(client.Object)
+		a := o.GetAnnotations()
+		a[reconcile.AnnotationLegacyCreatedByUID] = string(o.GetUID())
+		o.SetAnnotations(a)
+		if err := h.e.Client.Patch(h.ctx(), o, client.MergeFrom(base)); err != nil {
+			t.Fatal(err)
+		}
 	}
+	migrated := func(o client.Object, id string) bool {
+		a := o.GetAnnotations()
+		_, legacy := a[reconcile.AnnotationLegacyCreatedByUID]
+		return !legacy && a[reconcile.AnnotationOwnershipProof] == string(o.GetUID())+"/"+id && a[commonv1alpha1.AnnotationExternalID] == id
+	}
+	h.waitTunnel("old", func(t *tunnelsv1alpha1.Tunnel) bool { return migrated(t, id) })
+	h.waitVPC("old-svc", func(v *workersvpcv1alpha1.VPCService) bool { return migrated(v, serviceID) })
 }
 
 // TestVPCServiceStatusIDIsNoProof: an object that knows a service only through status.id (as
@@ -281,7 +390,7 @@ func TestVPCServiceStatusIDIsNoProof(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.waitGone(vs)
-	h.waitEvent("legacy", tunnelnet.EventReasonExternalResourceKept, serviceID)
+	h.waitEvent("legacy", reconcile.EventReasonExternalResourceKept, serviceID)
 	if w := testenv.Writes(h.since(m)); len(w) != 0 {
 		t.Errorf("deleting an unproven object wrote:\n%s", testenv.Summary(w))
 	}
