@@ -550,19 +550,17 @@ func (s *suite) testUpdate(t *testing.T, o *objects) {
 	s.patch(o.worker, func() {
 		o.worker.Spec.ForProvider.Modules = map[string]workersv1alpha1.WorkerModule{"index.js": {Type: "esm", Content: workerCode("v2")}}
 	})
-	// Every field of a Vectorize index is immutable: a change is refused (Synced=False,
-	// Immutable) without a write, and reverting it makes the object Synced again.
-	desc := *o.vec.Spec.ForProvider.Description
-	s.patch(o.vec, func() { o.vec.Spec.ForProvider.Description = ptr.To(desc + " changed") })
-	eventually(t, time.Minute, "VectorizeIndex to refuse the immutable change", func() (bool, string) {
-		if err := s.c.Get(s.ctx(), client.ObjectKeyFromObject(o.vec), o.vec); err != nil {
-			return false, err.Error()
-		}
-		c := cond(o.vec.Status.Conditions, commonv1alpha1.ConditionSynced)
-		return c != nil && c.Status == metav1.ConditionFalse && c.Reason == commonv1alpha1.ReasonImmutable && c.ObservedGeneration == o.vec.Generation,
-			condString(o.vec.Status.Conditions)
-	})
-	s.patch(o.vec, func() { o.vec.Spec.ForProvider.Description = ptr.To(desc) })
+	// Every field of a Vectorize index is immutable. The CRD's CEL rule refuses the change at
+	// admission, so nothing reaches the controller or Cloudflare. The controller's own
+	// Synced=False/Immutable path is covered by the envtest kindsuite.
+	if err := s.c.Get(s.ctx(), client.ObjectKeyFromObject(o.vec), o.vec); err != nil {
+		t.Fatalf("get VectorizeIndex: %v", err)
+	}
+	changed := o.vec.DeepCopy()
+	changed.Spec.ForProvider.Description = ptr.To(*o.vec.Spec.ForProvider.Description + " changed")
+	if err := s.c.Update(s.ctx(), changed); !apierrors.IsInvalid(err) {
+		t.Fatalf("immutable VectorizeIndex change: want an Invalid admission error, got %v", err)
+	}
 	for _, mg := range []commonv1alpha1.Managed{o.queue, o.kv, o.vpc, o.tunnel2, o.worker, o.vec} {
 		s.waitManaged(mg, time.Minute)
 	}
