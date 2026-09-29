@@ -114,7 +114,7 @@ func TestBuildKindDescriptor(t *testing.T) {
 func TestBuildKindOverrides(t *testing.T) {
 	m := buildWidget(t, KindConfig{
 		Kind: "Widget", Group: "gadgets", UpdateMethod: "PUT", IDField: "name", NameField: "-",
-		Immutable: []string{"kind"}, WriteOnly: []string{"meta"}, NotWriteOnly: []string{"secret"},
+		Immutable: []string{"kind"}, WriteOnly: []string{"meta", "origin.timeout"}, NotWriteOnly: []string{"secret"},
 		DefaultDeletionPolicy: "Orphan",
 		Fields:                map[string]FieldOverride{"ttl": {Type: "integer"}, "kind": {Enum: []any{"A", "B"}}, "origin.timeout": {Type: "string"}},
 	})
@@ -126,7 +126,8 @@ func TestBuildKindOverrides(t *testing.T) {
 	if !reflect.DeepEqual(d.Immutable, []string{"kind"}) {
 		t.Errorf("Immutable = %v", d.Immutable)
 	}
-	if !reflect.DeepEqual(d.WriteOnly, []string{"meta", "region"}) {
+	// A dotted path names a nested field (reached through objects only).
+	if !reflect.DeepEqual(d.WriteOnly, []string{"meta", "origin.timeout", "region"}) {
 		t.Errorf("WriteOnly = %v", d.WriteOnly)
 	}
 	if k := m.Params.Field("ttl").Type.Kind; k != KInteger {
@@ -149,6 +150,8 @@ func TestBuildKindOverrideErrors(t *testing.T) {
 		"unknown field override":   {Fields: map[string]FieldOverride{"nope.x": {Type: "string"}}},
 		"unknown immutable":        {Immutable: []string{"nope"}},
 		"unknown writeOnly":        {WriteOnly: []string{"nope"}},
+		"unknown nested writeOnly": {WriteOnly: []string{"origin.nope"}},
+		"writeOnly below a scalar": {WriteOnly: []string{"ttl.x"}},
 		"notWriteOnly not derived": {NotWriteOnly: []string{"name"}},
 		"unknown nameField":        {NameField: "nope"},
 		"no such update method":    {UpdateMethod: "POST"},

@@ -550,8 +550,8 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 		}
 	}
 	for _, n := range kc.WriteOnly {
-		if m.Params.Field(n) == nil {
-			return nil, fmt.Errorf("%s: writeOnly %q is not a forProvider field", r.Key(), n)
+		if !objectPath(m.Params, n) {
+			return nil, fmt.Errorf("%s: writeOnly %q is not a forProvider field (a dotted path may only cross objects)", r.Key(), n)
 		}
 		wo[n] = true
 	}
@@ -606,6 +606,26 @@ func applyFieldOverrides(kc KindConfig, trees ...*Type) error {
 		}
 	}
 	return nil
+}
+
+// objectPath reports whether the dotted path names a field of t reached through object fields
+// only (the generic reconciler resolves write-only paths without array or map steps).
+func objectPath(t *Type, path string) bool {
+	segs := strings.Split(path, ".")
+	for i, seg := range segs {
+		if t == nil || t.Kind != KObject {
+			return false
+		}
+		f := t.Field(seg)
+		if f == nil {
+			return false
+		}
+		if i == len(segs)-1 {
+			return true
+		}
+		t = f.Type
+	}
+	return false
 }
 
 // lookupPath walks object fields, stepping through array items and map values.

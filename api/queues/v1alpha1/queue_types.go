@@ -155,6 +155,7 @@ type QueueStatus struct {
 // Created at /accounts/{account_id}/queues, managed at /accounts/{account_id}/queues/{id} (account scope).
 // Default deletion policy: Orphan.
 // Immutable fields: jurisdiction.
+// Write-only fields: settings.delivery_paused.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

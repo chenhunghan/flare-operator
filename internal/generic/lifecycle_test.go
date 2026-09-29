@@ -42,13 +42,14 @@ var kindCases = []kindCase{
 	},
 	{
 		kind: "Queue", tagType: "queue",
-		create:      `{"queue_name":"{name}","settings":{"delivery_delay":5}}`,
-		update:      `{"queue_name":"{name}","settings":{"delivery_delay":10,"message_retention_period":3600}}`,
+		// Every settable setting is covered; delivery_paused is never read back (write-only).
+		create:      `{"queue_name":"{name}","settings":{"delivery_delay":5,"delivery_paused":false}}`,
+		update:      `{"queue_name":"{name}","settings":{"delivery_delay":10,"delivery_paused":true,"message_retention_period":3600}}`,
 		immutable:   `{"queue_name":"{name}","jurisdiction":"eu","settings":{"delivery_delay":20}}`,
 		driftMethod: http.MethodPatch, driftBody: `{"settings":{"delivery_delay":0}}`,
 		createBody: []string{"queue_name"},
 		// settings are not in the create body (0028): applied by PATCH right after create.
-		postCreate: `{"settings":{"delivery_delay":5}}`,
+		postCreate: `{"settings":{"delivery_delay":5,"delivery_paused":false}}`,
 	},
 	{
 		kind: "D1Database", tagType: "d1_database",
@@ -221,9 +222,7 @@ func covers(t *testing.T, forProvider string, got map[string]any, en descriptors
 	if err := json.Unmarshal([]byte(forProvider), &want); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range en.WriteOnly {
-		delete(want, f)
-	}
+	stripWriteOnly(want, en.WriteOnly)
 	return coversJSON(want, got)
 }
 

@@ -340,15 +340,32 @@ func (h *harness) waitSynced(obj reconcile.ManagedObject, en descriptors.Entry) 
 		if err != nil {
 			return false, err.Error()
 		}
-		for _, f := range en.WriteOnly {
-			delete(desired, f)
-		}
+		stripWriteOnly(desired, en.WriteOnly)
 		ap := atProvider(h.t, obj)
 		if !generic.Covers(desired, ap) {
 			return false, fmt.Sprintf("atProvider %v does not match forProvider %v", ap, desired)
 		}
 		return true, ""
 	})
+}
+
+// stripWriteOnly deletes the write-only paths (top-level or dotted) from a JSON object in place.
+func stripWriteOnly(m map[string]any, paths []string) {
+	for _, p := range paths {
+		segs := strings.Split(p, ".")
+		cur := m
+		for _, s := range segs[:len(segs)-1] {
+			next, ok := cur[s].(map[string]any)
+			if !ok {
+				cur = nil
+				break
+			}
+			cur = next
+		}
+		if cur != nil {
+			delete(cur, segs[len(segs)-1])
+		}
+	}
 }
 
 // journal returns the fake's journal entries for this harness's account since start.

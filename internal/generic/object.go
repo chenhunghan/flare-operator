@@ -171,17 +171,75 @@ func valueHash(v any) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// WriteOnlyHash renders the hash of the write-only fields set in desired.
+// WriteOnlyHash renders the hash of the write-only fields set in desired. A write-only path is
+// a top-level field or a dotted path through objects (e.g. settings.delivery_paused).
 func WriteOnlyHash(desired map[string]any, writeOnly []string) string {
 	parts := []string{writeOnlyHashVersion}
 	fields := append([]string(nil), writeOnly...)
 	sort.Strings(fields)
 	for _, f := range fields {
-		if v, ok := desired[f]; ok && v != nil {
+		if v, ok := pathValue(desired, f); ok {
 			parts = append(parts, f+"="+valueHash(v))
 		}
 	}
 	return strings.Join(parts, ";")
+}
+
+// pathValue returns the set (non-null) value at a dotted path of m, stepping through objects.
+func pathValue(m map[string]any, p string) (any, bool) {
+	var cur any = m
+	for _, seg := range strings.Split(p, ".") {
+		o, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		if cur, ok = o[seg]; !ok {
+			return nil, false
+		}
+	}
+	return cur, cur != nil
+}
+
+// nestedPaths returns the paths strictly below the top-level field f, relative to f.
+func nestedPaths(paths []string, f string) []string {
+	var out []string
+	for _, p := range paths {
+		if rest, ok := strings.CutPrefix(p, f+"."); ok && rest != "" {
+			out = append(out, rest)
+		}
+	}
+	return out
+}
+
+// without returns v with the relative dotted paths removed (copying only the objects on the
+// way; v itself is not modified).
+func without(v any, paths []string) any {
+	if len(paths) == 0 {
+		return v
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return v
+	}
+	out := make(map[string]any, len(m))
+	for k, x := range m {
+		out[k] = x
+	}
+	below := map[string][]string{}
+	for _, p := range paths {
+		head, rest, nested := strings.Cut(p, ".")
+		if !nested {
+			delete(out, head)
+			continue
+		}
+		below[head] = append(below[head], rest)
+	}
+	for head, rest := range below {
+		if x, ok := out[head]; ok {
+			out[head] = without(x, rest)
+		}
+	}
+	return out
 }
 
 // parseWriteOnlyHash returns the per-field hashes; known=false when the hash is absent or of an

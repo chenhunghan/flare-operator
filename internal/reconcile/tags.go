@@ -109,6 +109,16 @@ func (ResourceTagger) Get(ctx context.Context, cf cfclient.Client, accountID str
 	return res.Tags, true, nil
 }
 
+// Owner returns the resource's owner tag ("" when it has none or was never tagged). It never
+// writes.
+func (r ResourceTagger) Owner(ctx context.Context, cf cfclient.Client, accountID string, t TagTarget) (string, error) {
+	tags, _, err := r.Get(ctx, cf, accountID, t)
+	if err != nil {
+		return "", err
+	}
+	return tags[r.key()], nil
+}
+
 func tagsPath(accountID string) string { return "/accounts/" + accountID + "/tags" }
 
 func (r ResourceTagger) put(ctx context.Context, cf cfclient.Client, accountID string, t TagTarget, tags map[string]string) error {

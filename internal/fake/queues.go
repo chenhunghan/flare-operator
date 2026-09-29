@@ -23,6 +23,9 @@ type queue struct {
 	Jurisdiction string
 }
 
+// queueSettings are the settings a create/update body may carry. The spec also has
+// settings.delivery_paused; it is accepted and ignored, and never returned. UNVERIFIED: no
+// recording sets it, and the recorded results omit it (0028, 0031, 0032).
 type queueSettings struct {
 	DeliveryDelay          *int `json:"delivery_delay"`
 	MessageRetentionPeriod *int `json:"message_retention_period"`

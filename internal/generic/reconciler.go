@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -49,12 +50,15 @@ const accountRefIndex = ".spec.accountRef.name"
 //   - Existing resource: GET → status.atProvider/status.id; the ownership tag is ensured (a
 //     resource owned by another object is not touched); a change of an Immutable field sets
 //     Synced=False/Immutable and writes nothing; set UpdateFields that differ from the observed
-//     object (write-only ones: from status.writeOnlyHash) are updated with UpdateMethod — PATCH
-//     sends the changed fields, PUT the full body (unset fields keep their observed values).
+//     object (write-only paths, top-level or nested: from status.writeOnlyHash) are updated
+//     with UpdateMethod — PATCH sends the changed fields, PUT the full body (unset fields keep
+//     their observed values).
 //   - A 404 on the known ID recreates the resource (Observe-only: Ready=False/ExternalNotFound).
 //   - Deletion follows deletionPolicy (DefaultDeletionPolicy when unset) and the management
-//     policies (reconcile.Finalize); DELETE sends no body. An orphaned resource loses its owner
-//     tag. Singletons are never created or deleted.
+//     policies (reconcile.Finalize); DELETE sends no body. A resource whose owner tag names
+//     another object is never deleted. An orphaned resource loses its owner tag. Without the
+//     CloudflareAccount (deleted) the resource is left as is. Singletons are never created or
+//     deleted.
 //
 // Unchanged objects cost reads only: a reconcile of an in-sync object makes no Cloudflare write.
 type Reconciler struct {
@@ -75,6 +79,30 @@ type Reconciler struct {
 
 	// PollInterval defaults to DefaultPollInterval.
 	PollInterval time.Duration
+
+	// applied remembers the write-only hash last applied per object (UID → appliedWriteOnly):
+	// the next reconcile may read the object from a cache that does not have the status patch
+	// yet, and must not re-apply write-only fields because of that.
+	applied sync.Map
+}
+
+type appliedWriteOnly struct{ id, hash string }
+
+// recordWriteOnly sets status.writeOnlyHash after the write-only fields were applied to id.
+func (r *Reconciler) recordWriteOnly(obj reconcile.ManagedObject, id, hash string) {
+	obj.GetResourceStatus().WriteOnlyHash = hash
+	r.applied.Store(obj.GetUID(), appliedWriteOnly{id: id, hash: hash})
+}
+
+// lastWriteOnly returns the write-only hash last applied to id: this process's record, else
+// status.writeOnlyHash.
+func (r *Reconciler) lastWriteOnly(obj reconcile.ManagedObject, id string) string {
+	if v, ok := r.applied.Load(obj.GetUID()); ok {
+		if a := v.(appliedWriteOnly); a.id == id {
+			return a.hash
+		}
+	}
+	return obj.GetResourceStatus().WriteOnlyHash
 }
 
 // Name is the controller name of the kind (lower-case kind).
@@ -384,7 +412,7 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 			}
 		}
 	}
-	obj.GetResourceStatus().WriteOnlyHash = WriteOnlyHash(desired, d.WriteOnly)
+	r.recordWriteOnly(obj, id, WriteOnlyHash(desired, d.WriteOnly))
 	observed, err := r.get(ctx, sc, id)
 	if err != nil {
 		return errResult(obj, err)
@@ -413,7 +441,8 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 		if err := r.tagger().EnsureOwner(ctx, sc.cf, sc.accountID, r.tagTarget(id), r.owner(obj)); err != nil {
 			var conflict *reconcile.OwnershipConflictError
 			if errors.As(err, &conflict) {
-				reconcile.MarkSyncError(obj, "", err)
+				reconcile.MarkSyncError(obj, "", fmt.Errorf("%w; if that object no longer manages it, remove the %s tag from the resource (Resource Tagging API) to allow adoption",
+					err, reconcile.OwnerTagKey))
 				return ctrl.Result{RequeueAfter: r.poll()}, nil
 			}
 			return errResult(obj, fmt.Errorf("ownership tag: %w", err))
@@ -437,8 +466,7 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 		return ctrl.Result{RequeueAfter: r.poll()}, nil
 	}
 
-	prevWO, woKnown := parseWriteOnlyHash(obj.GetResourceStatus().WriteOnlyHash)
-	woHash := func(f string) string { return valueHash(desired[f]) }
+	prevWO, woKnown := parseWriteOnlyHash(r.lastWriteOnly(obj, id))
 	if imm := r.immutableChanges(desired, obs, prevWO, woKnown); len(imm) > 0 {
 		reconcile.MarkImmutable(obj, fmt.Sprintf("immutable fields cannot be changed after creation: %s (recreate the object to change them)",
 			strings.Join(imm, ", ")))
@@ -451,13 +479,8 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 		if !set || v == nil {
 			continue
 		}
-		if has(d.WriteOnly, f) {
-			if !woKnown || prevWO[f] != woHash(f) {
-				changed = append(changed, f)
-			}
-			continue
-		}
-		if !Covers(v, obs[f]) {
+		// Unknown write-only state (adopted): apply once, then the hash is the record.
+		if r.differs(f, v, desired, obs, prevWO, woKnown, true) {
 			changed = append(changed, f)
 		}
 	}
@@ -482,7 +505,7 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 			return errResult(obj, err)
 		}
 	}
-	obj.GetResourceStatus().WriteOnlyHash = WriteOnlyHash(desired, d.WriteOnly)
+	r.recordWriteOnly(obj, id, WriteOnlyHash(desired, d.WriteOnly))
 	reconcile.MarkSynced(obj)
 	reconcile.SetObservedGeneration(obj)
 	return ctrl.Result{RequeueAfter: r.poll()}, nil
@@ -499,18 +522,36 @@ func (r *Reconciler) immutableChanges(desired, obs map[string]any, prevWO map[st
 		if !set || v == nil {
 			continue
 		}
-		if has(d.WriteOnly, f) {
-			if woKnown && prevWO[f] != valueHash(v) {
-				out = append(out, f)
-			}
-			continue
-		}
-		if !Covers(v, obs[f]) {
+		if r.differs(f, v, desired, obs, prevWO, woKnown, false) {
 			out = append(out, f)
 		}
 	}
 	sort.Strings(out)
 	return out
+}
+
+// differs reports whether the desired top-level field f (value v) differs from Cloudflare's.
+// Write-only paths (f itself, or dotted paths below it such as settings.delivery_paused) are
+// never read back: they are compared with the hash recorded when last applied, and with no
+// record (woKnown=false) unknownChanged decides. The rest of f is compared with Covers.
+func (r *Reconciler) differs(f string, v any, desired, obs map[string]any, prevWO map[string]string, woKnown, unknownChanged bool) bool {
+	d := r.Descriptor
+	woDiffers := func(p string, w any) bool {
+		if !woKnown {
+			return unknownChanged
+		}
+		return prevWO[p] != valueHash(w)
+	}
+	if has(d.WriteOnly, f) {
+		return woDiffers(f, v)
+	}
+	sub := nestedPaths(d.WriteOnly, f)
+	for _, p := range sub {
+		if w, ok := pathValue(desired, f+"."+p); ok && woDiffers(f+"."+p, w) {
+			return true
+		}
+	}
+	return !Covers(without(v, sub), obs[f])
 }
 
 // update sends UpdateMethod to the item. PATCH carries only the changed fields; PUT replaces
@@ -533,39 +574,77 @@ func (r *Reconciler) update(ctx context.Context, sc scope, id string, changed, d
 }
 
 // finalize handles a deleted object.
+//
+//   - deletionPolicy Delete: the resource is deleted unless its owner tag names another object
+//     (then it is left alone: deleting must not destroy what someone else manages).
+//   - Orphan: the owner tag is released, so another object may adopt the resource; a failure is
+//     retried (a permanent 4xx is logged and skipped).
+//   - Both need the account. While it exists but is not Ready, the finalizer stays and the
+//     object is retried. Once the CloudflareAccount is gone, nothing can reach Cloudflare: the
+//     resource is left in place (owner tag included) and the finalizer is removed, so deleting
+//     a namespace does not hang on its managed objects.
 func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) (ctrl.Result, error) {
 	d := r.Descriptor
 	if !controllerutil.ContainsFinalizer(obj, commonv1alpha1.Finalizer) {
 		return ctrl.Result{}, nil
 	}
+	logger := log.FromContext(ctx)
 	kindDefault := commonv1alpha1.DeletionPolicy(d.DefaultDeletionPolicy)
 	deleteExternal := !d.Singleton && reconcile.ShouldDeleteExternal(obj, kindDefault)
 	id := reconcile.ExternalID(obj)
 	if d.Singleton {
 		id = ""
 	}
+	release := id != "" && !deleteExternal && reconcile.PoliciesOf(obj).CanWrite() && r.tagging()
+	deleteExternal = deleteExternal && id != ""
+
 	acct, err := r.Accounts.Resolve(ctx, obj)
 	if err != nil {
-		if deleteExternal && id != "" {
-			reconcile.MarkDeleting(obj, err.Error())
-			if reconcile.IsAccountNotReady(err) {
-				return ctrl.Result{RequeueAfter: reconcile.AccountRetryInterval}, nil
+		acct = nil
+		if deleteExternal || release {
+			gone, gerr := r.accountGone(ctx, obj)
+			if gerr != nil {
+				return ctrl.Result{}, gerr
 			}
-			return ctrl.Result{}, err
+			if !gone {
+				reconcile.MarkDeleting(obj, err.Error())
+				if reconcile.IsAccountNotReady(err) {
+					return ctrl.Result{RequeueAfter: reconcile.AccountRetryInterval}, nil
+				}
+				return ctrl.Result{}, err
+			}
+			logger.Info("CloudflareAccount is gone: leaving the Cloudflare resource in place", "id", id,
+				"account", obj.GetResourceSpec().AccountRef.Name, "deletionPolicy", reconcile.EffectiveDeletionPolicy(obj, kindDefault))
+			deleteExternal, release = false, false
 		}
-		acct = nil // orphaning without a usable account: nothing to release
 	}
 	var sc scope
 	if acct != nil {
-		if sc, err = r.scopeFor(obj, acct); err != nil && deleteExternal && id != "" {
+		// sc carries the client and account ID even when the zone is unresolvable.
+		if sc, err = r.scopeFor(obj, acct); err != nil && deleteExternal {
 			reconcile.MarkDeleting(obj, err.Error())
 			return ctrl.Result{}, err
 		}
 	}
-	if acct != nil && !deleteExternal && id != "" && reconcile.PoliciesOf(obj).CanWrite() {
+	if acct != nil && deleteExternal {
+		other, err := r.foreignOwner(ctx, sc, obj, id)
+		if err != nil {
+			reconcile.MarkDeleting(obj, fmt.Sprintf("read ownership tag: %v", err))
+			return ctrl.Result{}, err
+		}
+		if other != "" {
+			logger.Info("not deleting the Cloudflare resource: another object owns it", "id", id, "owner", other)
+			deleteExternal = false
+		}
+	}
+	if acct != nil && release {
 		// Orphaned: release ownership so another object (or cluster) may adopt it.
 		if err := r.tagger().RemoveOwner(ctx, sc.cf, sc.accountID, r.tagTarget(id), r.owner(obj)); err != nil {
-			log.FromContext(ctx).Error(err, "remove ownership tag of orphaned resource", "id", id)
+			if !permanent(err) {
+				reconcile.MarkDeleting(obj, fmt.Sprintf("release ownership tag: %v", err))
+				return ctrl.Result{}, err
+			}
+			logger.Error(err, "cannot remove the ownership tag of the orphaned resource", "id", id)
 		}
 	}
 	var del func(ctx context.Context, id string) error
@@ -582,5 +661,72 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 	if _, err := reconcile.Finalize(ctx, r.Client, obj, kindDefault, del); err != nil {
 		return ctrl.Result{}, err
 	}
+	r.applied.Delete(obj.GetUID())
 	return ctrl.Result{}, nil
+}
+
+// tagging reports whether ownership tags are maintained for the kind.
+func (r *Reconciler) tagging() bool {
+	_, noop := r.tagger().(reconcile.NoopTagger)
+	return !noop
+}
+
+// accountGone reports whether obj's CloudflareAccount no longer exists.
+func (r *Reconciler) accountGone(ctx context.Context, obj reconcile.ManagedObject) (bool, error) {
+	name := obj.GetResourceSpec().AccountRef.Name
+	if name == "" {
+		return true, nil
+	}
+	var acct cloudflarev1alpha1.CloudflareAccount
+	err := r.Client.Get(ctx, types.NamespacedName{Namespace: obj.GetNamespace(), Name: name}, &acct)
+	if apierrors.IsNotFound(err) {
+		return true, nil
+	}
+	return false, err
+}
+
+// ownerReader reads the owner tag without writing (reconcile.ResourceTagger implements it).
+type ownerReader interface {
+	Owner(ctx context.Context, cf cfclient.Client, accountID string, t reconcile.TagTarget) (string, error)
+}
+
+// foreignOwner returns the owner tag of the resource when it names another object ("" when the
+// resource is ours, untagged, gone, or tagging is off).
+func (r *Reconciler) foreignOwner(ctx context.Context, sc scope, obj reconcile.ManagedObject, id string) (string, error) {
+	if !r.tagging() {
+		return "", nil
+	}
+	me := r.owner(obj)
+	tg := r.tagger()
+	if rd, ok := tg.(ownerReader); ok {
+		o, err := rd.Owner(ctx, sc.cf, sc.accountID, r.tagTarget(id))
+		switch {
+		case cfclient.IsNotFound(err):
+			return "", nil
+		case err != nil:
+			return "", err
+		case o != "" && o != me:
+			return o, nil
+		}
+		return "", nil
+	}
+	// Other taggers: EnsureOwner reports a foreign owner without writing (and claims an
+	// untagged resource, which is about to be deleted anyway).
+	err := tg.EnsureOwner(ctx, sc.cf, sc.accountID, r.tagTarget(id), me)
+	var conflict *reconcile.OwnershipConflictError
+	switch {
+	case errors.As(err, &conflict):
+		return conflict.Owner, nil
+	case cfclient.IsNotFound(err):
+		return "", nil
+	}
+	return "", err
+}
+
+// permanent reports whether a Cloudflare error will not go away by retrying (a 4xx other than
+// 408, 409 and 429).
+func permanent(err error) bool {
+	ae, ok := cfclient.AsAPIError(err)
+	return ok && ae.Status >= 400 && ae.Status < 500 &&
+		ae.Status != http.StatusRequestTimeout && ae.Status != http.StatusConflict && ae.Status != http.StatusTooManyRequests
 }

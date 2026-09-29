@@ -66,6 +66,7 @@ var generated = []Entry{
 			NameField:             "queue_name",
 			UpdateMethod:          "PATCH",
 			Immutable:             []string{"jurisdiction"},
+			WriteOnly:             []string{"settings.delivery_paused"},
 			CreateFields:          []string{"jurisdiction", "queue_name"},
 			UpdateFields:          []string{"queue_name", "settings"},
 			DefaultDeletionPolicy: "Orphan",

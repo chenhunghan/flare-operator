@@ -294,9 +294,9 @@ func TestDescriptorsMatchEmulator(t *testing.T) {
 		// 0003 create → id; 0009 rename is PUT {title}; 0013 delete.
 		"KVNamespace": {"/accounts/{account_id}/storage/kv/namespaces", "/accounts/{account_id}/storage/kv/namespaces/{id}", "id", "title", "PUT",
 			[]string{"jurisdiction"}, nil, "Orphan"},
-		// 0028 create → queue_id; 0032 PATCH merges settings.
+		// 0028 create → queue_id; 0032 PATCH merges settings; 0031 GET omits settings.delivery_paused.
 		"Queue": {"/accounts/{account_id}/queues", "/accounts/{account_id}/queues/{id}", "queue_id", "queue_name", "PATCH",
-			[]string{"jurisdiction"}, nil, "Orphan"},
+			[]string{"jurisdiction"}, []string{"settings.delivery_paused"}, "Orphan"},
 		// 0017 create → uuid; 0023 PATCH read_replication; flarefake has no PUT for D1.
 		"D1Database": {"/accounts/{account_id}/d1/database", "/accounts/{account_id}/d1/database/{id}", "uuid", "name", "PATCH",
 			[]string{"jurisdiction", "name", "primary_location_hint"}, []string{"primary_location_hint"}, "Orphan"},

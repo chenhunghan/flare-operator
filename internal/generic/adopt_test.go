@@ -10,9 +10,11 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
 	"flare.dev/operator/internal/generic"
 	"flare.dev/operator/internal/reconcile"
@@ -193,18 +195,33 @@ func TestOwnershipConflict(t *testing.T) {
 	h.mustAPI(http.MethodPut, h.path("/accounts/{account_id}/tags", ""), map[string]any{
 		"resource_type": "kv_namespace", "resource_id": id, "tags": map[string]string{reconcile.OwnerTagKey: "other/ns/obj"}})
 	mark := h.rec.mark()
-	obj := h.newObj(en, "late", `{"forProvider":{"title":"`+name+`-new"}}`)
+	obj := h.newObj(en, "late", `{"deletionPolicy":"Delete","forProvider":{"title":"`+name+`-new"}}`)
 	obj.SetAnnotations(map[string]string{commonv1alpha1.AnnotationExternalID: id})
 	h.create(obj)
 	h.waitFor(obj, "conflict", func() (bool, string) {
 		c := reconcile.GetCondition(obj, commonv1alpha1.ConditionSynced)
 		return c != nil && c.Status == metav1.ConditionFalse && strings.Contains(c.Message, "owned by"), "no conflict"
 	})
+	if c := reconcile.GetCondition(obj, commonv1alpha1.ConditionSynced); !strings.Contains(c.Message, "remove the "+reconcile.OwnerTagKey+" tag") {
+		t.Errorf("conflict message gives no recovery hint: %q", c.Message)
+	}
 	if w := writesOf(h.rec.since(mark)); len(w) != 0 {
 		t.Errorf("wrote to a resource owned by someone else:\n%s", summary(w))
 	}
 	if got := h.mustAPI(http.MethodGet, h.path(en.ItemPath, id), nil); got["title"] != name {
 		t.Errorf("title changed to %v", got["title"])
+	}
+	// Deleting the object (deletionPolicy Delete) must not delete the other owner's resource.
+	h.delete(obj)
+	h.waitGone(obj)
+	if w := writesOf(h.rec.since(mark)); len(w) != 0 {
+		t.Errorf("deletion wrote to a resource owned by someone else:\n%s", summary(w))
+	}
+	if _, err := h.api(http.MethodGet, h.path(en.ItemPath, id), nil); err != nil {
+		t.Errorf("the other owner's resource: %v", err)
+	}
+	if o := h.ownerTag("kv_namespace", id); o != "other/ns/obj" {
+		t.Errorf("owner tag %q, want other/ns/obj", o)
 	}
 
 	// By name: same outcome, and the ID is not pinned.
@@ -220,6 +237,67 @@ func TestOwnershipConflict(t *testing.T) {
 	})
 	if a := byName.GetAnnotations()[commonv1alpha1.AnnotationExternalID]; a != "" {
 		t.Errorf("pinned someone else's resource: %s", a)
+	}
+}
+
+// TestDeleteAccountStates: deletion waits while the CloudflareAccount exists but is not Ready
+// (both Delete and Orphan need it: the Orphan path releases the owner tag), and completes
+// without touching Cloudflare once the account is gone (e.g. a namespace deletion).
+func TestDeleteAccountStates(t *testing.T) {
+	h := newHarness(t, recorded)
+	en := entry(t, "KVNamespace")
+	orphan := h.newObj(en, "orphan", `{"deletionPolicy":"Orphan","forProvider":{"title":"`+randName("flare-spike")+`"}}`)
+	del := h.newObj(en, "del", `{"deletionPolicy":"Delete","forProvider":{"title":"`+randName("flare-spike")+`"}}`)
+	h.create(orphan)
+	h.create(del)
+	h.waitSynced(orphan, en)
+	h.waitSynced(del, en)
+	orphanID, delID := orphan.GetResourceStatus().ID, del.GetResourceStatus().ID
+
+	// Account not Ready (a spec change not yet verified: points at a missing Secret).
+	acct := &cloudflarev1alpha1.CloudflareAccount{}
+	setSecret := func(name string) {
+		t.Helper()
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := h.e.Client.Get(h.ctx(), client.ObjectKey{Namespace: h.ns, Name: "acct"}, acct); err != nil {
+				return err
+			}
+			acct.Spec.TokenSecretRef.Name = name
+			return h.e.Client.Update(h.ctx(), acct)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	good := h.acct.Spec.TokenSecretRef.Name
+	setSecret("missing")
+	h.e.WaitAccountCondition(t, h.ns, "acct", metav1.ConditionFalse, "")
+	h.delete(orphan)
+	h.waitFor(orphan, "orphan waits for the account", func() (bool, string) {
+		c := reconcile.GetCondition(orphan, commonv1alpha1.ConditionReady)
+		return c != nil && c.Reason == commonv1alpha1.ReasonDeleting && strings.Contains(c.Message, "not Ready"), "not waiting"
+	})
+	if o := h.ownerTag("kv_namespace", orphanID); o != reconcile.OwnerValue("testenv", h.ns, "orphan") {
+		t.Errorf("owner tag %q changed while the account was not Ready", o)
+	}
+	setSecret(good)
+	h.waitGone(orphan)
+	if o := h.ownerTag("kv_namespace", orphanID); o != "" {
+		t.Errorf("orphaned resource still owned by %q", o)
+	}
+
+	// Account gone: the Delete-policy object is finalized without reaching Cloudflare.
+	mark := h.rec.mark()
+	if err := h.e.Client.Delete(h.ctx(), acct); err != nil {
+		t.Fatal(err)
+	}
+	h.delete(del)
+	h.waitGone(del)
+	if w := writesOf(h.rec.since(mark)); len(w) != 0 {
+		t.Errorf("wrote without an account:\n%s", summary(w))
+	}
+	if _, err := h.api(http.MethodGet, h.path(en.ItemPath, delID), nil); err != nil {
+		t.Errorf("resource of the deleted account's object: %v", err)
 	}
 }
 

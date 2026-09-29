@@ -89,3 +89,46 @@ func TestForProviderAndAtProvider(t *testing.T) {
 		t.Error("ForProvider of a non-generated type")
 	}
 }
+
+func TestNestedWriteOnly(t *testing.T) {
+	desired := jsonValue(t, `{"settings":{"delivery_delay":5,"delivery_paused":false},"name":"q"}`).(map[string]any)
+	wo := []string{"settings.delivery_paused"}
+	if v, ok := pathValue(desired, "settings.delivery_paused"); !ok || v != false {
+		t.Errorf("pathValue = %v, %v", v, ok)
+	}
+	if _, ok := pathValue(desired, "name.x"); ok {
+		t.Error("pathValue through a scalar")
+	}
+	if got := nestedPaths(append(wo, "settings", "other.x"), "settings"); len(got) != 1 || got[0] != "delivery_paused" {
+		t.Errorf("nestedPaths = %v", got)
+	}
+	stripped := without(desired["settings"], []string{"delivery_paused"})
+	if !Covers(stripped, jsonValue(t, `{"delivery_delay":5,"message_retention_period":86400}`)) {
+		t.Errorf("without = %v", stripped)
+	}
+	if _, still := desired["settings"].(map[string]any)["delivery_paused"]; !still {
+		t.Error("without modified its input")
+	}
+	h := WriteOnlyHash(desired, wo)
+	if fields, _ := parseWriteOnlyHash(h); fields["settings.delivery_paused"] != valueHash(false) {
+		t.Errorf("hash %s lacks the nested path", h)
+	}
+
+	r := &Reconciler{Descriptor: Descriptor{WriteOnly: wo, UpdateFields: []string{"settings"}}}
+	obs := jsonValue(t, `{"settings":{"delivery_delay":5,"message_retention_period":86400}}`).(map[string]any)
+	prev, known := parseWriteOnlyHash(h)
+	if r.differs("settings", desired["settings"], desired, obs, prev, known, true) {
+		t.Error("a nested write-only field absent from GET counts as drift")
+	}
+	if !r.differs("settings", desired["settings"], desired, obs, nil, false, true) {
+		t.Error("unknown write-only state must be applied once")
+	}
+	paused := jsonValue(t, `{"settings":{"delivery_delay":5,"delivery_paused":true}}`).(map[string]any)
+	if !r.differs("settings", paused["settings"], paused, obs, prev, known, true) {
+		t.Error("a changed nested write-only field is not detected")
+	}
+	drifted := jsonValue(t, `{"settings":{"delivery_delay":0}}`).(map[string]any)
+	if !r.differs("settings", desired["settings"], desired, drifted, prev, known, true) {
+		t.Error("drift of a readable sibling is not detected")
+	}
+}

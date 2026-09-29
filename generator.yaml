@@ -26,6 +26,7 @@ kinds:
     defaultDeletionPolicy: Orphan
     tagResourceType: queue
     immutable: [jurisdiction]
+    writeOnly: [settings.delivery_paused]
     fields:
       settings.delivery_delay: {type: integer}
       settings.message_retention_period: {type: integer}
@@ -35,6 +36,7 @@ kinds:
       immutable: "UNVERIFIED: the spec lists jurisdiction in the PUT/PATCH bodies, but a queue's jurisdiction is fixed at creation"
       jurisdiction: "read back from GET (atProvider.jurisdiction per the spec). No recording creates a queue with a jurisdiction (0028 has none and returns none); flarefake stores and returns it when set (UNVERIFIED)"
       fields: "spec says number; the API returns and accepts whole seconds (0028, 0032, 0033)"
+      writeOnly: "the spec returns settings.delivery_paused, but the create, GET and PATCH results omit it (0028, 0031, 0032: settings hold only delivery_delay and message_retention_period; none of them sets it), so drift is detected via status.writeOnlyHash. Whether GET returns it once set is UNVERIFIED"
       derived: "id field queue_id (0028); PATCH merges settings (0032) and is preferred over PUT, which resets omitted settings (0033)"
 
   - fernGroup: d1
