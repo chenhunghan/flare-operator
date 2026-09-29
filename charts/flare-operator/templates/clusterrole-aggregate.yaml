@@ -54,6 +54,15 @@ rules:
   - list
   - watch
 - apiGroups:
+  - workers.cloudflare.flare.dev
+  resources:
+  - workerscripts
+  - workerscripts/status
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - workersvpc.cloudflare.flare.dev
   resources:
   - vpcservices
@@ -128,6 +137,19 @@ rules:
   - tunnels.cloudflare.flare.dev
   resources:
   - tunnels
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - workers.cloudflare.flare.dev
+  resources:
+  - workerscripts
   verbs:
   - create
   - delete

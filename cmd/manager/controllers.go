@@ -6,5 +6,6 @@ import (
 	_ "flare.dev/operator/internal/controller/account"
 	_ "flare.dev/operator/internal/controller/tunnel"
 	_ "flare.dev/operator/internal/controller/vpcservice"
+	_ "flare.dev/operator/internal/controller/workerscript"
 	_ "flare.dev/operator/internal/generic/kinds" // KVNamespace, Queue, D1Database (generated kinds)
 )

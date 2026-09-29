@@ -26,6 +26,7 @@ placeholder until the repository has a permanent home.
 | `D1Database` | `d1.cloudflare.flare.dev/v1alpha1` | generated | `Orphan` |
 | `Tunnel` | `tunnels.cloudflare.flare.dev/v1alpha1` | hand-written; also runs `cloudflared` and an egress NetworkPolicy | `Delete` |
 | `VPCService` | `workersvpc.cloudflare.flare.dev/v1alpha1` | hand-written (Workers VPC) | `Delete` |
+| `WorkerScript` | `workers.cloudflare.flare.dev/v1alpha1` | hand-written (Workers scripts: modules, bindings, workers.dev) | `Delete` |
 
 Every kind is namespaced and belongs to the `cloudflare` category, so `kubectl get cloudflare`
 lists all of them. The generated kinds are tested against the `flarefake` emulator and against
@@ -308,6 +309,40 @@ Generated kinds are re-read every 5 minutes to detect drift. Some fields are wri
 Cloudflare never returns them, for example `Queue` `settings.delivery_paused` and `D1Database`
 `primary_location_hint`. For those fields, the operator detects changes through
 `status.writeOnlyHash`.
+
+### Workers scripts: WorkerScript
+
+A `WorkerScript` uploads a Cloudflare Workers script ([examples/workerscript.yaml](examples/workerscript.yaml))
+and completes the private-backend path Worker → `vpc_service` binding → `VPCService` → `Tunnel` →
+Kubernetes Service.
+
+- **Source.** Either inline `forProvider.modules` (module name → `type` `esm`, `cjs`, `text`,
+  `json` or `wasm-base64`, and `content`) or `forProvider.sourceRef`, a ConfigMap whose keys are
+  the modules. `main_module` names the entry module. The script name is `forProvider.script_name`
+  (immutable), else `metadata.name`.
+- **Bindings.** `plain_text`, `secret_text` (`secretKeyRef`), `json`, `kv_namespace`, `queue`,
+  `d1`, `vpc_service` and `service`. Each takes either the raw API value (`namespace_id`,
+  `queue_name`, `database_id`, `service_id`, `service`) or a reference to an object in the same
+  namespace (`kvNamespaceRef`, `queueRef`, `d1DatabaseRef`, `vpcServiceRef`, `serviceRef`).
+  Until every referenced object is Ready, nothing is uploaded and `Synced` is `False` with
+  reason `DependencyNotReady`.
+- **Updates.** Cloudflare does not return script content, so the operator stores a hash of the
+  modules in `status.contentHash`. A content change is one multipart upload, which creates a new
+  version and deploys it at 100%. A change that only touches settings (bindings, compatibility
+  date or flags, observability, logpush, or a Secret value) is one `PATCH …/settings`. If
+  someone else deploys a different version, the next reconcile uploads the spec again. An
+  unchanged object makes no writes.
+- **workers.dev.** `forProvider.workersDev.enabled` turns the route on or off.
+  `status.atProvider.url` shows the URL.
+- **Ownership and deletion.** The operator manages an existing script only when this object
+  created it, the external-id annotation pins it, or its `flare.dev/owner` tag names this object
+  (Resource Tagging `resource_type` `worker`). Otherwise the object reports `NameConflict` and
+  writes nothing, because an upload would replace someone else's code.
+- **Delete order.** Cloudflare lets you delete a KV namespace, queue, D1 database or VPC service
+  that a Worker still binds (recording 0091). The operator therefore makes a `KVNamespace`,
+  `Queue`, `D1Database` or `VPCService` that would delete its Cloudflare resource wait, with
+  `Ready=False` and reason `DependencyNotReady`, until no `WorkerScript` binds it. The same
+  applies to a `WorkerScript` bound by another script's `serviceRef`.
 
 ## Local development
 

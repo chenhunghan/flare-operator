@@ -1,0 +1,97 @@
+# A Worker that reaches a private backend: Worker → vpc_service binding → VPCService "web"
+# (vpcservice.yaml) → Tunnel → the in-cluster Service. Default deletionPolicy: Delete (a script is
+# code, not data). The *Ref fields name objects in this namespace; the controller fills in their
+# Cloudflare IDs and uploads nothing until they are Ready. While this script binds them, the
+# VPCService (and a KVNamespace/Queue/D1Database with deletionPolicy Delete) waits for it before
+# deleting its own Cloudflare resource.
+apiVersion: workers.cloudflare.flare.dev/v1alpha1
+kind: WorkerScript
+metadata:
+  name: frontend
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    main_module: index.js
+    compatibility_date: "2026-09-01"
+    modules:
+      index.js:
+        type: esm
+        content: |
+          export default {
+            async fetch(req, env) {
+              const hits = Number((await env.SESSIONS.get("hits")) || 0) + 1;
+              await env.SESSIONS.put("hits", String(hits));
+              const r = await env.WEB.fetch("http://web/");
+              return new Response(`${env.GREETING} #${hits}: ${r.status}`);
+            }
+          };
+    bindings:
+      - name: WEB
+        type: vpc_service
+        vpcServiceRef:
+          name: web
+      - name: SESSIONS
+        type: kv_namespace
+        kvNamespaceRef:
+          name: sessions
+      - name: JOBS
+        type: queue
+        queueRef:
+          name: jobs
+      - name: GREETING
+        type: plain_text
+        text: hello
+      - name: API_TOKEN
+        type: secret_text          # write-only: a change of the Secret is re-applied
+        secretKeyRef:
+          name: frontend-secrets
+          key: api-token
+    observability:
+      enabled: true
+      head_sampling_rate: 1
+    # Serve it at https://frontend.<account subdomain>.workers.dev (status.atProvider.url).
+    workersDev:
+      enabled: true
+---
+# Modules from a ConfigMap: every key is a module (type from the extension, or sourceRef.types).
+# Changing the ConfigMap uploads a new version.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hello-worker-src
+data:
+  index.js: |
+    import greeting from "./greeting.txt";
+    export default {
+      async fetch() { return new Response(greeting); }
+    };
+  greeting.txt: Hello from a ConfigMap
+---
+apiVersion: workers.cloudflare.flare.dev/v1alpha1
+kind: WorkerScript
+metadata:
+  name: hello
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    script_name: hello-from-configmap
+    main_module: index.js
+    compatibility_date: "2026-09-01"
+    compatibility_flags: [nodejs_compat]
+    sourceRef:
+      name: hello-worker-src
+---
+# Observe an existing script (no writes, never deleted). Without forProvider the script name is
+# metadata.name, or pin it with the cloudflare.flare.dev/external-id annotation.
+apiVersion: workers.cloudflare.flare.dev/v1alpha1
+kind: WorkerScript
+metadata:
+  name: legacy-worker
+  annotations:
+    cloudflare.flare.dev/external-id: legacy-worker
+spec:
+  accountRef:
+    name: main
+  managementPolicies: ["Observe"]

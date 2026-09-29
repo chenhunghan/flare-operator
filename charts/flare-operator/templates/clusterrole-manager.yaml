@@ -10,6 +10,15 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - create
@@ -18,14 +27,6 @@ rules:
   - list
   - patch
   - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - services
-  verbs:
-  - get
-  - list
   - watch
 - apiGroups:
   - ""
@@ -193,6 +194,30 @@ rules:
   - tunnels.cloudflare.flare.dev
   resources:
   - tunnels/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - workers.cloudflare.flare.dev
+  resources:
+  - workerscripts
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - workers.cloudflare.flare.dev
+  resources:
+  - workerscripts/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - workers.cloudflare.flare.dev
+  resources:
+  - workerscripts/status
   verbs:
   - get
   - patch
