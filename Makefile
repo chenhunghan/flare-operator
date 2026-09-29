@@ -78,15 +78,16 @@ $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
 fmt:
-	gofmt -w api cmd internal test/e2e test/live
+	gofmt -w api cmd internal test/e2e test/live test/differential
 
-vet:             ## go vet, including the e2e-tagged test/e2e and live-tagged test/live packages
+vet:             ## go vet, including the e2e-tagged test/e2e, live-tagged test/live and differential-tagged test/differential packages
 	go vet ./...
 	go vet -tags e2e ./test/e2e/...
 	go vet -tags live ./test/live/...
+	go vet -tags differential ./test/differential/...
 
-fmt-check:       ## fail if gofmt would change anything in api, cmd, internal, test/e2e, test/live (the dirs `make fmt` rewrites)
-	@out="$$(gofmt -l api cmd internal test/e2e test/live)"; if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi; echo "gofmt OK"
+fmt-check:       ## fail if gofmt would change anything in api, cmd, internal, test/e2e, test/live, test/differential (the dirs `make fmt` rewrites)
+	@out="$$(gofmt -l api cmd internal test/e2e test/live test/differential)"; if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi; echo "gofmt OK"
 
 # Directories written by `make generate manifests` (controller-gen) and `make generate-crds` (flaregen).
 GENERATED_PATHS ?= api config internal/generic
@@ -230,3 +231,23 @@ e2e-uninstall:   ## helm uninstall, delete the chart's CRDs (Helm keeps them) an
 .PHONY: live
 live: envtest    ## run test/live (skips unless FLARE_LIVE=1; see test/live/live_test.go)
 	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test -tags live ./test/live/ -count=1 -v -timeout 30m
+
+## Differential tests (test/differential, docs/differential-testing.md): real Cloudflare clients
+## (wrangler, cloudflared, cloudflare-go) against an in-process flarefake. No Cloudflare API calls.
+## Known mismatches are skipped subtests named discrepancy/<ID>; a client that is not installed
+## is skipped. The versions must match test/differential/versions.go (checked by make test).
+.PHONY: differential differential-tools
+DIFF_CACHE ?= $(HOME)/.cache/flare-operator/differential
+WRANGLER_VERSION ?= 4.143.0
+CLOUDFLARED_VERSION ?= 2026.9.3
+# Set to a directory to write every client's captured requests there as JSON.
+FLARE_DIFF_CAPTURE_DIR ?=
+
+differential-tools: ## install the pinned wrangler (npm ci) and cloudflared (release binary, sha256-checked) into $(DIFF_CACHE)
+	DIFF_CACHE=$(DIFF_CACHE) WRANGLER_VERSION=$(WRANGLER_VERSION) CLOUDFLARED_VERSION=$(CLOUDFLARED_VERSION) hack/differential-tools.sh
+
+differential:    ## run wrangler + cloudflared (test/differential) and cloudflare-go (test/differential/go) against flarefake
+	FLARE_DIFF_CACHE=$(DIFF_CACHE) FLARE_DIFF_CAPTURE_DIR=$(FLARE_DIFF_CAPTURE_DIR) \
+		go test -tags differential ./test/differential/... -count=1 -v -timeout 20m
+	cd test/differential/go && go vet -tags differential ./... && \
+		FLARE_DIFF_CAPTURE_DIR=$(FLARE_DIFF_CAPTURE_DIR) go test -tags differential ./... -count=1 -v -timeout 10m
