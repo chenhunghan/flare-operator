@@ -19,7 +19,10 @@
 //     which is always the full body (PUT is a full replace).
 //   - Cloudflare does not check dependencies on delete (0099), so the delete order is enforced
 //     here: the Tunnel's finalizer waits for every VPCService that references it. A VPCService
-//     whose Tunnel is missing, being deleted or has no ID yet is DependencyNotReady.
+//     whose Tunnel is missing, being deleted or has no ID yet is DependencyNotReady. Likewise a
+//     VPCService with the Delete policy waits (Ready=False, DependencyNotReady) while registered
+//     referrers (internal/generic referrers: WorkerScript vpc_service bindings) still name it,
+//     since a Worker keeps its binding to a deleted service (0091).
 //   - Deletion (Delete policy) removes the service only when ownership is proven
 //     (reconcile.MayDeleteExternal with no tag possible): this object created it (the
 //     ownership-proof annotation; an older build's created-by-uid annotation is honoured and
@@ -41,6 +44,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -58,11 +62,15 @@ import (
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
 	"flare.dev/operator/internal/controller"
 	"flare.dev/operator/internal/controller/tunnelnet"
+	"flare.dev/operator/internal/generic"
 	"flare.dev/operator/internal/reconcile"
 )
 
 // Name is the registration name of this controller.
 const Name = "vpcservice"
+
+// Kind is the API group and kind of VPCService (the key of its registered referrers).
+var Kind = schema.GroupKind{Group: workersvpcv1alpha1.GroupVersion.Group, Kind: "VPCService"}
 
 // Defaults of the Reconciler's intervals.
 const (
@@ -135,11 +143,15 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := tunnelnet.RegisterIndexes(context.Background(), mgr.GetFieldIndexer(), r.DNS.Domain); err != nil {
 		return err
 	}
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named(Name).
 		For(&workersvpcv1alpha1.VPCService{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}))).
-		Watches(&tunnelsv1alpha1.Tunnel{}, handler.EnqueueRequestsFromMapFunc(r.servicesForTunnel), builder.WithPredicates(tunnelChanged())).
-		Complete(r)
+		Watches(&tunnelsv1alpha1.Tunnel{}, handler.EnqueueRequestsFromMapFunc(r.servicesForTunnel), builder.WithPredicates(tunnelChanged()))
+	// Referrers (WorkerScript bindings) that drop their reference wake a blocked deletion.
+	for _, ref := range generic.ReferrersOf(Kind) {
+		b = b.Watches(ref.Object, generic.ReferrerWatch(ref))
+	}
+	return b.Complete(r)
 }
 
 func tunnelChanged() predicate.Funcs {
@@ -213,6 +225,17 @@ func (r *Reconciler) finalize(ctx context.Context, vs *workersvpcv1alpha1.VPCSer
 	}
 	var deleteExternal func(context.Context, string) error
 	if id := reconcile.ExternalID(vs); id != "" && reconcile.ShouldDeleteExternal(vs, commonv1alpha1.DeletionDelete) {
+		// Cloudflare lets a service be deleted while a Worker still binds it (0091): wait for
+		// the registered referrers (WorkerScript vpc_service bindings) to go away first.
+		refs, err := generic.BlockingReferrers(ctx, r.Client, Kind, vs)
+		if err != nil {
+			res, err := reconcile.DeletionResult(vs, err)
+			return res, false, err
+		}
+		if len(refs) > 0 {
+			reconcile.SetReady(vs, metav1.ConditionFalse, commonv1alpha1.ReasonDependency, generic.ReferrerWaitMessage(refs))
+			return ctrl.Result{RequeueAfter: generic.ReferrerRetry}, false, nil
+		}
 		// VPC services carry no ownership tag (Resource Tagging has no resource_type for them),
 		// so the ownership record or the external-id annotation must prove ownership; no
 		// Cloudflare call is needed to decide.

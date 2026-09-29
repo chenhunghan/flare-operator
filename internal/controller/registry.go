@@ -109,8 +109,9 @@ func SetupAll(mgr ctrl.Manager, d Deps, only ...string) error {
 	for _, n := range only {
 		want[n] = true
 	}
+	subset := len(want) > 0 // want shrinks below: decide once, or the rest would all pass
 	for _, r := range Registrations() {
-		if r.Setup == nil || (len(want) > 0 && !want[r.Name]) {
+		if r.Setup == nil || (subset && !want[r.Name]) {
 			continue
 		}
 		if err := r.Setup(mgr, d); err != nil {

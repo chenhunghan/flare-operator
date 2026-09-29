@@ -15,6 +15,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -61,7 +62,9 @@ const accountRefIndex = ".spec.accountRef.name"
 //     policies (reconcile.Finalize); DELETE sends no body. Only a resource the object provably
 //     owns is deleted (reconcile.MayDeleteExternal; status.id is not proof). An orphaned resource
 //     loses its owner tag. Without the CloudflareAccount (deleted) the resource is left as is.
-//     Both cases emit a Warning event. Singletons are never created or deleted.
+//     Both cases emit a Warning event. Singletons are never created or deleted. Before a delete,
+//     objects of registered referrer kinds (referrers.go, e.g. WorkerScript bindings) that still
+//     name the object block it: Ready=False, reason DependencyNotReady, until they are gone.
 //
 // Unchanged objects cost reads only: a reconcile of an in-sync object makes no Cloudflare write.
 type Reconciler struct {
@@ -164,6 +167,10 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, name string) error {
 	if r.NewList != nil {
 		b = b.Watches(&cloudflarev1alpha1.CloudflareAccount{}, handler.EnqueueRequestsFromMapFunc(r.objectsForAccount),
 			builder.WithPredicates(accountReadinessChanged()))
+	}
+	// Kinds that reference this one (referrers.go): dropping a reference wakes a blocked deletion.
+	for _, ref := range ReferrersOf(r.groupKind()) {
+		b = b.Watches(ref.Object, ReferrerWatch(ref))
 	}
 	return b.Complete(r)
 }
@@ -645,6 +652,18 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 	release := id != "" && !deleteExternal && reconcile.PoliciesOf(obj).CanWrite() && r.tagging()
 	deleteExternal = deleteExternal && id != ""
 
+	// Cloudflare does not check dependencies on delete: wait while registered referrers (e.g.
+	// WorkerScript bindings) still use the resource.
+	if deleteExternal {
+		refs, err := BlockingReferrers(ctx, r.Client, r.groupKind(), obj)
+		if err != nil {
+			return reconcile.DeletionResult(obj, err)
+		}
+		if len(refs) > 0 {
+			reconcile.SetReady(obj, metav1.ConditionFalse, commonv1alpha1.ReasonDependency, ReferrerWaitMessage(refs))
+			return ctrl.Result{RequeueAfter: ReferrerRetry}, nil
+		}
+	}
 	var acct *reconcile.Resolved
 	if deleteExternal || release {
 		action, note := "Delete", ""
@@ -722,6 +741,11 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 		r.applied.Delete(client.ObjectKeyFromObject(obj))
 	}
 	return res, err
+}
+
+// groupKind is the kind's API group and kind.
+func (r *Reconciler) groupKind() schema.GroupKind {
+	return schema.GroupKind{Group: r.Descriptor.Group, Kind: r.Descriptor.Kind}
 }
 
 // tagging reports whether ownership tags are maintained for the kind.
