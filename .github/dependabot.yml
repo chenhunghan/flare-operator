@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # k8s.io/* and controller-runtime must move together (see the Makefile's tool versions).
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

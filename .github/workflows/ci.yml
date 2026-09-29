@@ -1,0 +1,131 @@
+# CI for flare-operator. Every job is one or more Makefile targets, so `make ci` runs the same
+# checks locally in the same order: lint, test, race, generate-check, conformance.
+# No job talks to the live Cloudflare API; conformance replays test/recordings against flarefake.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Same default as the Makefile (`export CGO_ENABLED ?= 0`); the race job overrides it for test-race.
+  CGO_ENABLED: "0"
+
+jobs:
+  lint:
+    name: lint (gofmt, go vet, spec-check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: gofmt
+        run: make fmt-check
+      - name: go vet
+        run: make vet
+      - name: spec-check
+        run: make spec-check
+
+  test:
+    name: test (envtest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      # ./bin tools are versioned in the Makefile; one key per tool set so each job saves its own.
+      - name: Cache tool binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: tools-setup-envtest-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
+      # The Makefile's ENVTEST_DIR default ($HOME/.cache/flare-operator/envtest);
+      # ENVTEST_K8S_VERSION lives in the Makefile, hence the key.
+      - name: Cache envtest assets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/flare-operator/envtest
+          key: envtest-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: envtest-${{ runner.os }}-
+      - name: Fetch envtest assets
+        run: make envtest
+      - name: make test
+        run: make test
+
+  race:
+    name: race (make test-race, cgo on)
+    runs-on: ubuntu-latest
+    env:
+      # On Linux `go test -race` requires cgo; the Makefile already defaults RACE_CGO_ENABLED
+      # to 1 off darwin, this makes it explicit. The rest of the build stays CGO_ENABLED=0.
+      RACE_CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Cache tool binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: tools-setup-envtest-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
+      - name: Cache envtest assets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/flare-operator/envtest
+          key: envtest-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: envtest-${{ runner.os }}-
+      - name: Fetch envtest assets
+        run: make envtest
+      - name: make test-race
+        run: make test-race
+
+  generate-check:
+    name: generate-check (controller-gen, flaregen)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Cache tool binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: tools-controller-gen-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
+      # verify-generated = make generate manifests, make generate-check, then git diff --exit-code
+      # (plus untracked files) over the generated paths.
+      - name: make verify-generated
+        run: make verify-generated
+      - name: Whole tree unchanged
+        run: git diff --exit-code
+
+  conformance:
+    name: conformance (recordings vs flarefake)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: make conformance
+        run: make conformance

@@ -1,10 +1,20 @@
 .PHONY: test test-race test-short fake conformance classify spec-check fmt vet generate manifests envtest controller-gen setup-envtest run tools
+.PHONY: ci fmt-check verify-generated
 
 # Operator binaries and tests build without cgo, as the container image does. This also avoids
 # linking prometheus/client_golang's darwin cgo files, which fails with toolchains whose ld
 # cannot read the installed macOS SDK (seen with Xcode ld-1230 + MacOSX27 SDK). The race
 # detector works without cgo on darwin. Override with CGO_ENABLED=1 make ...
 export CGO_ENABLED ?= 0
+
+# test-race sets cgo on its own: darwin's race detector needs no cgo (and cgo linking is broken
+# on some Macs, see above), but on every other OS `go test -race` requires cgo.
+# Override with RACE_CGO_ENABLED=... make test-race.
+ifeq ($(shell go env GOOS),darwin)
+RACE_CGO_ENABLED ?= 0
+else
+RACE_CGO_ENABLED ?= 1
+endif
 
 ## Tool binaries (installed into ./bin, which is gitignored)
 LOCALBIN ?= $(CURDIR)/bin
@@ -25,8 +35,8 @@ ENVTEST_ASSETS = $$($(SETUP_ENVTEST) use -i $(ENVTEST_K8S_VERSION) --bin-dir $(E
 test: envtest     ## all tests (loads the pinned 26 MB spec once; runs envtest suites)
 	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test ./... -count=1
 
-test-race: envtest ## all tests with the race detector (works without cgo on darwin)
-	CGO_ENABLED=0 KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test -race ./... -count=1
+test-race: envtest ## all tests with the race detector (cgo off on darwin, on elsewhere; see RACE_CGO_ENABLED)
+	CGO_ENABLED=$(RACE_CGO_ENABLED) KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test -race ./... -count=1
 
 test-short: envtest ## skip spec-loading tests
 	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test ./... -short -count=1
@@ -72,6 +82,30 @@ fmt:
 
 vet:
 	go vet ./...
+
+fmt-check:       ## fail if gofmt would change anything in api, cmd, internal (the dirs `make fmt` rewrites)
+	@out="$$(gofmt -l api cmd internal)"; if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi; echo "gofmt OK"
+
+# Directories written by `make generate manifests` (controller-gen) and `make generate-crds` (flaregen).
+GENERATED_PATHS ?= api config internal/generic
+
+verify-generated: ## regenerate deepcopy/CRDs/RBAC, run flaregen -check, fail if GENERATED_PATHS differ from HEAD
+	$(MAKE) generate manifests
+	$(MAKE) generate-check
+	@git diff --exit-code -- $(GENERATED_PATHS) || { echo "generated files differ from HEAD: run make generate manifests generate-crds and commit"; exit 1; }
+	@untracked="$$(git ls-files --others --exclude-standard -- $(GENERATED_PATHS))"; if [ -n "$$untracked" ]; then echo "untracked generated files:"; echo "$$untracked"; exit 1; fi; echo "generated files OK"
+
+# ci runs the checks of .github/workflows/ci.yml in the same order (lint, test, race,
+# generate-check, conformance). verify-generated compares against HEAD, so commit local edits
+# under GENERATED_PATHS first.
+ci:
+	$(MAKE) fmt-check
+	$(MAKE) vet
+	$(MAKE) spec-check
+	$(MAKE) test
+	$(MAKE) test-race
+	$(MAKE) verify-generated
+	$(MAKE) conformance
 
 # go-install-tool installs a versioned binary ($1-$3) and points $1 at it, so bumping a
 # version re-installs.
