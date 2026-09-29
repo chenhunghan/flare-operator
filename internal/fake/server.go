@@ -49,7 +49,8 @@ type Server struct {
 	limiter  *limiter
 	routes   []route
 	seq      int64 // creation sequence; orders lists deterministically even with a frozen clock
-	tokens   map[string]*Token // tokens.go; nil = open mode
+
+	tokens map[string]*Token // tokens.go; nil = open mode
 }
 
 // nextSeq returns a monotonically increasing creation number. Callers hold s.mu.

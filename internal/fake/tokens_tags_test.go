@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-
 func TestTokenVerifyOpenMode(t *testing.T) {
 	c := newClient(t, New(Options{}))
 	st, env, _ := c.do("GET", acct+"/tokens/verify", nil)
