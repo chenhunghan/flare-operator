@@ -231,8 +231,8 @@ func (s *suite) testAccount(t *testing.T, o *objects) {
 		r := cond(o.account.Status.Conditions, commonv1alpha1.ConditionReady)
 		return r != nil && r.Status == metav1.ConditionTrue, condString(o.account.Status.Conditions)
 	})
-	if o.account.Status.TokenStatus != "active" {
-		t.Errorf("tokenStatus = %q, want active", o.account.Status.TokenStatus)
+	if o.account.Status.AtProvider.Status != "active" {
+		t.Errorf("atProvider.status = %q, want active", o.account.Status.AtProvider.Status)
 	}
 	// The account holds its token Secret (account-token finalizer).
 	eventually(t, 30*time.Second, "token Secret finalizer", func() (bool, string) {

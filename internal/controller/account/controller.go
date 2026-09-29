@@ -624,9 +624,12 @@ func (r *Reconciler) verify(ctx context.Context, acct *cloudflarev1alpha1.Cloudf
 	now := r.now()
 	acct.Status.ID = "" // set below once the token is usable
 	acct.Status.AtProvider = observation(info)
+	//lint:ignore SA1019 deprecated v1alpha1 status field kept dual-written until v1beta1 (docs/api-versioning.md)
 	acct.Status.TokenID = info.ID
+	//lint:ignore SA1019 deprecated v1alpha1 status field kept dual-written until v1beta1 (docs/api-versioning.md)
 	acct.Status.TokenStatus = info.Status
 	acct.Status.TokenType = info.Type
+	//lint:ignore SA1019 deprecated v1alpha1 status field kept dual-written until v1beta1 (docs/api-versioning.md)
 	acct.Status.TokenExpiresOn = acct.Status.AtProvider.ExpiresOn.DeepCopy()
 	requeue := r.interval()
 	switch {
@@ -655,7 +658,9 @@ func (r *Reconciler) verify(ctx context.Context, acct *cloudflarev1alpha1.Cloudf
 func clearToken(acct *cloudflarev1alpha1.CloudflareAccount) {
 	acct.Status.ID = ""
 	acct.Status.AtProvider = cloudflarev1alpha1.CloudflareAccountObservation{}
+	//lint:ignore SA1019 deprecated v1alpha1 status field kept dual-written until v1beta1 (docs/api-versioning.md)
 	acct.Status.TokenID, acct.Status.TokenStatus, acct.Status.TokenType = "", "", ""
+	//lint:ignore SA1019 deprecated v1alpha1 status field kept dual-written until v1beta1 (docs/api-versioning.md)
 	acct.Status.TokenExpiresOn = nil
 }
 

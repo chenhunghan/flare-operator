@@ -560,9 +560,9 @@ func TestLiveOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 	acct = e.WaitAccountCondition(t, ns, "acct", metav1.ConditionTrue, commonv1alpha1.ReasonAvailable)
-	t.Logf("CloudflareAccount Ready: tokenType=%s tokenStatus=%s", acct.Status.TokenType, acct.Status.TokenStatus)
-	if acct.Status.TokenStatus != "active" {
-		t.Errorf("tokenStatus = %q, want active", acct.Status.TokenStatus)
+	t.Logf("CloudflareAccount Ready: tokenType=%s atProvider.status=%s", acct.Status.TokenType, acct.Status.AtProvider.Status)
+	if acct.Status.AtProvider.Status != "active" {
+		t.Errorf("atProvider.status = %q, want active", acct.Status.AtProvider.Status)
 	}
 
 	// KVNamespace, Queue, D1Database (deletionPolicy Delete).

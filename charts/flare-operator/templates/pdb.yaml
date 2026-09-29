@@ -12,7 +12,7 @@ metadata:
     {{- include "flare-operator.labels" . | nindent 4 }}
     app.kubernetes.io/component: manager
 spec:
-  {{- if not (eq (toString .Values.podDisruptionBudget.maxUnavailable) "") }}
+  {{- if not (eq (toString .Values.podDisruptionBudget.maxUnavailable) "<nil>" "") }}
   maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
   {{- else if not (eq (toString .Values.podDisruptionBudget.minAvailable) "<nil>" "") }}
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}

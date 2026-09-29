@@ -156,6 +156,13 @@ func TestPodDisruptionBudget(t *testing.T) {
 	if pdb.Spec.MaxUnavailable == nil || pdb.Spec.MaxUnavailable.String() != "34%" || pdb.Spec.MinAvailable != nil {
 		t.Errorf("pdb spec = %+v, want maxUnavailable 34%%", pdb.Spec)
 	}
+	// Unsetting maxUnavailable (null, rendered by toString as "<nil>") falls back to minAvailable
+	// instead of rendering an empty maxUnavailable that protects nothing.
+	docs = mustRender(t, "replicas=2", "podDisruptionBudget.maxUnavailable=null")
+	pdb = decode[policyv1.PodDisruptionBudget](t, docs, "PodDisruptionBudget", 0)
+	if pdb.Spec.MinAvailable == nil || pdb.Spec.MinAvailable.IntValue() != 1 || pdb.Spec.MaxUnavailable != nil {
+		t.Errorf("pdb spec with maxUnavailable=null = %+v, want minAvailable 1", pdb.Spec)
+	}
 	if docs := mustRender(t, "replicas=3", "podDisruptionBudget.enabled=false"); len(docs["PodDisruptionBudget"]) != 0 {
 		t.Error("podDisruptionBudget.enabled=false still renders a PDB")
 	}
