@@ -93,8 +93,9 @@ checkout, and checks:
 Everything runs against flarefake in the cluster. See `hack/e2e-upgrade.sh`.
 
 **Rollback.** `helm rollback flare-operator <revision>` rolls back the manager. It does not
-roll back the CRDs. Stay on the newer CRDs unless the release notes say otherwise:
-v1alpha1 changes so far only add fields, and an older manager ignores fields it does not know.
+roll back the CRDs. Stay on the newer CRDs unless [CHANGELOG.md](../CHANGELOG.md) says
+otherwise: an older manager ignores fields it does not know, while an older CRD would prune
+fields that newer objects already store.
 
 ## Uninstall and what happens to Cloudflare resources
 
@@ -112,12 +113,12 @@ Cloudflare by itself.
 To remove the operator and **keep** everything in Cloudflare:
 
 ```sh
-# 1. Make every object orphan its resource (or set managementPolicies: ["Observe"]).
-for k in $(kubectl api-resources --categories cloudflare -o name); do
-  kubectl get "$k" -A -o name | grep -v cloudflareaccount | while read -r o; do :; done
-done
-kubectl get cloudflare -A -o json | jq -r '.items[] | select(.kind!="CloudflareAccount") | "\(.kind).\(.apiVersion|split("/")[0]) -n \(.metadata.namespace) \(.metadata.name)"' |
-  while read -r kind _ ns name; do kubectl patch "$kind" -n "$ns" "$name" --type merge -p '{"spec":{"deletionPolicy":"Orphan"}}'; done
+# 1. Make every managed object orphan its resource (or set managementPolicies: ["Observe"]).
+kubectl get cloudflare -A -o json |
+  jq -r '.items[] | select(.kind != "CloudflareAccount") | "\(.kind).\(.apiVersion | split("/")[0]) \(.metadata.namespace) \(.metadata.name)"' |
+  while read -r kind ns name; do
+    kubectl -n "$ns" patch "$kind" "$name" --type merge -p '{"spec":{"deletionPolicy":"Orphan"}}'
+  done
 # 2. Delete the objects while the manager still runs (the finalizers release the owner tags).
 kubectl delete cloudflare -A --all
 # 3. Remove the release, then the CRDs.
@@ -168,8 +169,8 @@ metrics Service. It needs the `monitoring.coreos.com` CRDs. Add the label your P
 selects with `metrics.serviceMonitor.labels`.
 
 Logs are zap JSON on stderr (`logging.encoder=console` for development). `logging.level=debug`
-logs every reconcile. Each line carries `controller`, `namespace`, `name` and
-`reconcileID`, so `kubectl logs deploy/flare-operator | jq 'select(.name=="sessions")'` follows
+adds the controllers' debug messages. Reconcile log lines carry `controller`, `namespace`,
+`name` and `reconcileID`, so `kubectl logs deploy/flare-operator | jq 'select(.name=="sessions")'` follows
 one object. Events are the other half: `kubectl get events -n <ns> --field-selector
 involvedObject.name=<name>` shows `ExternalResourceKept` and `ForeignOwnerTunnelKept` warnings.
 
@@ -243,13 +244,15 @@ Cloudflare allows 1200 requests per 5 minutes per token (global limit). The oper
   token wait out the block without calling the API (error code 971, "token is backing off
   after HTTP 429");
 - retries **5xx and transport errors** only for idempotent calls (GET, PUT, DELETE, HEAD), up
-  to 4 times (`spec.rateLimit.maxRetries`). A POST that failed with a 5xx is not retried
-  blindly: the next reconcile first looks for the resource by name or owner tag and adopts it,
-  so it is not created twice;
+  to 4 times (`spec.rateLimit.maxRetries`). A POST that failed with a 5xx or a timeout is not
+  retried inside the client. The next reconcile of a generated kind or a Tunnel first looks
+  for a resource with the same name and adopts it, so a create that did succeed is not
+  repeated. A VPCService reports `NameConflict` instead, because it has no owner tag to prove
+  the match (PR-3 adds fault tests for this window);
 - polls in-sync objects every 5 minutes for drift, and re-verifies tokens every 10 minutes.
-  About 300 in-sync objects per token therefore use one request per second at steady state.
-  `spec.rateLimit.listCacheTTL` caches collection GETs, which the adoption and tag lookups
-  use.
+  About 300 in-sync objects per token therefore use roughly one request per second at steady
+  state; tag reads add to that. `spec.rateLimit.listCacheTTL` caches collection GETs, such as
+  the name lookups used for adoption.
 
 Sharing a token with other tools (CI, Terraform, wrangler) shares Cloudflare's budget, not the
 operator's bucket. Give the operator its own token, or lower `requestsPerFiveMinutes`. The
@@ -304,7 +307,10 @@ it. Back up the objects and the token Secrets together (Velero, or plain YAML):
 
 ```sh
 kubectl get cloudflare -A -o yaml > flare-objects.yaml     # every flare.dev kind
-kubectl get secret -A -o yaml ... > tokens.yaml            # the Secrets tokenSecretRef names; store encrypted
+# The token Secrets the accounts reference. This file contains the tokens: store it encrypted.
+kubectl get cloudflareaccounts -A -o json |
+  jq -r '.items[] | "\(.metadata.namespace) \(.spec.tokenSecretRef.name)"' | sort -u |
+  while read -r ns s; do kubectl -n "$ns" get secret "$s" -o yaml; echo ---; done > tokens.yaml
 ```
 
 What makes a restore safe:
@@ -340,8 +346,9 @@ tag, are covered by the controller tests and e2e).
   concerned report `NameConflict`, a foreign-owner error, or `ForeignOwnerTunnelKept`, instead
   of fighting. Give each cluster its own token, so one cluster's 429s don't throttle the other.
 - **One cluster, several operator installs** is not supported. Each manager watches every
-  namespace and would reconcile the same objects. Use `controllers` to split kinds between
-  installs only if they don't overlap.
+  namespace and would reconcile the same objects, and the CRDs are cluster-wide anyway.
+  (Splitting kinds between installs with the `controllers` value is possible in principle but
+  untested: UNVERIFIED.)
 
 ## Releases
 
