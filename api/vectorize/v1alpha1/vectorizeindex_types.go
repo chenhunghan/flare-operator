@@ -93,6 +93,7 @@ type VectorizeIndexStatus struct {
 // Created at /accounts/{account_id}/vectorize/v2/indexes, managed at /accounts/{account_id}/vectorize/v2/indexes/{id} (account scope).
 // Default deletion policy: Delete.
 // Immutable fields: config, description, name.
+// Write-only fields: config.preset.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

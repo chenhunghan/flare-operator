@@ -124,6 +124,7 @@ var generated = []Entry{
 			IDField:               "name",
 			NameField:             "name",
 			Immutable:             []string{"config", "description", "name"},
+			WriteOnly:             []string{"config.preset"},
 			CreateFields:          []string{"config", "description", "name"},
 			DefaultDeletionPolicy: "Delete",
 		},

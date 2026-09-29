@@ -29,5 +29,6 @@ var generatedGenericKinds = []GenericKind{
 		ListPath:   "/accounts/{account_id}/vectorize/v2/indexes",
 		IDField:    "name",
 		NameField:  "name",
+		WriteOnly:  []string{"config.preset"},
 	},
 }

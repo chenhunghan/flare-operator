@@ -81,9 +81,11 @@ kinds:
       - {name: METRIC, type: string, jsonPath: .status.atProvider.config.metric}
     idField: name
     emulate: generic
+    writeOnly: [config.preset]
     why:
       kind: '"Index" alone is too generic across groups'
       idField: "the item path takes the index name ({index_name}); the object has no other identifier (spec)"
+      writeOnly: "the create body's config is a oneOf of {dimensions, metric} and {preset}, but the GET result's config is vectorize_index-dimension-configuration ({dimensions, metric}, both required): a preset is never read back (spec; UNVERIFIED against the live API), so it is compared through status.writeOnlyHash"
       emulate: "no hand-written profile; the empty list 0154 matches the spec (no result_info)"
       derived: "no update operation in the v2 API: every field is create-only (immutable)"
 
