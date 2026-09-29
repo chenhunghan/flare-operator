@@ -1,0 +1,13 @@
+# A D1 (serverless SQLite) database. Default deletionPolicy: Orphan (SQL data).
+apiVersion: d1.cloudflare.flare.dev/v1alpha1
+kind: D1Database
+metadata:
+  name: app-db
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    name: app-db                 # create-only
+    primary_location_hint: WEUR  # create-only and write-only: WNAM ENAM WEUR EEUR APAC OC
+    read_replication:
+      mode: disabled             # auto | disabled; updated in place (PATCH)

@@ -1,0 +1,27 @@
+# A CloudflareAccount binds a Cloudflare account ID to an API token held in a Secret in the same
+# namespace. Every managed object in that namespace refers to it through spec.accountRef.
+#
+# Prefer an account-owned API token, with only the permissions of the kinds you use
+# (README.md, "Token permissions").
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudflare-token
+type: Opaque
+stringData:
+  token: REPLACE-WITH-YOUR-API-TOKEN
+---
+apiVersion: cloudflare.flare.dev/v1alpha1
+kind: CloudflareAccount
+metadata:
+  name: main
+spec:
+  # The 32-character hex account ID (replace this placeholder).
+  accountID: 0123456789abcdef0123456789abcdef
+  tokenSecretRef:
+    name: cloudflare-token
+    key: token # the default
+  # Optional: tune the client-side rate limiter shared by every account that uses this token.
+  rateLimit:
+    requestsPerFiveMinutes: 1080 # the default, 90% of Cloudflare's 1200
+    burst: 20

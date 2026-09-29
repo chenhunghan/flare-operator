@@ -1,0 +1,15 @@
+# A Cloudflare Queue. Default deletionPolicy: Orphan (undelivered messages).
+apiVersion: queues.cloudflare.flare.dev/v1alpha1
+kind: Queue
+metadata:
+  name: jobs
+spec:
+  accountRef:
+    name: main
+  deletionPolicy: Delete # delete the queue in Cloudflare when this object is deleted
+  forProvider:
+    queue_name: jobs
+    settings:
+      delivery_delay: 5               # seconds
+      message_retention_period: 86400 # seconds
+      # delivery_paused: false        # write-only: Cloudflare does not return it
