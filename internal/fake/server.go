@@ -49,6 +49,8 @@ type Server struct {
 	limiter  *limiter
 	routes   []route
 	seq      int64 // creation sequence; orders lists deterministically even with a frozen clock
+
+	tokens map[string]*Token // tokens.go; nil = open mode
 }
 
 // nextSeq returns a monotonically increasing creation number. Callers hold s.mu.
@@ -98,6 +100,8 @@ func New(opts Options) *Server {
 	s.registerQueues()
 	s.registerTunnels()
 	s.registerVPC()
+	s.registerTokens()
+	s.registerTags()
 	return s
 }
 
@@ -109,6 +113,7 @@ func (s *Server) Reset() {
 	s.journal = nil
 	s.faults = nil
 	s.seq = 0
+	s.tokens = nil
 	s.ids.reset()
 	s.limiter.reset()
 	s.Clock.Real()

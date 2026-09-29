@@ -11,6 +11,7 @@ type account struct {
 	tunnels map[string]*tunnel
 	vnets   map[string]*virtualNetwork
 	vpc     map[string]*vpcService
+	tags    map[string]*tagRecord // tags.go; created lazily
 }
 
 func (s *Server) accountLocked(id string) *account {
