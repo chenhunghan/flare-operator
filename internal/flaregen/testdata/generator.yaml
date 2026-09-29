@@ -1,0 +1,7 @@
+# Golden-test config for testdata/fragment.json.
+kinds:
+  - fernGroup: widgets.gadgets
+    kind: Widget
+    listOrder: informational
+  - fernGroup: widget_tools.settings
+    kind: WidgetSettings

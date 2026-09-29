@@ -1,0 +1,231 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "flaregen test fragment", "version": "1"},
+  "paths": {
+    "/accounts/{account_id}/widgets": {
+      "parameters": [{"$ref": "#/components/parameters/account_id"}],
+      "post": {
+        "operationId": "widgets-create",
+        "x-fern-sdk-group-name": "widgets.gadgets",
+        "x-fern-sdk-method-name": "create",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/widget_create"}}}},
+        "responses": {"200": {"$ref": "#/components/responses/widget"}}
+      },
+      "get": {
+        "operationId": "widgets-list",
+        "x-fern-sdk-group-name": "widgets.gadgets",
+        "x-fern-sdk-method-name": "list",
+        "responses": {"200": {"description": "list", "content": {"application/json": {"schema": {"type": "object", "properties": {"result": {"type": "array", "items": {"$ref": "#/components/schemas/widget"}}, "success": {"type": "boolean"}}}}}}}
+      }
+    },
+    "/accounts/{account_id}/widgets/{widget_id}": {
+      "parameters": [{"$ref": "#/components/parameters/account_id"}, {"name": "widget_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "get": {
+        "operationId": "widgets-get",
+        "x-fern-sdk-group-name": "widgets.gadgets",
+        "x-fern-sdk-method-name": "get",
+        "responses": {"200": {"$ref": "#/components/responses/widget"}}
+      },
+      "patch": {
+        "operationId": "widgets-edit",
+        "x-fern-sdk-group-name": "widgets.gadgets",
+        "x-fern-sdk-method-name": "edit",
+        "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/widget_update"}}}},
+        "responses": {"200": {"$ref": "#/components/responses/widget"}}
+      },
+      "put": {
+        "operationId": "widgets-update",
+        "x-fern-sdk-group-name": "widgets.gadgets",
+        "x-fern-sdk-method-name": "update",
+        "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/widget_create"}}}},
+        "responses": {"200": {"$ref": "#/components/responses/widget"}}
+      },
+      "delete": {
+        "operationId": "widgets-delete",
+        "x-fern-sdk-group-name": "widgets.gadgets",
+        "x-fern-sdk-method-name": "delete",
+        "responses": {"200": {"description": "deleted"}}
+      }
+    },
+    "/accounts/{account_id}/widgets/{widget_id}/parts": {
+      "post": {
+        "operationId": "parts-create",
+        "x-fern-sdk-group-name": "widgets.parts",
+        "x-fern-sdk-method-name": "create",
+        "parameters": [{"$ref": "#/components/parameters/account_id"}, {"name": "widget_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"name": {"type": "string"}}}}}},
+        "responses": {"200": {"description": "ok"}}
+      }
+    },
+    "/accounts/{account_id}/widgets/{widget_id}/parts/{part_id}": {
+      "parameters": [{"$ref": "#/components/parameters/account_id"}, {"name": "widget_id", "in": "path", "required": true, "schema": {"type": "string"}}, {"name": "part_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "get": {"operationId": "parts-get", "x-fern-sdk-group-name": "widgets.parts", "x-fern-sdk-method-name": "get", "responses": {"200": {"description": "ok"}}},
+      "delete": {"operationId": "parts-delete", "x-fern-sdk-group-name": "widgets.parts", "x-fern-sdk-method-name": "delete", "responses": {"200": {"description": "ok"}}}
+    },
+    "/accounts/{account_id}/uploads": {
+      "parameters": [{"$ref": "#/components/parameters/account_id"}],
+      "post": {
+        "operationId": "uploads-create",
+        "x-fern-sdk-group-name": "widgets.uploads",
+        "x-fern-sdk-method-name": "create",
+        "requestBody": {"content": {"multipart/form-data": {"schema": {"type": "object", "properties": {"file": {"type": "string", "format": "binary"}}}}}},
+        "responses": {"200": {"description": "ok"}}
+      }
+    },
+    "/accounts/{account_id}/uploads/{upload_id}": {
+      "parameters": [{"$ref": "#/components/parameters/account_id"}, {"name": "upload_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "get": {"operationId": "uploads-get", "x-fern-sdk-group-name": "widgets.uploads", "x-fern-sdk-method-name": "get", "responses": {"200": {"description": "ok"}}},
+      "delete": {"operationId": "uploads-delete", "x-fern-sdk-group-name": "widgets.uploads", "x-fern-sdk-method-name": "delete", "responses": {"200": {"description": "ok"}}}
+    },
+    "/user/gizmos": {
+      "post": {"operationId": "gizmos-create", "x-fern-sdk-group-name": "widgets.gizmos", "x-fern-sdk-method-name": "create", "responses": {"200": {"description": "ok"}}}
+    },
+    "/user/gizmos/{gizmo_id}": {
+      "parameters": [{"name": "gizmo_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "get": {"operationId": "gizmos-get", "x-fern-sdk-group-name": "widgets.gizmos", "x-fern-sdk-method-name": "get", "responses": {"200": {"description": "ok"}}},
+      "delete": {"operationId": "gizmos-delete", "x-fern-sdk-group-name": "widgets.gizmos", "x-fern-sdk-method-name": "delete", "responses": {"200": {"description": "ok"}}}
+    },
+    "/zones/{zone_identifier}/widget_settings": {
+      "parameters": [{"name": "zone_identifier", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "get": {
+        "operationId": "settings-get",
+        "x-fern-sdk-group-name": "widget_tools.settings",
+        "x-fern-sdk-method-name": "get",
+        "responses": {"200": {"description": "ok", "content": {"application/json": {"schema": {"allOf": [
+          {"$ref": "#/components/schemas/envelope"},
+          {"type": "object", "properties": {"result": {"$ref": "#/components/schemas/settings"}}}
+        ]}}}}}
+      },
+      "patch": {
+        "operationId": "settings-edit",
+        "x-fern-sdk-group-name": "widget_tools.settings",
+        "x-fern-sdk-method-name": "edit",
+        "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/settings"}}}},
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "account_id": {"name": "account_id", "in": "path", "required": true, "schema": {"type": "string"}}
+    },
+    "responses": {
+      "widget": {"description": "a widget", "content": {"application/json": {"schema": {"allOf": [
+        {"$ref": "#/components/schemas/envelope"},
+        {"type": "object", "properties": {"result": {"$ref": "#/components/schemas/widget"}}}
+      ]}}}}
+    },
+    "schemas": {
+      "envelope": {
+        "type": "object",
+        "required": ["success", "errors", "messages"],
+        "properties": {
+          "success": {"type": "boolean", "enum": [true]},
+          "errors": {"type": "array", "items": {"type": "object", "properties": {"code": {"type": "integer"}, "message": {"type": "string"}}}},
+          "messages": {"type": "array", "items": {"type": "object"}}
+        }
+      },
+      "http_origin": {
+        "type": "object",
+        "required": ["type", "url"],
+        "properties": {
+          "type": {"type": "string", "enum": ["http"]},
+          "url": {"type": "string", "description": "Origin URL."},
+          "timeout": {"type": "integer", "minimum": 1, "maximum": 60}
+        }
+      },
+      "s3_origin": {
+        "type": "object",
+        "required": ["type", "bucket"],
+        "properties": {
+          "type": {"type": "string", "enum": ["s3"]},
+          "bucket": {"type": "string"},
+          "timeout": {"type": "integer", "minimum": 1, "maximum": 60}
+        }
+      },
+      "node": {
+        "type": "object",
+        "description": "A tree node (recursive).",
+        "properties": {
+          "value": {"type": "string"},
+          "children": {"type": "array", "items": {"$ref": "#/components/schemas/node"}}
+        }
+      },
+      "base": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {"name": {"type": "string"}, "weight": {"type": "number"}}
+      },
+      "widget_create": {
+        "type": "object",
+        "required": ["name", "kind"],
+        "properties": {
+          "name": {"type": "string", "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$", "description": "Widget name."},
+          "kind": {"type": "string", "enum": ["a", "b"]},
+          "region": {"type": "string", "description": "Create-only and never read back."},
+          "id": {"type": "string", "readOnly": true},
+          "origin": {"discriminator": {"propertyName": "type"}, "oneOf": [{"$ref": "#/components/schemas/http_origin"}, {"$ref": "#/components/schemas/s3_origin"}]},
+          "ttl": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "number"}]},
+          "mode": {"oneOf": [{"type": "string", "enum": ["x"]}, {"type": "string", "enum": ["y"]}]},
+          "target": {"oneOf": [{"type": "string"}, {"type": "object", "properties": {"host": {"type": "string"}}}]},
+          "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+          "meta": {"type": "object"},
+          "tree": {"$ref": "#/components/schemas/node"},
+          "tags": {"type": "array", "items": {"type": "string", "maxLength": 16}, "maxItems": 5},
+          "note": {"oneOf": [{"type": "string"}, {"nullable": true}]},
+          "combo": {"allOf": [{"$ref": "#/components/schemas/base"}, {"type": "object", "properties": {"extra": {"type": "boolean"}}}]},
+          "lookahead": {"type": "string", "pattern": "^(?!x).*$"},
+          "secret": {"type": "string", "writeOnly": true}
+        }
+      },
+      "widget_update": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$", "description": "Widget name."},
+          "kind": {"type": "string", "enum": ["a", "b"]},
+          "origin": {"discriminator": {"propertyName": "type"}, "oneOf": [{"$ref": "#/components/schemas/http_origin"}, {"$ref": "#/components/schemas/s3_origin"}]},
+          "ttl": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "number"}]},
+          "mode": {"oneOf": [{"type": "string", "enum": ["x"]}, {"type": "string", "enum": ["y"]}]},
+          "target": {"oneOf": [{"type": "string"}, {"type": "object", "properties": {"host": {"type": "string"}}}]},
+          "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+          "meta": {"type": "object"},
+          "tree": {"$ref": "#/components/schemas/node"},
+          "tags": {"type": "array", "items": {"type": "string", "maxLength": 16}, "maxItems": 5},
+          "note": {"oneOf": [{"type": "string"}, {"nullable": true}]},
+          "combo": {"allOf": [{"$ref": "#/components/schemas/base"}, {"type": "object", "properties": {"extra": {"type": "boolean"}}}]},
+          "lookahead": {"type": "string", "pattern": "^(?!x).*$"},
+          "secret": {"type": "string", "writeOnly": true}
+        }
+      },
+      "widget": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "readOnly": true, "description": "Widget identifier."},
+          "created_on": {"type": "string", "format": "date-time", "readOnly": true},
+          "name": {"type": "string", "maxLength": 64, "description": "Widget name."},
+          "kind": {"type": "string", "enum": ["a", "b"]},
+          "origin": {"oneOf": [{"$ref": "#/components/schemas/http_origin"}, {"$ref": "#/components/schemas/s3_origin"}]},
+          "ttl": {"type": "number"},
+          "mode": {"type": "string"},
+          "target": {"oneOf": [{"type": "string"}, {"type": "object", "properties": {"host": {"type": "string"}}}]},
+          "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+          "meta": {"type": "object"},
+          "tree": {"$ref": "#/components/schemas/node"},
+          "tags": {"type": "array", "items": {"type": "string"}},
+          "note": {"type": "string", "nullable": true},
+          "combo": {"allOf": [{"$ref": "#/components/schemas/base"}, {"type": "object", "properties": {"extra": {"type": "boolean"}}}]},
+          "lookahead": {"type": "string"},
+          "secret": {"type": "string", "writeOnly": true}
+        }
+      },
+      "settings": {
+        "type": "object",
+        "properties": {
+          "enabled": {"type": "boolean", "description": "Whether widgets are on."},
+          "level": {"type": "integer", "enum": [1, 2, 3]},
+          "updated_at": {"type": "string", "readOnly": true}
+        }
+      }
+    }
+  }
+}

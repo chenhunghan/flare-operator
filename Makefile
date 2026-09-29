@@ -80,3 +80,11 @@ define go-install-tool
 }; \
 ln -sf $(notdir $(1))-$(3) $(1)
 endef
+
+.PHONY: generate-crds generate-check
+
+generate-crds:   ## regenerate api/<product>/v1alpha1, config/crd/bases and internal/generic/descriptors (cmd/flaregen)
+	go run ./cmd/flaregen
+
+generate-check:  ## fail if the generated CRD files are not up to date
+	go run ./cmd/flaregen -check
