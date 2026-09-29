@@ -2,6 +2,16 @@
 # TestReasonsDocumented fails when a Reason*/EventReason* string constant in api/ or internal/
 # (internal/fake excepted) is missing here, or when an entry here names no such constant.
 conditions:
+  - reason: RateLimited
+    condition: Synced
+    status: "False"
+    kinds: every kind
+    meaning: >-
+      The reconcile hit Cloudflare's rate limit (HTTP 429, or the client refusing calls while the
+      token backs off after a Retry-After). The object is requeued after the Retry-After delay
+      (at least 1s); no action is needed unless it persists, in which case lower the poll rate or
+      concurrency (reconcile.pollInterval / reconcile.maxConcurrentReconciles) or split accounts
+      across tokens.
   - reason: Available
     condition: Ready
     status: "True"

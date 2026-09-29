@@ -6,15 +6,21 @@
   "definitions": {
     "stringMap": {
       "type": "object",
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "objectList": {
       "type": "array",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object"
+      }
     },
     "stringList": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "port": {
       "type": "integer",
@@ -23,37 +29,68 @@
     },
     "pullPolicy": {
       "type": "string",
-      "enum": ["Always", "IfNotPresent", "Never"]
+      "enum": [
+        "Always",
+        "IfNotPresent",
+        "Never"
+      ]
     },
     "intOrPercent": {
       "anyOf": [
-        { "type": "integer", "minimum": 0 },
-        { "type": "string", "pattern": "^([0-9]+%?)?$" }
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^([0-9]+%?)?$"
+        }
       ]
     },
     "intOrPercentSet": {
       "anyOf": [
-        { "type": "integer", "minimum": 0 },
-        { "type": "string", "pattern": "^[0-9]+%?$" }
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9]+%?$"
+        }
       ]
     },
     "resources": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "requests": { "type": "object" },
-        "limits": { "type": "object" },
-        "claims": { "$ref": "#/definitions/objectList" }
+        "requests": {
+          "type": "object"
+        },
+        "limits": {
+          "type": "object"
+        },
+        "claims": {
+          "$ref": "#/definitions/objectList"
+        }
       }
     },
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository"],
+      "required": [
+        "repository"
+      ],
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "tag": { "type": "string" },
-        "pullPolicy": { "$ref": "#/definitions/pullPolicy" }
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string"
+        },
+        "pullPolicy": {
+          "$ref": "#/definitions/pullPolicy"
+        }
       }
     }
   },
@@ -62,10 +99,18 @@
       "type": "object",
       "description": "Reserved by Helm for parent charts; unused."
     },
-    "nameOverride": { "type": "string" },
-    "fullnameOverride": { "type": "string" },
-    "image": { "$ref": "#/definitions/image" },
-    "imagePullSecrets": { "$ref": "#/definitions/objectList" },
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string"
+    },
+    "image": {
+      "$ref": "#/definitions/image"
+    },
+    "imagePullSecrets": {
+      "$ref": "#/definitions/objectList"
+    },
     "replicas": {
       "type": "integer",
       "minimum": 0,
@@ -75,7 +120,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" }
+        "enabled": {
+          "type": "boolean"
+        }
       }
     },
     "clusterName": {
@@ -85,17 +132,28 @@
       "pattern": "^[A-Za-z0-9]([-A-Za-z0-9._]*[A-Za-z0-9])?$",
       "description": "Cluster identity in ownership tags (flare.dev/owner=<clusterName>/<ns>/<name>). Letters, numbers, '-', '.' and '_' only; no '/', which separates the tag value's parts."
     },
-    "ownershipTags": { "type": "boolean" },
-    "userAgent": { "type": "string" },
-    "controllers": { "$ref": "#/definitions/stringList" },
+    "ownershipTags": {
+      "type": "boolean"
+    },
+    "userAgent": {
+      "type": "string"
+    },
+    "controllers": {
+      "$ref": "#/definitions/stringList"
+    },
     "baseURLOverride": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "allowAny": { "type": "boolean" },
+        "allowAny": {
+          "type": "boolean"
+        },
         "allowed": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^https?://" }
+          "items": {
+            "type": "string",
+            "pattern": "^https?://"
+          }
         }
       }
     },
@@ -106,40 +164,80 @@
         "level": {
           "description": "zap level (--zap-log-level): debug, info, error, panic, or an integer verbosity.",
           "anyOf": [
-            { "type": "string", "pattern": "^(debug|info|error|panic|[0-9]+)$" },
-            { "type": "integer", "minimum": 0 }
+            {
+              "type": "string",
+              "pattern": "^(debug|info|error|panic|[0-9]+)$"
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
           ]
         },
-        "encoder": { "type": "string", "enum": ["json", "console"] }
+        "encoder": {
+          "type": "string",
+          "enum": [
+            "json",
+            "console"
+          ]
+        }
       }
     },
-    "extraArgs": { "$ref": "#/definitions/stringList" },
-    "extraEnv": { "$ref": "#/definitions/objectList" },
+    "extraArgs": {
+      "$ref": "#/definitions/stringList"
+    },
+    "extraEnv": {
+      "$ref": "#/definitions/objectList"
+    },
     "metrics": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "port": { "$ref": "#/definitions/port" },
+        "enabled": {
+          "type": "boolean"
+        },
+        "port": {
+          "$ref": "#/definitions/port"
+        },
         "service": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "annotations": { "$ref": "#/definitions/stringMap" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "annotations": {
+              "$ref": "#/definitions/stringMap"
+            }
           }
         },
         "serviceMonitor": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "labels": { "$ref": "#/definitions/stringMap" },
-            "annotations": { "$ref": "#/definitions/stringMap" },
-            "interval": { "type": "string", "pattern": "^([0-9]+(ms|s|m|h))*$" },
-            "scrapeTimeout": { "type": "string", "pattern": "^([0-9]+(ms|s|m|h))*$" },
-            "relabelings": { "$ref": "#/definitions/objectList" },
-            "metricRelabelings": { "$ref": "#/definitions/objectList" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "labels": {
+              "$ref": "#/definitions/stringMap"
+            },
+            "annotations": {
+              "$ref": "#/definitions/stringMap"
+            },
+            "interval": {
+              "type": "string",
+              "pattern": "^([0-9]+(ms|s|m|h))*$"
+            },
+            "scrapeTimeout": {
+              "type": "string",
+              "pattern": "^([0-9]+(ms|s|m|h))*$"
+            },
+            "relabelings": {
+              "$ref": "#/definitions/objectList"
+            },
+            "metricRelabelings": {
+              "$ref": "#/definitions/objectList"
+            }
           }
         }
       }
@@ -148,38 +246,72 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "port": { "$ref": "#/definitions/port" }
+        "port": {
+          "$ref": "#/definitions/port"
+        }
       }
     },
     "serviceAccount": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "create": { "type": "boolean" },
-        "name": { "type": "string" },
-        "annotations": { "$ref": "#/definitions/stringMap" }
+        "create": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "annotations": {
+          "$ref": "#/definitions/stringMap"
+        }
       }
     },
     "rbac": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "create": { "type": "boolean" },
-        "aggregateToDefaultRoles": { "type": "boolean" }
+        "create": {
+          "type": "boolean"
+        },
+        "aggregateToDefaultRoles": {
+          "type": "boolean"
+        }
       }
     },
-    "podAnnotations": { "$ref": "#/definitions/stringMap" },
-    "podLabels": { "$ref": "#/definitions/stringMap" },
-    "priorityClassName": { "type": "string" },
+    "podAnnotations": {
+      "$ref": "#/definitions/stringMap"
+    },
+    "podLabels": {
+      "$ref": "#/definitions/stringMap"
+    },
+    "priorityClassName": {
+      "type": "string"
+    },
     "topologySpreadConstraints": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["maxSkew", "topologyKey", "whenUnsatisfiable"],
+        "required": [
+          "maxSkew",
+          "topologyKey",
+          "whenUnsatisfiable"
+        ],
         "properties": {
-          "maxSkew": { "type": "integer", "minimum": 1 },
-          "topologyKey": { "type": "string", "minLength": 1 },
-          "whenUnsatisfiable": { "type": "string", "enum": ["DoNotSchedule", "ScheduleAnyway"] }
+          "maxSkew": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "topologyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "whenUnsatisfiable": {
+            "type": "string",
+            "enum": [
+              "DoNotSchedule",
+              "ScheduleAnyway"
+            ]
+          }
         }
       }
     },
@@ -187,66 +319,160 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "minAvailable": { "$ref": "#/definitions/intOrPercentSet" },
-        "maxUnavailable": { "$ref": "#/definitions/intOrPercent" }
+        "enabled": {
+          "type": "boolean"
+        },
+        "minAvailable": {
+          "$ref": "#/definitions/intOrPercentSet"
+        },
+        "maxUnavailable": {
+          "$ref": "#/definitions/intOrPercent"
+        }
       }
     },
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "apiServer": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "cidrs": { "$ref": "#/definitions/stringList" },
-            "ports": { "type": "array", "items": { "$ref": "#/definitions/port" } }
+            "cidrs": {
+              "$ref": "#/definitions/stringList"
+            },
+            "ports": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/port"
+              }
+            }
           }
         },
         "cloudflareAPI": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "cidrs": { "$ref": "#/definitions/stringList" },
-            "ports": { "type": "array", "items": { "$ref": "#/definitions/port" } }
+            "cidrs": {
+              "$ref": "#/definitions/stringList"
+            },
+            "ports": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/port"
+              }
+            }
           }
         },
         "dns": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "namespaceSelector": { "$ref": "#/definitions/stringMap" },
-            "podSelector": { "$ref": "#/definitions/stringMap" }
+            "namespaceSelector": {
+              "$ref": "#/definitions/stringMap"
+            },
+            "podSelector": {
+              "$ref": "#/definitions/stringMap"
+            }
           }
         },
-        "metricsFrom": { "$ref": "#/definitions/objectList" },
-        "extraEgress": { "$ref": "#/definitions/objectList" }
+        "metricsFrom": {
+          "$ref": "#/definitions/objectList"
+        },
+        "extraEgress": {
+          "$ref": "#/definitions/objectList"
+        }
       }
     },
-    "podSecurityContext": { "type": "object" },
-    "securityContext": { "type": "object" },
-    "resources": { "$ref": "#/definitions/resources" },
-    "nodeSelector": { "$ref": "#/definitions/stringMap" },
-    "tolerations": { "$ref": "#/definitions/objectList" },
-    "affinity": { "type": "object" },
-    "clusterDomain": { "type": "string", "minLength": 1 },
+    "podSecurityContext": {
+      "type": "object"
+    },
+    "securityContext": {
+      "type": "object"
+    },
+    "resources": {
+      "$ref": "#/definitions/resources"
+    },
+    "nodeSelector": {
+      "$ref": "#/definitions/stringMap"
+    },
+    "tolerations": {
+      "$ref": "#/definitions/objectList"
+    },
+    "affinity": {
+      "type": "object"
+    },
+    "clusterDomain": {
+      "type": "string",
+      "minLength": 1
+    },
     "flarefake": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "image": { "$ref": "#/definitions/image" },
-        "port": { "$ref": "#/definitions/port" },
-        "validateRequests": { "type": "boolean" },
-        "rejectSchemaViolations": { "type": "boolean" },
-        "extraArgs": { "$ref": "#/definitions/stringList" },
-        "podAnnotations": { "$ref": "#/definitions/stringMap" },
-        "resources": { "$ref": "#/definitions/resources" },
-        "nodeSelector": { "$ref": "#/definitions/stringMap" },
-        "tolerations": { "$ref": "#/definitions/objectList" },
-        "affinity": { "type": "object" }
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "$ref": "#/definitions/image"
+        },
+        "port": {
+          "$ref": "#/definitions/port"
+        },
+        "validateRequests": {
+          "type": "boolean"
+        },
+        "rejectSchemaViolations": {
+          "type": "boolean"
+        },
+        "extraArgs": {
+          "$ref": "#/definitions/stringList"
+        },
+        "podAnnotations": {
+          "$ref": "#/definitions/stringMap"
+        },
+        "resources": {
+          "$ref": "#/definitions/resources"
+        },
+        "nodeSelector": {
+          "$ref": "#/definitions/stringMap"
+        },
+        "tolerations": {
+          "$ref": "#/definitions/objectList"
+        },
+        "affinity": {
+          "type": "object"
+        }
+      }
+    },
+    "reconcile": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Reconcile tuning (manager flags --poll-interval, --max-concurrent-reconciles, --reconcile-timeout, --cloudflare-request-timeout).",
+      "properties": {
+        "pollInterval": {
+          "type": "string",
+          "pattern": "^$|^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Drift-poll interval; empty keeps controller defaults; minimum 10s (validated by the manager)."
+        },
+        "maxConcurrentReconciles": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Parallel reconciles per controller."
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^$|^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Context deadline of one reconcile; 0 disables."
+        },
+        "cloudflareRequestTimeout": {
+          "type": "string",
+          "pattern": "^$|^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Timeout of one Cloudflare API HTTP request."
+        }
       }
     }
   }

@@ -45,6 +45,7 @@ Every kind reports two conditions. `Ready` says whether the Cloudflare resource 
 
 | Reason | Condition | Status | Kinds | Meaning |
 |---|---|---|---|---|
+| `RateLimited` | Synced | False | every kind | The reconcile hit Cloudflare's rate limit (HTTP 429, or the client refusing calls while the token backs off after a Retry-After). The object is requeued after the Retry-After delay (at least 1s); no action is needed unless it persists, in which case lower the poll rate or concurrency (reconcile.pollInterval / reconcile.maxConcurrentReconciles) or split accounts across tokens. |
 | `Available` | Ready | True | every kind | The Cloudflare resource exists and was read. For a CloudflareAccount: the API token is active and can act on the account. |
 | `Creating` | Ready | False | managed kinds | A create request is being sent; the resource has not been read back yet. |
 | `Deleting` | Ready | False | managed kinds | The object is being deleted and its finalizer is deleting (deletionPolicy Delete) or releasing (Orphan) the Cloudflare resource. |
