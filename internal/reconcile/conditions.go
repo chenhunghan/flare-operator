@@ -5,17 +5,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
+	"flare.dev/operator/internal/cfclient"
 )
 
+// MaxConditionMessage bounds condition messages; they often quote API error text.
+const MaxConditionMessage = 1024
+
 // SetCondition sets (or updates) a condition on mg, stamped with mg's generation. The
-// transition time only changes when the status changes.
+// transition time only changes when the status changes. The message is sanitized (control
+// characters removed) and cut to MaxConditionMessage bytes.
 func SetCondition(mg commonv1alpha1.Managed, typ string, status metav1.ConditionStatus, reason, msg string) {
 	st := mg.GetResourceStatus()
 	meta.SetStatusCondition(&st.Conditions, metav1.Condition{
 		Type:               typ,
 		Status:             status,
 		Reason:             reason,
-		Message:            msg,
+		Message:            cfclient.Sanitize(msg, MaxConditionMessage),
 		ObservedGeneration: mg.GetGeneration(),
 	})
 }

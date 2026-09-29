@@ -27,6 +27,15 @@ type Options struct {
 	OwnershipTags   bool
 	UserAgent       string
 	OnlyControllers stringList
+	// AllowBaseURLOverride honours any CloudflareAccount spec.baseURL; AllowedBaseURLs only
+	// those listed. Both default to off: an override sends the account's token elsewhere.
+	AllowBaseURLOverride bool
+	AllowedBaseURLs      stringList
+}
+
+// BaseURLPolicy returns the spec.baseURL policy selected by the flags.
+func (o Options) BaseURLPolicy() reconcile.BaseURLPolicy {
+	return reconcile.BaseURLPolicy{AllowAny: o.AllowBaseURLOverride, Allowed: o.AllowedBaseURLs}
 }
 
 type stringList []string
@@ -67,6 +76,9 @@ func main() {
 	flag.BoolVar(&o.OwnershipTags, "ownership-tags", true, "tag managed Cloudflare resources with flare.dev/owner through Resource Tagging")
 	flag.StringVar(&o.UserAgent, "user-agent", "flare-operator", "User-Agent for Cloudflare API calls")
 	flag.Var(&o.OnlyControllers, "controller", "run only this controller (repeatable; default: all registered)")
+	flag.BoolVar(&o.AllowBaseURLOverride, "allow-base-url-override", false,
+		"honour any CloudflareAccount spec.baseURL (e.g. flarefake in tests); off by default because an override sends the account's API token to that URL")
+	flag.Var(&o.AllowedBaseURLs, "allowed-base-url", "a CloudflareAccount spec.baseURL to honour (repeatable; exact match, trailing slash ignored)")
 	zo := zap.Options{Development: false}
 	zo.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -96,7 +108,7 @@ func run(o Options) error {
 		return fmt.Errorf("create manager: %w", err)
 	}
 	deps := controller.Deps{
-		Accounts:    reconcile.NewAccounts(mgr.GetClient(), reconcile.WithUserAgent(o.UserAgent)),
+		Accounts:    reconcile.NewAccounts(mgr.GetClient(), reconcile.WithUserAgent(o.UserAgent), reconcile.WithBaseURLPolicy(o.BaseURLPolicy())),
 		Tagger:      o.Tagger(),
 		ClusterName: o.ClusterName,
 	}

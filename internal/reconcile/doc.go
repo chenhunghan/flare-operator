@@ -15,6 +15,13 @@
 //   - Accounts (accounts.go): Resolve(mg) maps spec.accountRef to a Ready CloudflareAccount in
 //     the same namespace and returns its cached cfclient.Client and account ID, or an
 //     *AccountError (reason AccountNotReady) the caller surfaces with MarkAccountNotReady.
+//     It also labels mg cloudflare.flare.dev/account=<accountRef.name> (AccountLabel), which the
+//     CloudflareAccount controller uses to block the account's deletion while it is in use, so
+//     every managed kind must resolve its account through Resolve. spec.baseURL overrides are
+//     refused unless allowed by the BaseURLPolicy (manager flags --allow-base-url-override,
+//     --allowed-base-url).
 //   - Ownership tags (tags.go): Tagger writes flare.dev/owner=<cluster>/<ns>/<name> through
-//     Resource Tagging with GET-merge-PUT (PUT replaces all tags). NoopTagger disables it.
+//     Resource Tagging with GET-merge-PUT (PUT replaces all tags), guarded by If-Match with a
+//     bounded retry on 412; an ambiguous 500 read is checked against the tag index before any
+//     write. NoopTagger disables it.
 package reconcile
