@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,6 +48,9 @@ type Deps struct {
 	Accounts    *reconcile.Accounts
 	Tagger      reconcile.Tagger
 	ClusterName string
+	// PollInterval is how often an in-sync object is re-read from Cloudflare to detect drift
+	// (the manager's --poll-interval); 0 keeps each controller's default.
+	PollInterval time.Duration
 }
 
 // Registration describes one controller (and/or API scheme).

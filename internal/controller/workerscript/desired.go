@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -92,9 +93,11 @@ func (r *Reconciler) resolve(ctx context.Context, ws *workersv1alpha1.WorkerScri
 	return d, nil, nil
 }
 
-// validModuleName rejects names a multipart part cannot carry unambiguously.
+// validModuleName rejects names a multipart part cannot carry unambiguously. Invalid UTF-8 is
+// rejected too: JSON encoding would turn it into U+FFFD in the metadata's main_module, which
+// then no longer names the part (found by FuzzBuildMultipart).
 func validModuleName(n string) bool {
-	if n == "" || len(n) > 255 {
+	if n == "" || len(n) > 255 || !utf8.ValidString(n) {
 		return false
 	}
 	for _, c := range n {

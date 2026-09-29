@@ -30,6 +30,8 @@ import (
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
 	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
+	vectorizev1alpha1 "flare.dev/operator/api/vectorize/v1alpha1"
+	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
 )
 
@@ -48,10 +50,14 @@ type objects struct {
 	// tunnel2/vpc2 stay until the namespace is deleted (teardown ordering).
 	tunnel2 *tunnelsv1alpha1.Tunnel
 	vpc2    *workersvpcv1alpha1.VPCService
+	// vec is a generic-profile kind (the generic reconciler with no hand-written flarefake
+	// profile); worker binds kv, d1 and vpc.
+	vec    *vectorizev1alpha1.VectorizeIndex
+	worker *workersv1alpha1.WorkerScript
 }
 
 func (o *objects) managed() []commonv1alpha1.Managed {
-	return []commonv1alpha1.Managed{o.kv, o.queue, o.d1, o.tunnel, o.vpc, o.tunnel2, o.vpc2}
+	return []commonv1alpha1.Managed{o.kv, o.queue, o.d1, o.tunnel, o.vpc, o.tunnel2, o.vpc2, o.vec, o.worker}
 }
 
 // TestEndToEnd runs the whole flow against the installed chart. The steps share state and
@@ -107,7 +113,8 @@ func (s *suite) cleanup() {
 	}
 	t.Errorf("namespace %s still exists after 3m; removing finalizers", s.ns)
 	lists := []client.ObjectList{&tunnelsv1alpha1.TunnelList{}, &workersvpcv1alpha1.VPCServiceList{}, &kvv1alpha1.KVNamespaceList{},
-		&queuesv1alpha1.QueueList{}, &d1v1alpha1.D1DatabaseList{}, &cloudflarev1alpha1.CloudflareAccountList{}, &corev1.SecretList{}}
+		&queuesv1alpha1.QueueList{}, &d1v1alpha1.D1DatabaseList{}, &cloudflarev1alpha1.CloudflareAccountList{}, &corev1.SecretList{},
+		&workersv1alpha1.WorkerScriptList{}, &vectorizev1alpha1.VectorizeIndexList{}}
 	for _, l := range lists {
 		if err := s.c.List(s.ctx(), l, client.InNamespace(s.ns)); err != nil {
 			continue
@@ -150,6 +157,14 @@ func metaItems(l client.ObjectList) ([]client.Object, error) {
 			out = append(out, &l.Items[i])
 		}
 	case *corev1.SecretList:
+		for i := range l.Items {
+			out = append(out, &l.Items[i])
+		}
+	case *workersv1alpha1.WorkerScriptList:
+		for i := range l.Items {
+			out = append(out, &l.Items[i])
+		}
+	case *vectorizev1alpha1.VectorizeIndexList:
 		for i := range l.Items {
 			out = append(out, &l.Items[i])
 		}
@@ -297,24 +312,33 @@ func (s *suite) testCreate(t *testing.T, o *objects) {
 	o.tunnel, o.tunnel2 = s.tunnelSpec("tun"), s.tunnelSpec("tun2")
 	host := fmt.Sprintf("web.%s.svc.%s", s.ns, s.cfg.ClusterDomain)
 	o.vpc, o.vpc2 = s.vpcSpec("web", "tun", host, 80), s.vpcSpec("web2", "tun2", host, 80)
+	o.vec = &vectorizev1alpha1.VectorizeIndex{ObjectMeta: metav1.ObjectMeta{Namespace: s.ns, Name: "vec"},
+		Spec: vectorizev1alpha1.VectorizeIndexSpec{ResourceSpec: acct, ForProvider: vectorizev1alpha1.VectorizeIndexParameters{
+			Name: ptr.To("flare-e2e-" + s.ns + "-vec"), Description: ptr.To("flare e2e"),
+			Config: &vectorizev1alpha1.VectorizeIndexConfigParameters{Dimensions: ptr.To[int64](3), Metric: ptr.To("cosine")},
+		}}}
+	o.worker = s.workerSpec("worker", workerCode("v1"))
 	s.clearJournal()
-	for _, obj := range []client.Object{o.kv, o.queue, o.d1, o.web, o.tunnel, o.tunnel2, o.vpc, o.vpc2} {
+	for _, obj := range []client.Object{o.kv, o.queue, o.d1, o.web, o.tunnel, o.tunnel2, o.vpc, o.vpc2, o.vec, o.worker} {
 		s.create(obj)
 	}
 	for _, mg := range o.managed() {
 		s.waitManaged(mg, 3*time.Minute)
 	}
 	// Exactly the expected creates: one POST per resource, the queue's settings PATCH right
-	// after its create (settings are not part of the create body, 0028), and one owner-tag PUT
-	// per taggable resource (VPC services have no Resource Tagging type).
+	// after its create (settings are not part of the create body, 0028), exactly one upload of
+	// the Worker script (it waits for its bindings' IDs instead of uploading early), and one
+	// owner-tag PUT per taggable resource (VPC services and Vectorize indexes have no Resource
+	// Tagging type).
 	time.Sleep(3 * time.Second)
 	a := "/accounts/" + s.accountID
 	want := []string{
 		"POST " + a + "/storage/kv/namespaces", "POST " + a + "/queues", "PATCH " + a + "/queues/" + o.queue.Status.ID,
 		"POST " + a + "/d1/database", "POST " + a + "/cfd_tunnel", "POST " + a + "/cfd_tunnel",
 		"POST " + a + "/connectivity/directory/services", "POST " + a + "/connectivity/directory/services",
+		"POST " + a + "/vectorize/v2/indexes", "PUT " + a + "/workers/scripts/" + o.worker.ScriptName(),
 	}
-	for range 5 {
+	for range 6 {
 		want = append(want, "PUT "+a+"/tags")
 	}
 	got := writes(s.journal())
@@ -343,6 +367,17 @@ func (s *suite) testCreate(t *testing.T, o *objects) {
 	if err := s.cfGet("/d1/database/"+o.d1.Status.ID, &db); err != nil || db.Name != *o.d1.Spec.ForProvider.Name {
 		t.Errorf("D1 database in flarefake = %+v, %v", db, err)
 	}
+	var idx struct {
+		Name   string `json:"name"`
+		Config struct {
+			Dimensions int64  `json:"dimensions"`
+			Metric     string `json:"metric"`
+		} `json:"config"`
+	}
+	if err := s.cfGet("/vectorize/v2/indexes/"+o.vec.Status.ID, &idx); err != nil || idx.Name != *o.vec.Spec.ForProvider.Name || idx.Config.Dimensions != 3 {
+		t.Errorf("Vectorize index in flarefake = %+v, %v", idx, err)
+	}
+	s.checkWorkerBindings(t, o)
 	var kubeDNS corev1.Service
 	if err := s.c.Get(s.ctx(), client.ObjectKey{Namespace: "kube-system", Name: "kube-dns"}, &kubeDNS); err != nil {
 		t.Fatal(err)
@@ -511,7 +546,24 @@ func (s *suite) testUpdate(t *testing.T, o *objects) {
 	s.patch(o.vpc, func() { o.vpc.Spec.ForProvider.HTTPPort = ptr.To[int32](8080) })
 	// A connector change is Kubernetes-only: no Cloudflare write.
 	s.patch(o.tunnel2, func() { o.tunnel2.Spec.Connector.Replicas = ptr.To[int32](2) })
-	for _, mg := range []commonv1alpha1.Managed{o.queue, o.kv, o.vpc, o.tunnel2} {
+	// New code: exactly one upload (a new version), nothing else of the script.
+	s.patch(o.worker, func() {
+		o.worker.Spec.ForProvider.Modules = map[string]workersv1alpha1.WorkerModule{"index.js": {Type: "esm", Content: workerCode("v2")}}
+	})
+	// Every field of a Vectorize index is immutable: a change is refused (Synced=False,
+	// Immutable) without a write, and reverting it makes the object Synced again.
+	desc := *o.vec.Spec.ForProvider.Description
+	s.patch(o.vec, func() { o.vec.Spec.ForProvider.Description = ptr.To(desc + " changed") })
+	eventually(t, time.Minute, "VectorizeIndex to refuse the immutable change", func() (bool, string) {
+		if err := s.c.Get(s.ctx(), client.ObjectKeyFromObject(o.vec), o.vec); err != nil {
+			return false, err.Error()
+		}
+		c := cond(o.vec.Status.Conditions, commonv1alpha1.ConditionSynced)
+		return c != nil && c.Status == metav1.ConditionFalse && c.Reason == commonv1alpha1.ReasonImmutable && c.ObservedGeneration == o.vec.Generation,
+			condString(o.vec.Status.Conditions)
+	})
+	s.patch(o.vec, func() { o.vec.Spec.ForProvider.Description = ptr.To(desc) })
+	for _, mg := range []commonv1alpha1.Managed{o.queue, o.kv, o.vpc, o.tunnel2, o.worker, o.vec} {
 		s.waitManaged(mg, time.Minute)
 	}
 	eventually(t, 2*time.Minute, "Tunnel tun2 to report 2 ready connectors", func() (bool, string) {
@@ -527,6 +579,7 @@ func (s *suite) testUpdate(t *testing.T, o *objects) {
 		"PATCH " + a + "/queues/" + o.queue.Status.ID,
 		"PUT " + a + "/storage/kv/namespaces/" + o.kv.Status.ID,
 		"PUT " + a + "/connectivity/directory/services/" + o.vpc.Status.ID,
+		"PUT " + a + "/workers/scripts/" + o.worker.ScriptName(),
 	}
 	j := s.journal()
 	got := writes(j)
@@ -603,10 +656,36 @@ func (s *suite) testDeleteOrder(t *testing.T, o *objects) {
 		return true, ""
 	})
 
+	// The Worker script binds the VPC service: the VPCService waits for it (Cloudflare would
+	// let the service go and leave the Worker with a dangling binding, 0091).
 	if err := s.c.Delete(s.ctx(), o.vpc); err != nil {
 		t.Fatal(err)
 	}
+	eventually(t, time.Minute, "VPCService to wait for the Worker binding", func() (bool, string) {
+		if err := s.c.Get(s.ctx(), client.ObjectKeyFromObject(o.vpc), o.vpc); err != nil {
+			return false, err.Error()
+		}
+		r := cond(o.vpc.Status.Conditions, commonv1alpha1.ConditionReady)
+		return r != nil && r.Reason == commonv1alpha1.ReasonDependency && strings.Contains(r.Message, o.worker.Name), condString(o.vpc.Status.Conditions)
+	})
+	consistently(t, 5*time.Second, "VPCService blocked by the Worker binding", func() (bool, string) {
+		for _, w := range writes(s.journal()) {
+			if strings.HasSuffix(w, "/services/"+vid) {
+				return false, "VPC service DELETE sent while a Worker binds it: " + w
+			}
+		}
+		return true, ""
+	})
+	if err := s.c.Delete(s.ctx(), o.worker); err != nil {
+		t.Fatal(err)
+	}
+	s.waitGone(o.worker, time.Minute)
 	s.waitGone(o.vpc, time.Minute)
+	// The generic kind: one bodiless DELETE, then the index is gone.
+	if err := s.c.Delete(s.ctx(), o.vec); err != nil {
+		t.Fatal(err)
+	}
+	s.waitGone(o.vec, time.Minute)
 	// cloudflared scales to zero; the tunnel still has connections, so it is not deleted yet.
 	eventually(t, 2*time.Minute, "cloudflared scaled to zero", func() (bool, string) {
 		var dep appsv1.Deployment
@@ -644,6 +723,22 @@ func (s *suite) testDeleteOrder(t *testing.T, o *objects) {
 	})
 	if iv < 0 || it < 0 || iv > it {
 		t.Errorf("journal order: VPC service DELETE at %d, tunnel DELETE at %d; want both, VPC first. writes: %v", iv, it, writes(j))
+	}
+	iw := slices.IndexFunc(j, func(e journalEntry) bool {
+		return e.Method == "DELETE" && e.Path == "/accounts/"+s.accountID+"/workers/scripts/"+o.worker.ScriptName()
+	})
+	if iw < 0 || iw > iv {
+		t.Errorf("journal order: Worker script DELETE at %d, VPC service DELETE at %d; want the script first. writes: %v", iw, iv, writes(j))
+	}
+	vecPath := "/accounts/" + s.accountID + "/vectorize/v2/indexes/" + o.vec.Status.ID
+	if n := len(slices.DeleteFunc(slices.Clone(j), func(e journalEntry) bool { return e.Method != "DELETE" || e.Path != vecPath })); n != 1 {
+		t.Errorf("%d DELETEs of the Vectorize index, want 1. writes: %v", n, writes(j))
+	}
+	for _, p := range []string{"/vectorize/v2/indexes/" + o.vec.Status.ID, "/workers/scripts/" + o.worker.ScriptName() + "/settings"} {
+		var gone map[string]any
+		if err := s.cfGet(p, &gone); !apierrors.IsNotFound(err) {
+			t.Errorf("GET %s after deletion: %v, want 404", p, err)
+		}
 	}
 	s.checkJournalClean(j)
 	var tun struct {
@@ -725,7 +820,8 @@ func (s *suite) testNamespaceTeardown(t *testing.T, o *objects) {
 	t.Logf("teardown writes: %v", writes(j))
 
 	// Nothing left in flarefake for the account.
-	for _, p := range []string{"/storage/kv/namespaces", "/queues", "/d1/database", "/cfd_tunnel?is_deleted=false", "/connectivity/directory/services"} {
+	for _, p := range []string{"/storage/kv/namespaces", "/queues", "/d1/database", "/cfd_tunnel?is_deleted=false", "/connectivity/directory/services",
+		"/vectorize/v2/indexes", "/workers/scripts"} {
 		var items []map[string]any
 		if err := s.cfGet(p, &items); err != nil {
 			t.Errorf("list %s: %v", p, err)

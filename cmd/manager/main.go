@@ -4,6 +4,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -34,6 +36,51 @@ type Options struct {
 	// those listed. Both default to off: an override sends the account's token elsewhere.
 	AllowBaseURLOverride bool
 	AllowedBaseURLs      stringList
+
+	// Resilience and scale (docs/resilience.md).
+	//
+	// PollInterval is the drift-poll interval of every managed kind (0: each controller's
+	// default, 5m for generated kinds, 10m for Tunnel, VPCService and WorkerScript).
+	PollInterval time.Duration
+	// MaxConcurrentReconciles is the number of parallel workers per controller.
+	MaxConcurrentReconciles int
+	// ReconcileTimeout bounds one reconcile (its context deadline); 0 disables it.
+	ReconcileTimeout time.Duration
+	// CloudflareTimeout bounds one Cloudflare HTTP request (connect to last body byte).
+	CloudflareTimeout time.Duration
+}
+
+// Defaults of the resilience flags.
+const (
+	DefaultMaxConcurrentReconciles = 1
+	DefaultReconcileTimeout        = 5 * time.Minute
+	DefaultCloudflareTimeout       = 60 * time.Second
+	// MinPollInterval bounds --poll-interval from below: each poll costs Cloudflare API calls.
+	MinPollInterval = 10 * time.Second
+)
+
+// Validate rejects flag values the manager cannot run with.
+func (o Options) Validate() error {
+	switch {
+	case o.PollInterval < 0:
+		return fmt.Errorf("poll-interval must not be negative")
+	case o.PollInterval > 0 && o.PollInterval < MinPollInterval:
+		return fmt.Errorf("poll-interval %s is below the %s minimum (each poll costs Cloudflare API calls)", o.PollInterval, MinPollInterval)
+	case o.MaxConcurrentReconciles < 1:
+		return fmt.Errorf("max-concurrent-reconciles must be at least 1")
+	case o.ReconcileTimeout < 0 || o.CloudflareTimeout < 0:
+		return fmt.Errorf("timeouts must not be negative")
+	}
+	return nil
+}
+
+// HTTPClient is the HTTP client of every Cloudflare API client (CloudflareTimeout per request).
+func (o Options) HTTPClient() *http.Client {
+	t := o.CloudflareTimeout
+	if t == 0 {
+		t = DefaultCloudflareTimeout
+	}
+	return &http.Client{Timeout: t}
 }
 
 // BaseURLPolicy returns the spec.baseURL policy selected by the flags.
@@ -72,6 +119,12 @@ func managerOptions(o Options, scheme *runtime.Scheme) ctrl.Options {
 		LeaderElectionNamespace:       o.LeaderElectNS,
 		LeaderElectionReleaseOnCancel: true,
 		GracefulShutdownTimeout:       ptr.To(GracefulShutdownTimeout),
+		// Applied to every controller (builder defaults): parallel workers and a context
+		// deadline per reconcile, so a hung Cloudflare call cannot hold a worker forever.
+		Controller: config.Controller{
+			MaxConcurrentReconciles: max(o.MaxConcurrentReconciles, 1),
+			ReconciliationTimeout:   o.ReconcileTimeout,
+		},
 	}
 }
 
@@ -109,6 +162,12 @@ func main() {
 		"honour any CloudflareAccount spec.baseURL (e.g. flarefake in tests); off by default because an override sends the account's API token to that URL")
 	flag.Var(&o.AllowedBaseURLs, "allowed-base-url", "a CloudflareAccount spec.baseURL to honour (repeatable; exact match, trailing slash ignored)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	flag.DurationVar(&o.PollInterval, "poll-interval", 0,
+		"drift-poll interval of managed objects (0: controller defaults, 5m generated kinds, 10m Tunnel/VPCService/WorkerScript; minimum 10s); each poll costs about 2 Cloudflare API calls per object")
+	flag.IntVar(&o.MaxConcurrentReconciles, "max-concurrent-reconciles", DefaultMaxConcurrentReconciles,
+		"parallel reconciles per controller (Cloudflare calls still share each token's rate limit)")
+	flag.DurationVar(&o.ReconcileTimeout, "reconcile-timeout", DefaultReconcileTimeout, "context deadline of one reconcile (0 disables)")
+	flag.DurationVar(&o.CloudflareTimeout, "cloudflare-request-timeout", DefaultCloudflareTimeout, "timeout of one Cloudflare API HTTP request")
 	zo := zap.Options{Development: false}
 	zo.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -119,6 +178,10 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zo)))
 	setupLog := ctrl.Log.WithName("setup")
 	setupLog.Info("flare-operator", version.Get().KeysAndValues()...)
+	if err := o.Validate(); err != nil {
+		setupLog.Error(err, "invalid flags")
+		os.Exit(2)
+	}
 
 	if err := run(o); err != nil {
 		setupLog.Error(err, "manager exited")
@@ -136,9 +199,11 @@ func run(o Options) error {
 		return fmt.Errorf("create manager: %w", err)
 	}
 	deps := controller.Deps{
-		Accounts:    reconcile.NewAccounts(mgr.GetClient(), reconcile.WithUserAgent(o.UserAgent), reconcile.WithBaseURLPolicy(o.BaseURLPolicy())),
-		Tagger:      o.Tagger(),
-		ClusterName: o.ClusterName,
+		Accounts: reconcile.NewAccounts(mgr.GetClient(), reconcile.WithUserAgent(o.UserAgent), reconcile.WithBaseURLPolicy(o.BaseURLPolicy()),
+			reconcile.WithHTTPClient(o.HTTPClient())),
+		Tagger:       o.Tagger(),
+		ClusterName:  o.ClusterName,
+		PollInterval: o.PollInterval,
 	}
 	if err := controller.SetupAll(mgr, deps, o.OnlyControllers...); err != nil {
 		return err

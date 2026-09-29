@@ -93,7 +93,7 @@ func init() {
 		AddToScheme: AddToScheme,
 		Setup: func(mgr ctrl.Manager, d controller.Deps) error {
 			return (&Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Recorder: mgr.GetEventRecorder(Name),
-				APIReader: mgr.GetAPIReader()}).SetupWithManager(mgr)
+				APIReader: mgr.GetAPIReader(), ResyncInterval: d.PollInterval}).SetupWithManager(mgr)
 		},
 	})
 }
@@ -224,7 +224,27 @@ func (r *Reconciler) finalize(ctx context.Context, vs *workersvpcv1alpha1.VPCSer
 		return ctrl.Result{}, true, nil
 	}
 	var deleteExternal func(context.Context, string) error
-	if id := reconcile.ExternalID(vs); id != "" && reconcile.ShouldDeleteExternal(vs, commonv1alpha1.DeletionDelete) {
+	shouldDelete := reconcile.ShouldDeleteExternal(vs, commonv1alpha1.DeletionDelete)
+	if name, pending := reconcile.PendingCreate(vs); pending && reconcile.ExternalID(vs) == "" && shouldDelete {
+		// No ID, but a create was announced: the manager may have died between the create and
+		// RecordCreated. Find that service and record it, so it is deleted rather than leaked.
+		acct, err := reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, vs, "Delete",
+			fmt.Sprintf("the VPC service %q this object may have created before a restart was not looked up and may be left in Cloudflare", name))
+		if err == nil && acct != nil {
+			_, err = reconcile.AdoptPendingCreate(ctx, r.Client, r.Recorder, vs, "VPC service", func(ctx context.Context, name string) (string, error) {
+				s, err := findServiceByName(ctx, acct.Client, acct.AccountID, name)
+				if s == nil || err != nil {
+					return "", err
+				}
+				return s.ServiceID, nil
+			})
+		}
+		if err != nil {
+			res, err := reconcile.DeletionResult(vs, err)
+			return res, false, err
+		}
+	}
+	if id := reconcile.ExternalID(vs); id != "" && shouldDelete {
 		// Cloudflare lets a service be deleted while a Worker still binds it (0091): wait for
 		// the registered referrers (WorkerScript vpc_service bindings) to go away first.
 		refs, err := generic.BlockingReferrers(ctx, r.Client, Kind, vs)
@@ -398,6 +418,9 @@ func (r *Reconciler) sync(ctx context.Context, vs *workersvpcv1alpha1.VPCService
 	fp := vs.Spec.ForProvider
 	syncErr := func(err error) (ctrl.Result, error) {
 		reconcile.MarkSyncError(vs, "", err)
+		if wait, ok := reconcile.Throttled(err); ok {
+			return ctrl.Result{RequeueAfter: wait}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	notFound := func(msg string) (ctrl.Result, error) {
@@ -476,7 +499,18 @@ func (r *Reconciler) sync(ctx context.Context, vs *workersvpcv1alpha1.VPCService
 		if err != nil {
 			return syncErr(err)
 		}
+		pending, _ := reconcile.PendingCreate(vs)
 		switch {
+		case existing != nil && pending == body.Name && pol.CanCreate():
+			// This object announced a create of this name (MarkCreatePending, after a lookup
+			// found none) and has no record of its result: the manager died, or the API
+			// server refused the write, between the create and RecordCreated. The service is
+			// this object's own lost create; adopt it (docs/resilience.md).
+			if err := reconcile.RecordCreated(ctx, r.Client, vs, existing.ServiceID); err != nil {
+				return syncErr(fmt.Errorf("record the VPC service %s created before a restart: %w", existing.ServiceID, err))
+			}
+			log.FromContext(ctx).Info("adopted the VPC service of an interrupted create", "service_id", existing.ServiceID, "name", body.Name)
+			cur = existing
 		case existing != nil:
 			// Never adopt by name: nothing marks which object owns a VPC service, so a
 			// same-named object (another namespace, or the same forProvider.name) would
@@ -490,7 +524,21 @@ func (r *Reconciler) sync(ctx context.Context, vs *workersvpcv1alpha1.VPCService
 			reconcile.SetSynced(vs, metav1.ConditionFalse, ReasonNameConflict, msg)
 			return ctrl.Result{RequeueAfter: DependencyRetry}, nil
 		case pol.CanCreate():
+			// Announce the create first, so a crash before RecordCreated cannot turn this
+			// object's own service into a NameConflict.
+			if err := reconcile.MarkCreatePending(ctx, r.Client, vs, body.Name); err != nil {
+				return syncErr(fmt.Errorf("record the pending create of VPC service %q: %w", body.Name, err))
+			}
 			if cur, err = createService(ctx, cf, accountID, body); err != nil {
+				if reconcile.IsPermanent(err) && !isDuplicateName(err) {
+					// The API refused the create: nothing was made, so nothing may be adopted later.
+					// A duplicate-name refusal proves nothing: the lookup above may have missed
+					// this object's own lost create (a lagging list), which the kept record lets
+					// the next reconcile adopt.
+					if cerr := reconcile.ClearCreatePending(ctx, r.Client, vs); cerr != nil {
+						return syncErr(errors.Join(err, cerr))
+					}
+				}
 				return syncErr(err)
 			}
 			// Created by this object: proof of ownership, written so a Conflict cannot lose it.

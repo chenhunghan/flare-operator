@@ -43,6 +43,19 @@ baseURLOverride:
   # -- Honour exactly these spec.baseURL values (--allowed-base-url, repeatable).
   allowed: []
 
+# Reconcile tuning (docs/resilience.md has the API-call budget behind these numbers).
+reconcile:
+  # -- Drift-poll interval of managed objects (--poll-interval, minimum 10s). Empty keeps the
+  # controller defaults (5m generated kinds, 10m Tunnel/VPCService/WorkerScript). Each poll
+  # costs about 2 Cloudflare API calls per object, against a budget of 1200 per 5 minutes per token.
+  pollInterval: ""
+  # -- Parallel reconciles per controller (--max-concurrent-reconciles).
+  maxConcurrentReconciles: 1
+  # -- Context deadline of one reconcile (--reconcile-timeout).
+  timeout: 5m
+  # -- Timeout of one Cloudflare API HTTP request (--cloudflare-request-timeout).
+  cloudflareRequestTimeout: 60s
+
 logging:
   # -- zap log level: debug, info, error, or an integer verbosity.
   level: info

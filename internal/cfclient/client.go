@@ -233,9 +233,11 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 	useCache := c.cache != nil && method == http.MethodGet && ctx.Value(ctxNoCache) == nil && len(req.Header) == 0
 	if useCache {
 		if r, ok := c.cache.get(cacheKey); ok {
+			MetricListCacheHits.Inc()
 			return r, nil
 		}
 	}
+	route := RouteTemplate(req.Path)
 	if c.cache != nil && method != http.MethodGet && method != http.MethodHead {
 		// Before and after the write: a concurrent GET may re-cache the old state while the
 		// write is in flight.
@@ -254,22 +256,32 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 		if err := c.waitTurn(ctx); err != nil {
 			return nil, err
 		}
+		start := time.Now()
 		resp, err := c.send(ctx, method, u, body, contentType, req.Header)
 		if err != nil {
+			observeAttempt(method, route, 0, start)
 			if ctx.Err() != nil || !idempotent || attempt >= maxRetries {
 				return nil, err
 			}
 			attempt++
+			MetricRetries.WithLabelValues(method, route, retryTransport).Inc()
 			if err := sleep(ctx, jitterBackoff(attempt)); err != nil {
 				return nil, err
 			}
 			continue
 		}
 		out, isEnvelope, apiErr := decode(resp)
+		observeAttempt(method, route, resp.StatusCode, start)
 		if apiErr == nil {
 			// Only v4 envelopes whose result is an array are list results; a raw payload (e.g. a
 			// KV value that happens to be a JSON array) is never cached.
+			// A miss is counted here, once the answer is known to be a list: item GETs, which
+			// the cache never holds, are neither hits nor misses (nor are WithoutCache reads,
+			// which refresh the cache without consulting it).
 			if c.cache != nil && method == http.MethodGet && len(req.Header) == 0 && isEnvelope && isJSONArray(out.Result) {
+				if useCache {
+					MetricListCacheMisses.Inc()
+				}
 				c.cache.put(cacheKey, req.Path, out)
 			}
 			return out, nil
@@ -283,13 +295,16 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 				wait = jitterBackoff(throttled + 1)
 			}
 			c.state.block(time.Now().Add(wait))
+			MetricThrottled.WithLabelValues("api").Inc()
 			throttled++
 			if wait > MaxInlineWait || throttled > max429Retries {
 				return nil, apiErr
 			}
+			MetricRetries.WithLabelValues(method, route, retry429).Inc()
 			// waitTurn at the top of the loop honours the block.
 		case apiErr.Status >= 500 && idempotent && attempt < maxRetries:
 			attempt++
+			MetricRetries.WithLabelValues(method, route, retry5xx).Inc()
 			wait := jitterBackoff(attempt)
 			if apiErr.RetryAfter > 0 && apiErr.RetryAfter <= MaxInlineWait {
 				wait = apiErr.RetryAfter
@@ -307,14 +322,21 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 func (c *client) waitTurn(ctx context.Context) error {
 	if d := c.state.blocked(time.Now()); d > 0 {
 		if d > MaxInlineWait {
+			MetricThrottled.WithLabelValues("client").Inc()
 			return &APIError{Status: http.StatusTooManyRequests, RetryAfter: d,
 				Errors: []ErrorDetail{{Code: 971, Message: "flare-operator: token is backing off after HTTP 429"}}}
 		}
-		if err := sleep(ctx, d); err != nil {
+		start := time.Now()
+		err := sleep(ctx, d)
+		MetricRateLimitWait.WithLabelValues("retry_after").Observe(time.Since(start).Seconds())
+		if err != nil {
 			return err
 		}
 	}
-	return c.state.lim.Wait(ctx)
+	start := time.Now()
+	err := c.state.lim.Wait(ctx)
+	MetricRateLimitWait.WithLabelValues("limiter").Observe(time.Since(start).Seconds())
+	return err
 }
 
 // escapeRequestPath implements Request.Path escaping. Path is appended to the base URL's path

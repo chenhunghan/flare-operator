@@ -101,7 +101,7 @@ func init() {
 		AddToScheme: AddToScheme,
 		Setup: func(mgr ctrl.Manager, d controller.Deps) error {
 			return (&Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Tagger: d.Tagger, ClusterName: d.ClusterName,
-				Recorder: mgr.GetEventRecorder(Name), APIReader: mgr.GetAPIReader()}).SetupWithManager(mgr)
+				Recorder: mgr.GetEventRecorder(Name), APIReader: mgr.GetAPIReader(), ResyncInterval: d.PollInterval}).SetupWithManager(mgr)
 		},
 	})
 }
@@ -329,6 +329,9 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 			return namespaceTerminatingRequeue(ctx, t)
 		}
 		reconcile.MarkSyncError(t, "", err)
+		if wait, ok := reconcile.Throttled(err); ok {
+			return ctrl.Result{RequeueAfter: wait}, nil
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -371,6 +374,15 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 			reconcile.MarkAvailable(t)
 			reconcile.MarkSynced(t)
 			return ctrl.Result{RequeueAfter: r.resync()}, nil
+		case tun != nil && !tagging && pol.CanCreate() && pendingName(t) == t.TunnelName():
+			// This object announced a create of this name (MarkCreatePending, after a lookup
+			// found none) and has no record of its result: the manager died, or the API server
+			// refused the write, between the create and RecordCreated. The tunnel is this
+			// object's own lost create; adopt it (docs/resilience.md). Its token is read below.
+			if err := reconcile.RecordCreated(ctx, r.Client, t, tun.ID); err != nil {
+				return syncErr(fmt.Errorf("record the tunnel %s created before a restart: %w", tun.ID, err))
+			}
+			log.FromContext(ctx).Info("adopted the tunnel of an interrupted create", "id", tun.ID, "name", tun.Name)
 		case tun != nil && !tagging:
 			// Without an ownership tag nothing proves that this object owns a same-named
 			// tunnel: it may be another cluster's, and running connectors on it would take a
@@ -396,7 +408,20 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 			}
 			tagged = true
 		case pol.CanCreate():
+			// Announce the create first. Without an owner tag, a same-named tunnel found after a
+			// crash could not be told from someone else's (the case above adopts it); with or
+			// without one, a Tunnel deleted before a restarted manager adopted it has no ID,
+			// and its finalizer finds the tunnel through this record (reconcile.AdoptPendingCreate).
+			if err := reconcile.MarkCreatePending(ctx, r.Client, t, t.TunnelName()); err != nil {
+				return syncErr(fmt.Errorf("record the pending create of tunnel %q: %w", t.TunnelName(), err))
+			}
 			if tun, err = createTunnel(ctx, cf, accountID, t.TunnelName()); err != nil {
+				if reconcile.IsPermanent(err) {
+					// The API refused the create: nothing was made, so nothing may be adopted later.
+					if cerr := reconcile.ClearCreatePending(ctx, r.Client, t); cerr != nil {
+						return syncErr(errors.Join(err, cerr))
+					}
+				}
 				return syncErr(err)
 			}
 			token = tun.Token
@@ -650,6 +675,25 @@ func (r *Reconciler) finalize(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (c
 			fmt.Sprintf("waiting for %d VPCService(s) that reference this Tunnel to be deleted: %s", len(names), strings.Join(names, ", ")))
 		return ctrl.Result{RequeueAfter: DependencyRetry}, false, nil
 	}
+	if name := pendingName(t); name != "" && reconcile.ExternalID(t) == "" && reconcile.ShouldDeleteExternal(t, commonv1alpha1.DeletionDelete) {
+		// No ID, but a create was announced: the manager may have died between the create and
+		// RecordCreated. Find that tunnel and record it, so it is deleted rather than leaked.
+		acct, err := reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, t, "Delete",
+			fmt.Sprintf("the tunnel %q this object may have created before a restart was not looked up and may be left in Cloudflare", name))
+		if err == nil && acct != nil {
+			_, err = reconcile.AdoptPendingCreate(ctx, r.Client, r.Recorder, t, "tunnel", func(ctx context.Context, name string) (string, error) {
+				tun, err := findTunnelByName(ctx, acct.Client, acct.AccountID, name)
+				if tun == nil || err != nil {
+					return "", err
+				}
+				return tun.ID, nil
+			})
+		}
+		if err != nil {
+			res, err := reconcile.DeletionResult(t, err)
+			return res, false, err
+		}
+	}
 	var del func(context.Context, string) error
 	switch id := reconcile.ExternalID(t); {
 	case id == "":
@@ -756,4 +800,10 @@ func (r *Reconciler) deleteExternal(ctx context.Context, t *tunnelsv1alpha1.Tunn
 		return err // a 404 counts as deleted (reconcile.Finalize)
 	}
 	return nil
+}
+
+// pendingName is the tunnel name of t's create-pending record ("" without one).
+func pendingName(t *tunnelsv1alpha1.Tunnel) string {
+	k, _ := reconcile.PendingCreate(t)
+	return k
 }

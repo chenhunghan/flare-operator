@@ -36,6 +36,8 @@ import (
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
 	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
+	vectorizev1alpha1 "flare.dev/operator/api/vectorize/v1alpha1"
+	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
 )
 
@@ -83,7 +85,7 @@ func scheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{
 		clientgoscheme.AddToScheme, cloudflarev1alpha1.AddToScheme, kvv1alpha1.AddToScheme, queuesv1alpha1.AddToScheme,
-		d1v1alpha1.AddToScheme, tunnelsv1alpha1.AddToScheme, workersvpcv1alpha1.AddToScheme,
+		d1v1alpha1.AddToScheme, tunnelsv1alpha1.AddToScheme, workersvpcv1alpha1.AddToScheme, workersv1alpha1.AddToScheme, vectorizev1alpha1.AddToScheme,
 	} {
 		if err := add(s); err != nil {
 			panic(err)
