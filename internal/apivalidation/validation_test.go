@@ -348,6 +348,43 @@ func TestImmutable(t *testing.T) {
 	})
 }
 
+// TestAccountImmutable: spec.accountRef of every managed kind cannot change once the resource
+// exists (status.id is set), and CloudflareAccount spec.accountID never changes. Either change
+// would make the controller create a second resource in the new account and leave the first
+// one unmanaged in the old one.
+func TestAccountImmutable(t *testing.T) {
+	e := testenv.Require(t, env)
+	ns := e.Namespace(t)
+	setRef := func(name string) func(map[string]any) {
+		return func(obj map[string]any) {
+			obj["spec"].(map[string]any)["accountRef"] = map[string]any{"name": name}
+		}
+	}
+	for kind, manifest := range managed {
+		t.Run(kind, func(t *testing.T) {
+			u := object(t, ns, "acctref-"+strings.ToLower(kind), manifest)
+			check(t, "create", env.Client.Create(testenv.Context(t, 10*time.Second), u), "")
+			check(t, "switch before status.id", update(t, u, setRef("other")), "")
+			check(t, "switch back before status.id", update(t, u, setRef("acct")), "")
+			setStatus(t, u, map[string]any{"id": "ext-" + strings.ToLower(kind)})
+			check(t, "switch after status.id", update(t, u, setRef("other")), "spec.accountRef is immutable")
+			check(t, "other field changes", update(t, u, func(obj map[string]any) {
+				obj["spec"].(map[string]any)["deletionPolicy"] = "Orphan"
+			}), "")
+		})
+	}
+	t.Run("CloudflareAccount", func(t *testing.T) {
+		u := object(t, ns, "acct-imm", cloudflareAccount)
+		check(t, "create", env.Client.Create(testenv.Context(t, 10*time.Second), u), "")
+		check(t, "change accountID", update(t, u, func(obj map[string]any) {
+			obj["spec"].(map[string]any)["accountID"] = strings.Repeat("f", 32)
+		}), "accountID is immutable")
+		check(t, "change the token Secret", update(t, u, func(obj map[string]any) {
+			obj["spec"].(map[string]any)["tokenSecretRef"] = map[string]any{"name": "tok2"}
+		}), "")
+	})
+}
+
 // TestKubectlNames checks what kubectl sees through discovery: every kind is in the cloudflare
 // category, managed kinds also in managed, and each has "cf"-prefixed short names.
 func TestKubectlNames(t *testing.T) {

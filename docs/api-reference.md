@@ -85,12 +85,20 @@ Every kind reports two conditions. `Ready` says whether the Cloudflare resource 
 
 CloudflareAccount holds the credentials for one Cloudflare account. Managed resources in the same namespace refer to it through spec.accountRef. CloudflareAccount is in the cloudflare category (kubectl get cloudflare) but not in managed: like a Crossplane ProviderConfig it holds credentials and manages no Cloudflare resource.
 
+### Validation rules
+
+CEL rules (`x-kubernetes-validations`) the API server enforces on create and update (rules that use `oldSelf` apply to updates only):
+
+| Field | Message | Rule |
+|---|---|---|
+| `spec.accountID` | accountID is immutable: create another CloudflareAccount for another account | ` self == oldSelf ` |
+
 ### Fields
 
 | Field | Type | Description | Validation |
 |---|---|---|---|
 | `spec` | object | **Required.** CloudflareAccountSpec binds a Cloudflare account ID to an API token. |  |
-| `spec.accountID` | string | **Required.** AccountID is the 32-character Cloudflare account identifier. | pattern ` ^[0-9a-f]{32}$ ` |
+| `spec.accountID` | string | **Required.** AccountID is the 32-character Cloudflare account identifier. It is immutable: the objects that reference this CloudflareAccount manage resources in that account, and pointing it at another account would make them create new resources there and leave the old ones unmanaged. Create another CloudflareAccount for another account. | pattern ` ^[0-9a-f]{32}$ `; CEL rules: see above |
 | `spec.baseURL` | string | BaseURL overrides the API base URL, e.g. http://flarefake:8787/client/v4 in tests. The operator ignores overrides unless it runs with --allow-base-url-override or lists this URL in --allowed-base-url; otherwise the account reports Ready=False, reason BaseURLNotAllowed. | pattern ` ^https?:// ` |
 | `spec.rateLimit` | object | RateLimit tunes the client-side rate limiter. |  |
 | `spec.rateLimit.burst` | integer | Burst is the number of requests that may be sent at once (default 20). | value ≥ 1 |
@@ -127,6 +135,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 
 | Field | Message | Rule |
 |---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
 | `spec.forProvider.id` | forProvider.id is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.id) | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.id) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.id) \|\| self.spec.forProvider.id == oldSelf.spec.forProvider.id \|\| (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.id) && oldSelf.status.atProvider.id == self.spec.forProvider.id) ` |
 | `spec.forProvider.cache_invalidate_on_update` | forProvider.cache_invalidate_on_update is required unless managementPolicies exclude Create (e.g. ["Observe"]) | ` !(!has(self.managementPolicies) \|\| size(self.managementPolicies) == 0 \|\| '*' in self.managementPolicies \|\| 'Create' in self.managementPolicies) \|\| (has(self.forProvider) && has(self.forProvider.cache_invalidate_on_update)) ` |
 | `spec.forProvider.cache_ttl` | forProvider.cache_ttl is required unless managementPolicies exclude Create (e.g. ["Observe"]) | ` !(!has(self.managementPolicies) \|\| size(self.managementPolicies) == 0 \|\| '*' in self.managementPolicies \|\| 'Create' in self.managementPolicies) \|\| (has(self.forProvider) && has(self.forProvider.cache_ttl)) ` |
@@ -347,6 +356,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 
 | Field | Message | Rule |
 |---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
 | `spec.forProvider.jurisdiction` | forProvider.jurisdiction is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.jurisdiction) | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.jurisdiction) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.jurisdiction) \|\| self.spec.forProvider.jurisdiction == oldSelf.spec.forProvider.jurisdiction \|\| (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.jurisdiction) && oldSelf.status.atProvider.jurisdiction == self.spec.forProvider.jurisdiction) ` |
 | `spec.forProvider.name` | forProvider.name is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.name) | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.name) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.name) \|\| self.spec.forProvider.name == oldSelf.spec.forProvider.name \|\| (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name == self.spec.forProvider.name) ` |
 | `spec.forProvider.primary_location_hint` | forProvider.primary_location_hint is immutable once the resource exists (status.id is set): recreate the object to change it | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.primary_location_hint) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.primary_location_hint) \|\| self.spec.forProvider.primary_location_hint == oldSelf.spec.forProvider.primary_location_hint ` |
@@ -399,6 +409,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 
 | Field | Message | Rule |
 |---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
 | `spec.forProvider.jurisdiction` | forProvider.jurisdiction is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.jurisdiction) | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.jurisdiction) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.jurisdiction) \|\| self.spec.forProvider.jurisdiction == oldSelf.spec.forProvider.jurisdiction \|\| (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.jurisdiction) && oldSelf.status.atProvider.jurisdiction == self.spec.forProvider.jurisdiction) ` |
 | `spec.forProvider.title` | forProvider.title is required unless managementPolicies exclude Create (e.g. ["Observe"]) | ` !(!has(self.managementPolicies) \|\| size(self.managementPolicies) == 0 \|\| '*' in self.managementPolicies \|\| 'Create' in self.managementPolicies) \|\| (has(self.forProvider) && has(self.forProvider.title)) ` |
 | `spec.accountRef.name` | accountRef.name must name a CloudflareAccount in this namespace (1-253 characters) | ` size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253 ` |
@@ -441,6 +452,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 
 | Field | Message | Rule |
 |---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
 | `spec.forProvider.jurisdiction` | forProvider.jurisdiction is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.jurisdiction) | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.jurisdiction) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.jurisdiction) \|\| self.spec.forProvider.jurisdiction == oldSelf.spec.forProvider.jurisdiction \|\| (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.jurisdiction) && oldSelf.status.atProvider.jurisdiction == self.spec.forProvider.jurisdiction) ` |
 | `spec.forProvider.queue_name` | forProvider.queue_name is required unless managementPolicies exclude Create (e.g. ["Observe"]) | ` !(!has(self.managementPolicies) \|\| size(self.managementPolicies) == 0 \|\| '*' in self.managementPolicies \|\| 'Create' in self.managementPolicies) \|\| (has(self.forProvider) && has(self.forProvider.queue_name)) ` |
 | `spec.accountRef.name` | accountRef.name must name a CloudflareAccount in this namespace (1-253 characters) | ` size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253 ` |
@@ -512,6 +524,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 
 | Field | Message | Rule |
 |---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
 | `spec.forProvider.name` | forProvider.name is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.name) | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.name) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.name) \|\| self.spec.forProvider.name == oldSelf.spec.forProvider.name \|\| (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name == self.spec.forProvider.name) ` |
 | `spec.forProvider.name` | forProvider.name is required unless managementPolicies exclude Create (e.g. ["Observe"]) | ` !(!has(self.managementPolicies) \|\| size(self.managementPolicies) == 0 \|\| '*' in self.managementPolicies \|\| 'Create' in self.managementPolicies) \|\| (has(self.forProvider) && has(self.forProvider.name)) ` |
 | `spec.accountRef.name` | accountRef.name must name a CloudflareAccount in this namespace (1-253 characters) | ` size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253 ` |
@@ -554,6 +567,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 
 | Field | Message | Rule |
 |---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
 | (object) | metadata.name must be at most 63 characters | ` self.metadata.name.size() <= 63 ` |
 | `spec.forProvider.name` | forProvider.name is immutable once the tunnel exists (status.id is set): renaming is not supported; recreate the object, or set it to the name Cloudflare reports (status.atProvider.name) | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.name) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.name) \|\| self.spec.forProvider.name == oldSelf.spec.forProvider.name \|\| (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name == self.spec.forProvider.name) ` |
 | `spec.accountRef.name` | accountRef.name must name a CloudflareAccount in this namespace (1-253 characters) | ` size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253 ` |
@@ -632,6 +646,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 
 | Field | Message | Rule |
 |---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
 | `spec.accountRef.name` | accountRef.name must name a CloudflareAccount in this namespace (1-253 characters) | ` size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253 ` |
 | `spec` | forProvider is required unless managementPolicies is [Observe] | ` has(self.forProvider) \|\| (has(self.managementPolicies) && self.managementPolicies == ['Observe']) ` |
 | `spec.forProvider` | tcp_port and app_protocol are only valid for type tcp | ` self.type == 'tcp' \|\| (!has(self.tcp_port) && !has(self.app_protocol)) ` |
@@ -719,6 +734,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 
 | Field | Message | Rule |
 |---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
 | `spec.forProvider.config` | forProvider.config is immutable once the resource exists (status.id is set): recreate the object to change it | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.config) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.config) \|\| self.spec.forProvider.config == oldSelf.spec.forProvider.config ` |
 | `spec.forProvider.description` | forProvider.description is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.description) | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.description) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.description) \|\| self.spec.forProvider.description == oldSelf.spec.forProvider.description \|\| (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.description) && oldSelf.status.atProvider.description == self.spec.forProvider.description) ` |
 | `spec.forProvider.name` | forProvider.name is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.name) | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.name) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.name) \|\| self.spec.forProvider.name == oldSelf.spec.forProvider.name \|\| (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name == self.spec.forProvider.name) ` |
@@ -771,6 +787,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 
 | Field | Message | Rule |
 |---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
 | `spec.accountRef.name` | accountRef.name must name a CloudflareAccount in this namespace (1-253 characters) | ` size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253 ` |
 | `spec` | forProvider is required unless managementPolicies exclude Create and Update (e.g. ["Observe"]) | ` has(self.forProvider) \|\| (has(self.managementPolicies) && size(self.managementPolicies) > 0 && !('*' in self.managementPolicies) && !('Create' in self.managementPolicies) && !('Update' in self.managementPolicies)) ` |
 | `spec.forProvider` | set exactly one of modules or sourceRef | ` has(self.modules) != has(self.sourceRef) ` |

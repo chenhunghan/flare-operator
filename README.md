@@ -311,6 +311,12 @@ still needed:
 
 Because of these, deleting a namespace still cleans up in Cloudflare before the token disappears.
 
+`spec.accountRef` cannot change once the resource exists (`status.id` is set), and a
+CloudflareAccount's `spec.accountID` cannot change at all: the resource lives in that account,
+and a switch would create a second, empty one in the new account and leave the first one
+unmanaged. To move a resource between accounts, delete the object (with `deletionPolicy:
+Orphan` to keep the old resource) and create a new one. The token Secret can be changed.
+
 Every CloudflareAccount that uses the same token shares one client-side rate limiter:
 `spec.rateLimit`, default 1080 requests per 5 minutes with a burst of 20. Cloudflare's limit is
 1200 requests per 5 minutes per token.

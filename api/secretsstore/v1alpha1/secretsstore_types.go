@@ -62,6 +62,7 @@ type SecretsStoreStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=cfstore,categories={cloudflare,managed,secretsstore}
+// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || self.spec.accountRef.name == oldSelf.spec.accountRef.name",message="spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one"
 // +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.name) || !has(self.spec.forProvider) || !has(self.spec.forProvider.name) || self.spec.forProvider.name == oldSelf.spec.forProvider.name || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name == self.spec.forProvider.name)",message="forProvider.name is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.name)"
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"

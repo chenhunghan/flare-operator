@@ -431,6 +431,12 @@ func TestImmutableRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	rules := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.XValidations
+	// The first root rule keeps spec.accountRef once the resource exists; the rest are the
+	// forProvider immutability rules.
+	if len(rules) == 0 || rules[0].Rule != AccountRefImmutableRule || rules[0].FieldPath != ".spec.accountRef.name" {
+		t.Fatalf("first root rule %+v, want the accountRef transition rule", rules)
+	}
+	rules = rules[1:]
 	byField := map[string]string{}
 	for _, r := range rules {
 		if !strings.HasPrefix(r.Rule, "!("+ExistsCEL+")") || !strings.Contains(r.Message, "is immutable") {

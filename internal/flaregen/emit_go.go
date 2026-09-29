@@ -326,7 +326,7 @@ func emitTypesFile(module string, k *kindGo, structs []*goStruct) ([]byte, error
 		res += ",shortName=" + strings.Join(m.ShortNames, ";")
 	}
 	fmt.Fprintf(&b, "%s,categories={%s}\n", res, strings.Join(categories(m), ","))
-	for _, r := range immutableRules(m) {
+	for _, r := range rootRules(m) {
 		fmt.Fprintf(&b, "// +kubebuilder:validation:XValidation:rule=%q,message=%q\n", r.Rule, r.Message)
 	}
 	for _, c := range printerColumns(m) {

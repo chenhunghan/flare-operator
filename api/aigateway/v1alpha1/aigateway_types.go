@@ -595,6 +595,7 @@ type AIGatewayStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=cfaigw,categories={cloudflare,managed,aigateway}
+// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || self.spec.accountRef.name == oldSelf.spec.accountRef.name",message="spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one"
 // +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.id) || !has(self.spec.forProvider) || !has(self.spec.forProvider.id) || self.spec.forProvider.id == oldSelf.spec.forProvider.id || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.id) && oldSelf.status.atProvider.id == self.spec.forProvider.id)",message="forProvider.id is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.id)"
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
