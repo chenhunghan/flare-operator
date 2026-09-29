@@ -1,5 +1,8 @@
 # A Vectorize (v2) vector index. Emulated by flarefake's generic profile (UNVERIFIED; see
 # docs/generator-scaleout.md). The v2 API has no update: every field is create-only.
+# Default deletionPolicy: Delete, although the index holds vectors: set Orphan to keep them when
+# the object is deleted. VectorizeIndex has no owner tag, so an existing index with this name is
+# adopted and, under Delete, deleted with the object.
 apiVersion: vectorize.cloudflare.flare.dev/v1alpha1
 kind: VectorizeIndex
 metadata:
@@ -7,6 +10,7 @@ metadata:
 spec:
   accountRef:
     name: main
+  deletionPolicy: Orphan
   forProvider:
     name: embeddings             # also the ID (the item path takes the index name)
     description: document embeddings

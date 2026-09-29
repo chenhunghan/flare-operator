@@ -12,29 +12,71 @@ GCP Config Connector, and uses Crossplane-style conventions (`forProvider` / `at
 
 It ships as one Go manager binary and one Helm chart (`charts/flare-operator`).
 
-## Status
+## Status and production readiness
 
-**Alpha.** Every API is `v1alpha1` and may change without notice. There are no releases and no
-published images, so you build the images yourself. The Go module path `flare.dev/operator` is a
-placeholder until the repository has a permanent home.
+**Alpha.** Read this before you point the operator at an account you care about.
 
-| Kind | API group | How it is built | Default `deletionPolicy` |
-|---|---|---|---|
-| `CloudflareAccount` | `cloudflare.flare.dev/v1alpha1` | hand-written | (not applicable) |
-| `KVNamespace` | `kv.cloudflare.flare.dev/v1alpha1` | generated (`generator.yaml`) | `Orphan` |
-| `Queue` | `queues.cloudflare.flare.dev/v1alpha1` | generated | `Orphan` |
-| `D1Database` | `d1.cloudflare.flare.dev/v1alpha1` | generated | `Orphan` |
-| `Tunnel` | `tunnels.cloudflare.flare.dev/v1alpha1` | hand-written; also runs `cloudflared` and an egress NetworkPolicy | `Delete` |
-| `VPCService` | `workersvpc.cloudflare.flare.dev/v1alpha1` | hand-written (Workers VPC) | `Delete` |
-| `WorkerScript` | `workers.cloudflare.flare.dev/v1alpha1` | hand-written (Workers scripts: modules, bindings, workers.dev) | `Delete` |
+- **API.** Every kind is `v1alpha1` and may change without notice. There is no conversion
+  webhook; [docs/api-versioning.md](docs/api-versioning.md) describes the path to `v1beta1`.
+- **Releases.** There are no releases and no published images, so you build the images
+  yourself. The Go module path `flare.dev/operator` is a placeholder until the repository has a
+  permanent home.
+- **How it is verified.** Every controller is tested against `flarefake`, an in-memory
+  emulator of the Cloudflare API, in envtest suites and in fault, crash and scale tests. The
+  chart has an e2e suite (`test/e2e`) that runs on a real cluster with flarefake in the
+  cluster; it last passed on k0s on 2026-09-29, before some of the current kinds existed
+  ([docs/STATUS.md](docs/STATUS.md)). How far the emulator can be trusted rests on evidence,
+  strongest first:
+  1. replayed recordings of the real API;
+  2. behavior that Cloudflare's own clients (wrangler, cloudflare-go, cloudflared, the
+     Terraform provider) rely on or show in their fixtures;
+  3. Cloudflare's docs.
 
-Every kind is namespaced and belongs to the `cloudflare` category, so `kubectl get cloudflare`
-lists all of them (`kubectl get managed` lists the managed kinds, without `CloudflareAccount`).
-Short names start with `cf` (`cfkv`, `cfqueue`, `cfd1`, `cftunnel`, `cfvpc`, `cfworker`, ...);
-[docs/api-reference.md](docs/api-reference.md) lists them with every field, validation rule and
-condition reason, and [docs/api-versioning.md](docs/api-versioning.md) the path to `v1beta1`. The generated kinds are tested against the `flarefake` emulator and against
-recordings of the real API. The chart has not yet been exercised end to end on a real cluster.
-Open issues and unverified assumptions are tracked in [docs/STATUS.md](docs/STATUS.md).
+  Real clients also run against flarefake in [differential tests](#differential-testing).
+  Every flarefake response is validated against the pinned spec in tests.
+- **What is UNVERIFIED.** Emulator behavior with none of that evidence is marked `UNVERIFIED`
+  in the code and listed in [docs/emulator-fidelity.md](docs/emulator-fidelity.md). The largest
+  gaps are:
+  - `VectorizeIndex`, `SecretsStore` and `AIGateway`: flarefake's generic profile emulates them
+    from the spec. The only recordings are one list call each for Vectorize and Secrets Store
+    (0154, 0155); AI Gateway has none;
+  - Resource Tagging (the ownership tags): no recording at all;
+  - error codes and messages for invalid input;
+  - several Workers details (versions, settings, subdomains);
+  - list ordering, and eventual consistency after a create;
+  - the token permissions marked UNVERIFIED [below](#token-permissions).
+- **Live testing is optional** and has not been done for the operator. The `test/live` smoke
+  test (`make live`) exists but has not run against a real account. The only real-API evidence
+  is the recordings made during the design spikes
+  ([docs/spike-results-2026-09-29.md](docs/spike-results-2026-09-29.md)).
+
+Open issues are tracked in [docs/STATUS.md](docs/STATUS.md).
+
+## Kinds
+
+| Kind | API group (all `v1alpha1`) | Short names | Own printer columns (`-o wide` in italics) | Default `deletionPolicy` | How it is built |
+|---|---|---|---|---|---|
+| `CloudflareAccount` | `cloudflare.flare.dev` | `cfaccount`, `cfacct` | `TOKEN`, `REASON` | (none) | hand-written |
+| `KVNamespace` | `kv.cloudflare.flare.dev` | `cfkv` | `TITLE` | `Orphan` | generated (`generator.yaml`) |
+| `Queue` | `queues.cloudflare.flare.dev` | `cfqueue`, `cfq` | `QUEUE`, *`CONSUMERS`* | `Orphan` | generated |
+| `D1Database` | `d1.cloudflare.flare.dev` | `cfd1` | `DATABASE`, *`VERSION`* | `Orphan` | generated |
+| `VectorizeIndex` | `vectorize.cloudflare.flare.dev` | `cfvec` | `DIMENSIONS`, `METRIC` | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
+| `SecretsStore` | `secretsstore.cloudflare.flare.dev` | `cfstore` | `STORE` | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
+| `AIGateway` | `aigateway.cloudflare.flare.dev` | `cfaigw` | `COLLECT-LOGS`, *`CACHE-TTL`* | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
+| `Tunnel` | `tunnels.cloudflare.flare.dev` | `cftunnel`, `cftun` | `STATUS`, `CONNECTORS` | `Delete` | hand-written; also runs `cloudflared` and an egress NetworkPolicy |
+| `VPCService` | `workersvpc.cloudflare.flare.dev` | `cfvpcsvc`, `cfvpc` | `TYPE`, `TUNNEL` | `Delete` | hand-written (Workers VPC) |
+| `WorkerScript` | `workers.cloudflare.flare.dev` | `cfworker`, `cfscript` | `URL`, *`VERSION`* | `Delete` | hand-written (Workers scripts: modules, bindings, workers.dev) |
+
+Every kind prints `READY`, `SYNCED` and `EXTERNAL-ID` (`status.id`) first, then its own
+columns, then `AGE`. Every kind is namespaced and belongs to the `cloudflare` category, so
+`kubectl get cloudflare` lists all of them. `kubectl get managed` lists the managed kinds, that
+is, all but `CloudflareAccount`. Each managed kind is also in the category of its product
+(`kubectl get vectorize`). [docs/api-reference.md](docs/api-reference.md) lists every field,
+validation rule, printer column JSONPath and condition reason.
+
+`VectorizeIndex` and `SecretsStore` hold data but default to `Delete` (`generator.yaml` sets no
+`defaultDeletionPolicy` for them). Set `deletionPolicy: Orphan` on them if deleting the object
+must not delete the index or store.
 
 ## Quickstart
 
@@ -54,18 +96,35 @@ on each node. The chart's default `pullPolicy` is `IfNotPresent`, so imported im
 
 ```sh
 helm install flare-operator charts/flare-operator -n flare-system --create-namespace \
-  --set image.tag=dev --set clusterName=my-cluster
+  --set image.tag=dev --set clusterName=my-cluster \
+  --set reconcile.pollInterval=10m \
+  --set reconcile.maxConcurrentReconciles=1 \
+  --set reconcile.timeout=5m \
+  --set reconcile.cloudflareRequestTimeout=60s
 ```
 
-Give every cluster that manages the same Cloudflare account its own `clusterName`. The name
-becomes part of the ownership tags (see [Ownership tags](#ownership-tags)). For the other
-values, see [charts/flare-operator/README.md](charts/flare-operator/README.md) and
-`charts/flare-operator/values.yaml`.
+- Give every cluster that manages the same Cloudflare account its own `clusterName`. The name
+  becomes part of the ownership tags (see [Ownership tags](#ownership-tags)).
+- The `reconcile.*` values are optional. `reconcile.pollInterval=10m` polls every kind for
+  drift every 10 minutes, which halves the steady-state API use of the generated kinds. Left
+  empty (the chart default), each controller keeps its own interval: 5m for generated kinds,
+  10m for Tunnel, VPCService and WorkerScript. The other three values above are the defaults,
+  spelled out. Size them with
+  [the API budget](docs/operations.md#reconcile-tuning-and-the-api-budget).
+- Every value is listed in [charts/flare-operator/README.md](charts/flare-operator/README.md#values).
 
-Helm installs the CRDs from `crds/` on the first install only. When you upgrade, apply them
-yourself first: `make crds-apply`, which runs
-`kubectl apply --server-side --force-conflicts -f charts/flare-operator/crds/`. See
-[docs/operations.md](docs/operations.md#upgrade).
+**Upgrading.** Helm installs the CRDs from `crds/` on the first install only and never
+upgrades them. Before every `helm upgrade`, apply the new CRDs from a checkout of the version
+you are upgrading to:
+
+```sh
+make crds-diff        # optional: kubectl diff --server-side against the cluster
+make crds-apply       # kubectl apply --server-side --force-conflicts --field-manager=flare-operator-crds -f charts/flare-operator/crds/
+helm upgrade flare-operator charts/flare-operator -n flare-system --reuse-values --set image.tag=<new tag>
+```
+
+[docs/operations.md](docs/operations.md#upgrade) explains why this is a manual step, covers
+Flux and Argo CD, and describes the tested upgrade path (`make e2e-upgrade`).
 
 ### 2. Add a token and a CloudflareAccount
 
@@ -87,9 +146,14 @@ kubectl -n demo get cfaccount main      # READY True, TOKEN active
 
 The account controller verifies the token. It tries `GET /accounts/{id}/tokens/verify` first for
 account-owned tokens, then falls back to `GET /user/tokens/verify` plus `GET /accounts/{id}` for
-user tokens. It reports the result in `status` (`id`, the verified account ID; `atProvider`, the token's
-`id`, `status` and `expires_on`; `tokenType`) and in the `Ready` condition. Failure reasons include `SecretNotFound`, `TokenInvalid`,
-`TokenExpired`, `AccountMismatch` and `BaseURLNotAllowed`.
+user tokens. It reports the result in `status` and in the `Ready` condition:
+
+- `id`: the verified account ID;
+- `atProvider`: the token's `id`, `status` and `expires_on`;
+- `tokenType`.
+
+Failure reasons include `SecretNotFound`, `TokenInvalid`, `TokenExpired`, `AccountMismatch` and
+`BaseURLNotAllowed` ([troubleshooting](docs/operations.md#troubleshooting-by-condition-reason)).
 
 ### 3. Create your first KVNamespace
 
@@ -117,10 +181,25 @@ kubectl -n demo patch kvnamespace sessions --type merge -p '{"spec":{"deletionPo
 kubectl -n demo delete kvnamespace sessions
 ```
 
-[examples/](examples/) has an annotated manifest for every kind. `go test ./examples/` (part of
-`make test`; it needs the envtest binaries from `make envtest`) validates each manifest against
-the CRDs on an envtest API server, checking the schema, the CEL rules and strict field
-validation.
+### Examples
+
+[examples/](examples/) has an annotated manifest for every kind. `go test ./examples/` (part
+of `make test`; it needs the envtest binaries from `make envtest`) validates each manifest
+against the CRDs on an envtest API server: schema, CEL rules and strict field validation.
+`TestEveryKindHasAnExample` fails if a kind in `config/crd/bases` has no example.
+
+| File | Shows |
+|---|---|
+| [cloudflareaccount.yaml](examples/cloudflareaccount.yaml) | the token Secret and the `CloudflareAccount` that every other example refers to as `main` |
+| [kvnamespace.yaml](examples/kvnamespace.yaml) | a `KVNamespace`, plus an observe-only one pinned with the external-id annotation |
+| [queue.yaml](examples/queue.yaml) | a `Queue` with settings |
+| [d1database.yaml](examples/d1database.yaml) | a `D1Database` |
+| [vectorizeindex.yaml](examples/vectorizeindex.yaml) | a `VectorizeIndex` (dimensions, metric), with `deletionPolicy: Orphan` |
+| [secretsstore.yaml](examples/secretsstore.yaml) | a `SecretsStore`, with `deletionPolicy: Orphan` |
+| [aigateway.yaml](examples/aigateway.yaml) | an `AIGateway` (caching, logs, rate limiting) |
+| [tunnel.yaml](examples/tunnel.yaml) | a `Tunnel` with its managed `cloudflared` Deployment and egress NetworkPolicy |
+| [vpcservice.yaml](examples/vpcservice.yaml) | two `VPCService`s behind the Tunnel: an HTTP Service by hostname, a TCP backend by IP |
+| [workerscript.yaml](examples/workerscript.yaml) | a `WorkerScript` with inline modules and `*Ref` bindings, one with modules from a ConfigMap, and an observe-only one |
 
 ### Trying it without a Cloudflare account
 
@@ -136,26 +215,32 @@ Then point a CloudflareAccount at the emulator with
 notes print the exact URL. In its default open mode, flarefake accepts any token and any 32-hex
 account ID. Never enable flarefake in a cluster that manages a real Cloudflare account.
 
-### Token permissions
+## Token permissions
 
 Give the token only what the kinds you use need. For an `Observe`-only object, the Read variant
-is enough. The permission-group names below come from the `x-api-token-group` extension of the
-pinned OpenAPI spec. Rows marked UNVERIFIED are ones where the spec lists no group. Some
-dashboard names differ from the spec's; see [Workers roles](#workers-roles-legacy-and-granular)
-and [Renamed products](#renamed-products-in-the-dashboard) below.
+is enough. The permission-group names come from the `x-api-token-group` extension of the pinned
+OpenAPI spec. In the dashboard's token editor a group appears as its product under
+**Account**, with the level **Read** or **Edit**; the spec's `… Write` is the dashboard's Edit.
+That mapping and the dashboard names are Cloudflare's naming convention, not something this
+repository checked in a live dashboard (UNVERIFIED), except for the Workers names cited in
+[Workers roles](#workers-roles-legacy-and-granular). Rows marked UNVERIFIED are ones where the
+spec lists no group.
 
-| Kind | Permission group (spec `x-api-token-group`) |
-|---|---|
-| `CloudflareAccount` | None listed for `tokens/verify` (UNVERIFIED: the spec gives no group for `/accounts/{id}/tokens/verify` or `/user/tokens/verify`). A **user** token also calls `GET /accounts/{id}`. The spec lists a fixed set of 29 groups for it, among them `Account Settings Read`, `Workers KV Storage Read`/`Write` and `Workers Scripts Read`/`Write`, but not the D1, Queues or Cloudflare Tunnel groups, so give a user token `Account Settings Read` (UNVERIFIED against the live API). |
-| `KVNamespace` | `Workers KV Storage Write` (`… Read` for Observe) |
-| `Queue` | `Queues Write` (`Queues Read` for Observe); the spec also accepts `Workers Scripts Write` (legacy; see [Workers roles](#workers-roles-legacy-and-granular)) |
-| `D1Database` | `D1 Write` (`D1 Read` for Observe) |
-| `Tunnel` | `Cloudflare Tunnel Write` (`Cloudflare Tunnel Read` for Observe); the spec also accepts `Cloudflare One Connector: cloudflared Write`, the dashboard's current name. Fetching the connector token needs Write. |
-| Workers scripts (planned `WorkerScript` kind) | Legacy `Workers Scripts Write` (dashboard: "Workers Scripts Edit"; `Workers Scripts Read` for Observe). The spec also accepts `Workers Tail Read` for `GET …/workers/scripts/{name}`. With the granular roles, creating or deleting scripts needs **Admin at Workers product scope**, because Editor cannot. Per-Worker Editor is enough only for an adopted (already existing) Worker. Content Read-Only is enough for Observe. |
-| `VPCService` | UNVERIFIED: the spec lists no group for `/connectivity/directory/services`. The dashboard lists VPC services under "Connectivity Directory", so grant that product's permission. |
-| Ownership tags (on by default) | UNVERIFIED: the spec lists no group for `/accounts/{id}/tags`. Grant the Resource Tagging permission (shown as "Tag" in the dashboard), or install with `ownershipTags=false`. |
+| Kind | Spec group (Write; Read for Observe) | Dashboard: Account › product › level |
+|---|---|---|
+| `CloudflareAccount` | None listed for `tokens/verify` (UNVERIFIED: the spec gives no group for `/accounts/{id}/tokens/verify` or `/user/tokens/verify`). A **user** token also calls `GET /accounts/{id}`. The spec lists a fixed set of 29 groups for it, among them `Account Settings Read`, `Workers KV Storage Read`/`Write` and `Workers Scripts Read`/`Write`, but not the D1, Queues or Cloudflare Tunnel groups. | For a user token: Account Settings › Read (UNVERIFIED against the live API) |
+| `KVNamespace` | `Workers KV Storage Write` (`… Read`) | Workers KV Storage › Edit (Read) |
+| `Queue` | `Queues Write` (`Queues Read`); the spec also accepts the legacy `Workers Scripts Write` | Queues › Edit (Read) |
+| `D1Database` | `D1 Write` (`D1 Read`) | D1 › Edit (Read) |
+| `VectorizeIndex` | `Vectorize Write` (`Vectorize Read`) | Vectorize › Edit (Read) |
+| `SecretsStore` | `Secrets Store Write` (`Secrets Store Read`) | Secrets Store › Edit (Read) |
+| `AIGateway` | `AI Gateway Write` (`AI Gateway Read`) | AI Gateway › Edit (Read) |
+| `Tunnel` | `Cloudflare Tunnel Write` (`Cloudflare Tunnel Read`). The spec also accepts `Cloudflare One Connector: cloudflared Write`/`Read` and `Cloudflare One Connectors Write`/`Read`. Fetching the connector token for `cloudflared` needs Write. | Cloudflare One Connector: cloudflared › Edit (Read); formerly "Cloudflare Tunnel" |
+| `WorkerScript` | Legacy `Workers Scripts Write` (`Workers Scripts Read`). The spec also accepts `Workers Tail Read` for reading a script, its settings, deployments and subdomain, but not for `GET /accounts/{id}/workers/subdomain` (the workers.dev URL), so Observe needs `Workers Scripts Read`. | Legacy: Workers Scripts › Edit (Read). Granular roles: **Admin at Workers product scope** to create or delete scripts; per-Worker Editor only for an adopted Worker; Content Read-Only for Observe. See [below](#workers-roles-legacy-and-granular). |
+| `VPCService` | UNVERIFIED: the spec lists no group for `/connectivity/directory/services`. | Connectivity Directory (UNVERIFIED) |
+| Ownership tags (on by default) | UNVERIFIED: the spec lists no group for `/accounts/{id}/tags`. Or install with `ownershipTags=false`. | Tag, formerly "Resource Tagging" (UNVERIFIED) |
 
-#### Workers roles: legacy and granular
+### Workers roles: legacy and granular
 
 On 2026-09-15 Cloudflare added granular Workers roles: **Metadata Read-Only**, **Content
 Read-Only**, **Editor** and **Admin**. Each can be granted for the whole Workers product or for
@@ -176,7 +261,7 @@ Editor can't create or delete Workers. If you use the granular roles and the ope
 or deletes scripts, give the token **Admin at Workers product scope**. A per-Worker Editor grant
 only works when the Worker already exists and the object adopts it.
 
-#### Renamed products in the dashboard
+### Renamed products in the dashboard
 
 The dashboard now uses new names for some products this operator manages. The API paths haven't
 changed.
@@ -239,19 +324,23 @@ token to that URL.
 - `Delete` deletes the resource in Cloudflare.
 - `Orphan` keeps the resource and releases the ownership tag, so another object can adopt it.
 
-The per-kind defaults are in the table above. Kinds that hold data (KV, Queues, D1) default to
-`Orphan`. New generated kinds default to `Delete` unless `generator.yaml` says otherwise.
+The per-kind defaults are in the [Kinds](#kinds) table. KV, Queues and D1 default to `Orphan`.
+Generated kinds default to `Delete` unless `generator.yaml` sets `defaultDeletionPolicy`, which
+it does not yet for `VectorizeIndex` and `SecretsStore`.
 
 Even with `Delete`, the operator deletes only resources it can **prove** it owns:
 
 - the object created the resource, or confirmed its owner tag (recorded in the
   `cloudflare.flare.dev/ownership-proof` annotation, value `<uid>/<id>`);
 - a readable owner tag names the object; or
-- ownership tagging is off and the object pins the ID with the external-id annotation.
+- the resource cannot be tagged (or ownership tagging is off) and the object pins the ID with
+  the external-id annotation.
 
-`VPCService` has no owner tag (Resource Tagging has no resource type for VPC services), so it
-deletes a service when the object created it (the `ownership-proof` annotation) or pins it with
-the external-id annotation, whether or not ownership tagging is on.
+The last case matters for the kinds without an owner tag (`VectorizeIndex`, `SecretsStore`,
+`AIGateway` and `VPCService`). The generated ones among them adopt an existing resource with
+the same name (or, for `AIGateway`, the same `id`) and pin it, so with `Delete` deleting the
+object deletes a resource that existed before. `VPCService` never adopts by name (see
+[Adoption](#adoption-cloudflareflaredevexternal-id)).
 
 If none of these holds, the finalizer is removed, the resource is kept, and a Warning event
 (`ExternalResourceKept`) says why.
@@ -260,6 +349,7 @@ Some kinds delete in several steps:
 
 - **Tunnel:** the controller first scales `cloudflared` to zero, because Cloudflare refuses to
   delete a connected tunnel. It also waits for the VPCServices that reference the tunnel.
+- **Resources bound by a Worker:** see [Delete order](#workers-scripts-workerscript).
 
 ### managementPolicies
 
@@ -279,15 +369,20 @@ everything.
 ### Adoption: `cloudflare.flare.dev/external-id`
 
 The annotation `cloudflare.flare.dev/external-id: <Cloudflare ID>` pins an object to an existing
-resource and adopts it. The operator also writes the annotation itself right after a create, so
-a crash cannot orphan a new resource.
+resource and adopts it. The operator also writes the annotation itself right after a create, and
+a `cloudflare.flare.dev/create-pending` record right before it, so a crash between the create
+and the status write cannot orphan or duplicate a resource ([Crash consistency](docs/operations.md#crash-consistency)).
 
 Without the annotation, what happens depends on the kind:
 
 - **Generated kinds and `Tunnel`** adopt a resource whose name matches `forProvider` (`title`,
   `queue_name` or `name`). If several resources match, the object reports an error.
+  `AIGateway` has no name field: it adopts a gateway whose `id` equals `forProvider.id`.
 - **`VPCService`** never adopts by name. VPC services carry no ownership tag, so a name match
-  gives `Synced=False` with reason `NameConflict` until you set the annotation.
+  gives `Synced=False` with reason `NameConflict` until you set the annotation (unless the
+  create-pending record shows it is the object's own lost create).
+- **`WorkerScript`** adopts an existing script only when its owner tag names this object or the
+  annotation pins it; otherwise `NameConflict`.
 
 A resource whose owner tag names a different object is never touched.
 
@@ -298,7 +393,12 @@ resource it manages through Cloudflare's Resource Tagging API with
 `flare.dev/owner=<clusterName>/<namespace>/<name>`. It reads the existing tags, merges its own,
 and writes them back with `If-Match`, so other tags are kept. The tag is how two objects, or two
 clusters, avoid managing and deleting the same resource. The tag's `resource_type` values are
-`kv_namespace`, `queue`, `d1_database` and `cloudflared_tunnel`. `VPCService` is not tagged.
+`kv_namespace`, `queue`, `d1_database`, `cloudflared_tunnel` and `worker`. Four kinds are not
+tagged:
+
+- `SecretsStore` and `VPCService`: the spec's tags `resource_type` enum has no value for them.
+- `VectorizeIndex` and `AIGateway`: the enum has `vectorize_index` and `ai_gateway`, but
+  `generator.yaml` sets no `tagResourceType` for them yet.
 
 ### Conditions
 
@@ -307,12 +407,16 @@ Each object reports two conditions. Both are stamped with `metadata.generation`,
 
 | Condition | Meaning | Common reasons |
 |---|---|---|
-| `Ready` | The Cloudflare resource exists and is usable | `Available`, `Creating`, `Deleting`, `Unavailable`, `ExternalNotFound`, `AccountNotReady` |
-| `Synced` | The last reconcile applied the spec | `ReconcileSuccess`, `ObserveOnly`, `ReconcileError`, `Immutable` (a create-only field changed; nothing is written), `AccountNotReady`, `NameConflict` (VPCService) |
+| `Ready` | The Cloudflare resource exists and is usable | `Available`, `Creating`, `Deleting`, `Unavailable`, `ExternalNotFound`, `AccountNotReady`, `DependencyNotReady` |
+| `Synced` | The last reconcile applied the spec | `ReconcileSuccess`, `ObserveOnly`, `ReconcileError`, `RateLimited`, `Immutable` (a create-only field changed; nothing is written), `AccountNotReady`, `DependencyNotReady`, `NameConflict` |
 
-Generated kinds are re-read every 5 minutes to detect drift. Some fields are write-only:
-Cloudflare never returns them, for example `Queue` `settings.delivery_paused` and `D1Database`
-`primary_location_hint`. For those fields, the operator detects changes through
+Every reason, per kind, is in [docs/api-reference.md](docs/api-reference.md#conditions), and
+what to do about each one in [docs/operations.md](docs/operations.md#troubleshooting-by-condition-reason).
+
+In-sync objects are re-read every 5 minutes (generated kinds) or 10 minutes (Tunnel,
+VPCService, WorkerScript) to detect drift; `--poll-interval` overrides both. Some fields are
+write-only: Cloudflare never returns them, for example `Queue` `settings.delivery_paused` and
+`D1Database` `primary_location_hint`. For those fields, the operator detects changes through
 `status.writeOnlyHash`.
 
 ### Workers scripts: WorkerScript
@@ -349,6 +453,65 @@ Kubernetes Service.
   `Ready=False` and reason `DependencyNotReady`, until no `WorkerScript` binds it. The same
   applies to a `WorkerScript` bound by another script's `serviceRef`.
 
+## Metrics
+
+The manager serves Prometheus metrics on `--metrics-bind-address` (default `:8080`; chart
+`metrics.*`): controller-runtime's standard set plus the metrics below. Labels never carry
+Cloudflare IDs or names: `route_template` is the pinned spec's path template, or `other`.
+`TestMetricsDocumented` (`cmd/manager`) fails when a metric defined in the code is missing here,
+or a metric listed here is not defined.
+
+<!-- metrics:begin -->
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `cloudflare_api_requests_total` | counter | `method`, `route_template`, `code` | Cloudflare API HTTP attempts, retries included; `code` is the HTTP status, or `error` for a transport failure. |
+| `cloudflare_api_request_duration_seconds` | histogram | `method`, `route_template` | Latency of one attempt, until the body is read. |
+| `cloudflare_api_rate_limit_wait_seconds` | histogram | `reason` (`limiter`, `retry_after`) | Time a call waited before being sent: the client-side token bucket, or a 429 back-off of the token. |
+| `cloudflare_api_throttled_total` | counter | `source` (`api`, `client`) | HTTP 429 answers from the API, and calls refused locally while the token backs off. |
+| `cloudflare_api_retries_total` | counter | `method`, `route_template`, `reason` (`429`, `5xx`, `transport`) | Retries. |
+| `cloudflare_api_list_cache_hits_total` | counter | | Collection GETs answered from the list cache (`spec.rateLimit.listCacheTTL`). |
+| `cloudflare_api_list_cache_misses_total` | counter | | Lists fetched from the API because the list cache had no fresh entry. |
+| `flare_managed_sync_failures_total` | counter | `kind`, `reason` | `Synced=False` conditions set on managed objects, by kind and condition reason (`RateLimited`, `ReconcileError`, ...). |
+<!-- metrics:end -->
+
+Useful controller-runtime series: `controller_runtime_reconcile_total{controller,result}`,
+`controller_runtime_reconcile_errors_total`, `controller_runtime_reconcile_timeouts_total`
+(`--reconcile-timeout`), `controller_runtime_reconcile_time_seconds`, `workqueue_depth`,
+`workqueue_retries_total` and `leader_election_master_status`. The controller label is the
+controller name (see `--controller` below). [docs/operations.md](docs/operations.md#health-metrics-and-logs)
+suggests alerts.
+
+## Manager flags
+
+`manager -h` prints them; the chart sets them from its values. `TestFlagsDocumented`
+(`cmd/manager`) fails when the table below and the binary's flags or defaults disagree.
+
+<!-- manager-flags:begin -->
+| Flag | Default | Chart value | Meaning |
+|---|---|---|---|
+| `--metrics-bind-address` | `:8080` | `metrics.enabled`, `metrics.port` | Metrics endpoint address; `0` disables it. |
+| `--health-probe-bind-address` | `:8081` | `probes.port` | `/healthz` and `/readyz` address. |
+| `--leader-elect` | `false` | `leaderElection.enabled` (chart default `true`) | Leader election; required with more than one replica. |
+| `--leader-election-namespace` | `""` | (the release namespace) | Namespace of the Lease `flare-operator.cloudflare.flare.dev` (empty: the in-cluster namespace). |
+| `--cluster-name` | `default` | `clusterName` | Cluster identity in ownership tags. |
+| `--ownership-tags` | `true` | `ownershipTags` | Tag managed resources with `flare.dev/owner`. |
+| `--user-agent` | `flare-operator` | `userAgent` | User-Agent of Cloudflare API calls. |
+| `--controller` | `[]` | `controllers` | Run only this controller (repeatable; default: all). Names: `cloudflareaccount`, `kvnamespace`, `queue`, `d1database`, `vectorizeindex`, `secretsstore`, `aigateway`, `tunnel`, `vpcservice`, `workerscript`. |
+| `--allow-base-url-override` | `false` | `baseURLOverride.allowAny` | Honour any CloudflareAccount `spec.baseURL`. |
+| `--allowed-base-url` | `[]` | `baseURLOverride.allowed` (and flarefake's URL when `flarefake.enabled`) | Honour exactly this `spec.baseURL` (repeatable; trailing slash ignored). |
+| `--poll-interval` | `0s` | `reconcile.pollInterval` | Drift-poll interval of in-sync objects. `0`: 5m for generated kinds, 10m for Tunnel, VPCService and WorkerScript. Minimum `10s`. |
+| `--max-concurrent-reconciles` | `1` | `reconcile.maxConcurrentReconciles` | Parallel reconciles per controller. |
+| `--reconcile-timeout` | `5m` | `reconcile.timeout` | Context deadline of one reconcile (`0` disables it). |
+| `--cloudflare-request-timeout` | `60s` | `reconcile.cloudflareRequestTimeout` | Timeout of one Cloudflare API HTTP request. |
+| `--version` | `false` | | Print the version, commit and build date, and exit. |
+| `--kubeconfig` | `""` | | Kubeconfig path, only needed out of cluster (controller-runtime). |
+| `--zap-log-level` | | `logging.level` | `debug`, `info`, `error`, `panic`, or an integer verbosity (zap). |
+| `--zap-encoder` | | `logging.encoder` | `json` or `console` (zap). |
+| `--zap-devel` | `false` | | zap development defaults (console encoder, debug level). |
+| `--zap-stacktrace-level` | | | Level at and above which stack traces are logged (zap). |
+| `--zap-time-encoding` | | | `epoch`, `millis`, `nano`, `iso8601`, `rfc3339` or `rfc3339nano` (zap). |
+<!-- manager-flags:end -->
+
 ## Local development
 
 The Makefile exports `CGO_ENABLED=0`. The manager image builds without cgo too, and on some Macs
@@ -358,23 +521,30 @@ directly, set `CGO_ENABLED=0` yourself, for example
 
 | Target | What it does |
 |---|---|
-| `make ci` | Runs everything CI runs: `fmt-check`, `vet`, `spec-check`, `test`, `test-race`, `verify-generated`, `chart-check`, `conformance`. `verify-generated` compares against `HEAD`, so commit generated files first. |
+| `make ci` | Runs everything CI runs: `fmt-check`, `vet`, `spec-check`, `lint-static`, `vulncheck` (needs network), `test`, `test-race`, `verify-generated`, `helm-lint`, `release-check`, `conformance`. `verify-generated` compares against `HEAD`, so commit generated files first. |
 | `make test` | All tests, including envtest suites (a real kube-apiserver and etcd) and the ones that load the 26 MB spec |
 | `make test-short` | Skips the spec-loading tests |
 | `make test-race` | All tests with `-race` (cgo off on darwin, on elsewhere; override with `RACE_CGO_ENABLED`) |
 | `make conformance` | Replays the real-API recordings against flarefake (`TestConformance`) |
+| `make differential-tools` / `make differential` | Installs the pinned wrangler and cloudflared, then runs them and cloudflare-go against flarefake ([Differential testing](#differential-testing)) |
 | `make fake` | Runs flarefake on `127.0.0.1:8787` with request validation against the pinned spec |
 | `make run` | Runs the manager against the current kubeconfig (install the CRDs first) |
-| `make e2e` | End-to-end suite against the cluster in your kubeconfig, using the chart with flarefake. *In progress: the target is being added and may not exist on your branch yet.* |
+| `make build` | Version-stamped `manager` and `flarefake` binaries in `./bin` |
+| `make e2e-images e2e-install e2e e2e-uninstall` | End-to-end suite (`test/e2e`) against the cluster in your kubeconfig, using the chart with flarefake; see the Makefile for `E2E_IMAGE_LOAD` |
+| `make e2e-upgrade` | Installs a previous git ref's chart, upgrades to this checkout, checks that objects survive with no Cloudflare writes |
+| `make live` | The `test/live` smoke test against the real API; skips unless `FLARE_LIVE=1` |
 | `make generate-crds` / `make generate-check` | Runs flaregen: writes generated kinds, or fails if they are stale |
 | `make generate manifests` | controller-gen: deepcopy for `api/`, CRDs into `config/crd/bases`, RBAC into `config/rbac` |
+| `make api-docs` / `make api-docs-check` | Renders `docs/api-reference.md` from the CRDs and `hack/apidocs/reasons.yaml` |
 | `make chart-sync` / `make chart-check` | Copies the CRDs and RBAC into the chart, or fails if the chart is stale |
 | `make helm-lint` | `helm lint`, `helm template` and, if installed, `kubeconform` |
-| `make docker-build` / `make docker-build-fake` | Builds the images (`IMG`, `FAKE_IMG`, `PLATFORM`, `CONTAINER_TOOL`) |
+| `make crds-apply` / `make crds-diff` | Server-side apply (or diff) of the chart's CRDs, before `helm upgrade` |
+| `make docker-build` / `make docker-build-fake` | Builds the images (`IMG`, `FAKE_IMG`, `PLATFORM`, `CONTAINER_TOOL`); `docker-buildx` for multi-arch |
+| `make lint-static` / `make vulncheck` | staticcheck and govulncheck |
 | `make spec-check` | Checks that `spec/openapi.json.gz` matches `spec/LOCK` |
 | `make envtest` | Fetches the envtest binaries into `~/.cache/flare-operator/envtest`, shared by all checkouts |
 
-After changing API types or RBAC markers, run `make manifests generate generate-crds chart-sync`
+After changing API types or RBAC markers, run `make manifests generate generate-crds api-docs chart-sync`
 and commit the result.
 
 To run the manager on your machine against flarefake, start the emulator with `make fake`, then
@@ -386,22 +556,18 @@ CGO_ENABLED=0 go run ./cmd/manager --allowed-base-url=http://127.0.0.1:8787/clie
 # CloudflareAccount spec.baseURL: http://127.0.0.1:8787/client/v4
 ```
 
-Manager flags: `--cluster-name`, `--ownership-tags`, `--controller` (repeatable; the names are
-`cloudflareaccount`, `kvnamespace`, `queue`, `d1database`, `tunnel` and `vpcservice`),
-`--allow-base-url-override`, `--allowed-base-url` (repeatable), `--leader-elect`,
-`--leader-election-namespace`, `--metrics-bind-address`, `--health-probe-bind-address`,
-`--user-agent`, and the zap logging flags (`--zap-log-level`, `--zap-encoder`, and so on).
-
 ## flarefake: the Cloudflare API emulator
 
 `flarefake` (`internal/fake`, `cmd/flarefake`) is a stateful, in-memory emulator of the parts of
 the Cloudflare API this project uses:
 
 - KV, Queues and D1
-- tunnels and Workers VPC services
+- tunnels, virtual networks and Workers VPC services
 - Workers scripts
 - token verify
 - Resource Tagging
+- a generic, spec-driven profile for simple CRUD resources (Vectorize, Secrets Store, AI
+  Gateway)
 
 It returns Cloudflare's envelope, error codes, pagination and rate-limit headers. With `-spec`,
 it checks every request against the pinned OpenAPI spec. Schema violations are journaled, or
@@ -415,16 +581,24 @@ curl -s -H 'Authorization: Bearer x' -H 'Content-Type: application/json' \
 curl -s localhost:8787/_fake/journal     # every request, with any schema violation
 ```
 
-**Fidelity rules.** The emulator is only useful if it behaves like the real API:
+**Fidelity.** The emulator is only useful if it behaves like the real API.
+[docs/emulator-fidelity.md](docs/emulator-fidelity.md) has the evidence rules, how responses are
+validated and what remains UNVERIFIED. In short:
 
-- Every emulated behavior cites the recording it came from (`// 0029`), or is marked
-  `UNVERIFIED`.
+- Every emulated behavior cites its evidence, strongest first:
+  - a recording (`// 0029`);
+  - `// SOURCED:` an official Cloudflare client or its fixtures;
+  - `// DOCS:` developers.cloudflare.com;
+  - otherwise it is marked `UNVERIFIED`.
 - Recordings of the real API live in `test/recordings/`. They are sanitized with
   `hack/sanitize_recordings.py` and scanned for leaks before they are committed.
 - `make conformance` replays the recordings and requires the same status, envelope, errors,
-  result and headers. Don't loosen its normalization to make a test pass.
-- Every new recording must be added to a conformance scenario. The test fails if a recording
-  hits an emulated route that no scenario replays.
+  result and headers. Don't loosen its normalization to make a test pass. Every new recording
+  must be added to a conformance scenario; the test fails if a recording hits an emulated
+  route that no scenario replays.
+- In tests, every emulated response is validated against the pinned spec's response schema
+  (strict mode). A violation fails the run unless an allowlist entry explains it; most entries
+  cite a recording in which the real API violates the spec the same way.
 
 **Control API** (`/_fake/…`, not part of Cloudflare's API):
 
@@ -432,11 +606,30 @@ curl -s localhost:8787/_fake/journal     # every request, with any schema violat
 |---|---|
 | `POST /_fake/reset` | Drop all state |
 | `GET` / `DELETE /_fake/journal` | Read or clear the request journal (time, method, path, status, schema violation, injected fault) |
+| `GET /_fake/response_violations` | Emulated responses that violate the spec's response schemas (with `-spec`) |
 | `POST /_fake/clock` | `{"set":"<RFC3339>"}`, `{"advance":"90s"}` or `{"real":true}` |
 | `POST /_fake/ids` | `{"ids":["…"]}`: queue the IDs the next creates return |
 | `POST` / `DELETE /_fake/faults` | `{"method":"POST","path_regex":"/queues$","status":500,"code":10001,"message":"…","times":1}` fails matching requests (`times` ≤ 0: until cleared) |
 | `POST` / `DELETE /_fake/tokens` | Register tokens (`{"token":"…","kind":"account","account_id":"…"}`), which switches token checks to strict mode, or clear them |
 | `POST /_fake/accounts/{account}/tunnels/{id}/connect` / `…/disconnect` | Simulate `cloudflared` connecting (`{"replicas":1,"connections":4}`) or disconnecting |
+
+### Differential testing
+
+The differential tests run Cloudflare's own clients against an in-process flarefake: pinned
+versions of wrangler, cloudflared (management commands only) and the cloudflare-go SDK. They
+check that each client works end to end and that what it reads back decodes. They make no
+Cloudflare API calls. A known mismatch is a skipped subtest `discrepancy/<ID>` whose message
+cites the client's source line; when flarefake is fixed, the subtest fails with "no longer
+reproduces" so the entry gets removed.
+
+```sh
+make differential-tools   # once: wrangler (npm ci) and cloudflared (sha256-checked) into ~/.cache/flare-operator/differential
+make differential         # wrangler + cloudflared, then cloudflare-go
+```
+
+`make ci` does not run the clients (they need network installs); it vets `test/differential`
+and runs the harness unit tests. Coverage, pinned versions and the list of known discrepancies
+are in [docs/differential-testing.md](docs/differential-testing.md).
 
 ## The CRD generator (flaregen)
 
@@ -451,7 +644,8 @@ singletons. For every configured kind, it writes:
 
 The manager registers every generated kind automatically; `cmd/manager` needs no change. The
 flattening rules (OpenAPI to structural schema) and the derivation of immutable, write-only, ID
-and name fields are documented in `internal/flaregen/doc.go`.
+and name fields are documented in `internal/flaregen/doc.go`, and scaling out to more kinds in
+[docs/generator-scaleout.md](docs/generator-scaleout.md).
 
 To add a kind:
 
@@ -461,27 +655,31 @@ To add a kind:
    - `fernGroup` (plus `path` if the group holds several resources) and `kind`
    - `defaultDeletionPolicy: Orphan` if the resource holds data
    - `tagResourceType`, taken from the spec's tags-set enum
+   - `shortNames` and `printColumns`
    - any overrides (`immutable`, `writeOnly`, `fields`, …), each explained under `why:` with a
      recording number or `UNVERIFIED`
-3. Run `make generate-crds manifests chart-sync`.
-4. Teach flarefake the resource, with behavior backed by new recordings in a conformance
-   scenario. Add a sample to `TestDescriptorsAgainstFlarefake`
+3. Run `make generate-crds manifests api-docs chart-sync`.
+4. Teach flarefake the resource (a hand-written profile, or `emulate: generic`), with behavior
+   backed by evidence. Add a sample to `TestDescriptorsAgainstFlarefake`
    (`internal/generic/descriptors/emulator_test.go`); the test fails without one.
-5. Add a manifest to `examples/`. `TestEveryKindHasAnExample` fails without one.
+5. Add a manifest to `examples/` and a row to the [Examples](#examples) and [Token permissions](#token-permissions)
+   tables. `TestEveryKindHasAnExample` fails without the manifest.
 6. Run `make ci`.
 
 ## Repository layout
 
 ```
 api/                     API types: common/ (shared, frozen contract), cloudflare/ (CloudflareAccount),
-                         tunnels/, workersvpc/ (hand-written), kv/, queues/, d1/ (generated by flaregen)
+                         tunnels/, workersvpc/, workers/ (hand-written),
+                         kv/, queues/, d1/, vectorize/, secretsstore/, aigateway/ (generated by flaregen)
 cmd/manager/             the operator binary
 cmd/flaregen/            the CRD generator
 cmd/flarefake/           the emulator as a standalone server (API at /client/v4, control at /_fake)
-internal/cfclient/       Cloudflare API client: per-token rate limiter, retries, list cache
+internal/cfclient/       Cloudflare API client: per-token rate limiter, retries, list cache, metrics
 internal/reconcile/      shared reconcile helpers: policies, finalizers, conditions, accounts, tags, ownership
 internal/generic/        the generic reconciler, generated descriptors and kind registration
-internal/controller/     hand-written controllers: account, tunnel, vpcservice (+ tunnelnet)
+internal/controller/     hand-written controllers: account, tunnel, vpcservice (+ tunnelnet), workerscript
+internal/resilience/     fault, crash-consistency, scale and metrics tests
 internal/flaregen/       generator implementation
 internal/fake/           flarefake
 internal/testenv/        envtest + in-process flarefake test harness
@@ -490,8 +688,11 @@ charts/flare-operator/   Helm chart (crds/ and ClusterRoles synced by make chart
 examples/                one annotated manifest per kind, validated by go test ./examples/
 spec/                    pinned Cloudflare OpenAPI spec (gzipped) + LOCK
 test/recordings/         sanitized real-API recordings replayed by make conformance
-hack/                    chartsync, classify_api.py (coverage map), sanitize_recordings.py
-docs/                    design docs, status
+test/chart/              chart rendering and values-table tests
+test/differential/       real Cloudflare clients against flarefake
+test/e2e/, test/live/    e2e on a cluster (tag e2e); live smoke test (tag live)
+hack/                    chartsync, apidocs, classify_api.py (coverage map), sanitize_recordings.py
+docs/                    design docs, runbook, status
 ```
 
 ## Documentation
@@ -499,13 +700,19 @@ docs/                    design docs, status
 | Doc | What |
 |---|---|
 | [docs/STATUS.md](docs/STATUS.md) | Build status, open issues, UNVERIFIED assumptions |
+| [docs/api-reference.md](docs/api-reference.md) | Every kind's fields, validation rules, printer columns and condition reasons (generated) |
+| [docs/api-versioning.md](docs/api-versioning.md) | The path from `v1alpha1` to `v1beta1` |
+| [docs/operations.md](docs/operations.md) | Runbook: install, upgrade (CRDs), reconcile tuning and API budget, crash consistency, uninstall semantics, metrics, HA, network policy, rate limits, troubleshooting, backup |
+| [docs/resilience.md](docs/resilience.md) | Crash consistency, fault behavior, measured API-call costs, metrics, fuzzing |
+| [docs/emulator-fidelity.md](docs/emulator-fidelity.md) | flarefake's evidence tiers, response validation, what remains UNVERIFIED |
+| [docs/differential-testing.md](docs/differential-testing.md) | wrangler, cloudflared and cloudflare-go against flarefake; known discrepancies |
+| [docs/testing-strategy.md](docs/testing-strategy.md) | Emulator, recordings, API versioning |
+| [docs/generator-scaleout.md](docs/generator-scaleout.md) | Generating more kinds; the generic flarefake profile |
 | [docs/cloudflare-service-catalog.md](docs/cloudflare-service-catalog.md) | Every Cloudflare product: its API, the Kubernetes analogy, the tier |
 | [docs/cloudflare-api-coverage.md](docs/cloudflare-api-coverage.md) | All API operations, classified (generated by `make classify`) |
-| [docs/testing-strategy.md](docs/testing-strategy.md) | Emulator, recordings, API versioning |
 | [docs/spike-results-2026-09-29.md](docs/spike-results-2026-09-29.md) | What we learned from the real API (tunnels, Workers VPC, `cloudflared` in Kubernetes) |
 | [docs/virtual-kubelet-design.md](docs/virtual-kubelet-design.md) | Planned: Pods on Cloudflare Containers |
 | [docs/plan-parallel.md](docs/plan-parallel.md) | How the work is split into workstreams |
-| [charts/flare-operator/README.md](charts/flare-operator/README.md) | Chart install, values, e2e with flarefake |
-| [docs/operations.md](docs/operations.md) | Runbook: install, upgrade (CRDs), uninstall semantics, metrics, HA, network policy, rate limits, troubleshooting, backup |
+| [charts/flare-operator/README.md](charts/flare-operator/README.md) | Chart install, every value, e2e with flarefake |
 | [SECURITY.md](SECURITY.md) | Token handling, in-cluster privileges, supply chain |
 | [CHANGELOG.md](CHANGELOG.md) | Changes per release |

@@ -1,7 +1,8 @@
 # An AI Gateway gateway. Emulated by flarefake's generic profile (UNVERIFIED; see
 # docs/generator-scaleout.md). The client chooses the id (create-only); the rest is updated
-# with PUT. There is no name field, so an existing gateway is not adopted by name: set the
-# cloudflare.flare.dev/external-id annotation to the id to adopt one.
+# with PUT. There is no name field. Before creating, the operator looks up a gateway with this
+# id and adopts it if it exists. AIGateway has no owner tag, so an adopted gateway is deleted
+# with the object under the default deletionPolicy Delete; set deletionPolicy: Orphan to keep it.
 apiVersion: aigateway.cloudflare.flare.dev/v1alpha1
 kind: AIGateway
 metadata:

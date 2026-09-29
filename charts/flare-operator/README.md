@@ -5,8 +5,13 @@ Installs the flare-operator manager, its CRDs (`crds/`), RBAC, and a metrics Ser
 ```sh
 make docker-build docker-build-fake          # flare-operator:dev, flarefake:dev
 helm install flare-operator charts/flare-operator -n flare-system --create-namespace \
-  --set image.tag=dev --set clusterName=<unique-cluster-name>
+  --set image.tag=dev --set clusterName=<unique-cluster-name> \
+  --set reconcile.pollInterval=10m --set reconcile.maxConcurrentReconciles=2
 ```
+
+The `reconcile.*` values are optional; the defaults are in the table below, and
+[docs/operations.md](../../docs/operations.md#reconcile-tuning-and-the-api-budget) explains how
+to size them.
 
 ## Generated files (do not edit)
 
@@ -17,7 +22,7 @@ are produced by `make chart-sync` from `config/crd/bases` and `config/rbac/role.
 
 Helm installs `crds/` on first install only and never upgrades or deletes them. Before every
 `helm upgrade`, run `make crds-apply`
-(`kubectl apply --server-side --force-conflicts -f charts/flare-operator/crds/`).
+(`kubectl apply --server-side --force-conflicts --field-manager=flare-operator-crds -f charts/flare-operator/crds/`).
 [docs/operations.md](../../docs/operations.md#upgrade) explains why this is a documented step
 rather than a hook Job. `make e2e-upgrade` tests the upgrade path from a previous git ref.
 
@@ -31,8 +36,7 @@ the manager `--allowed-base-url` for that Service's URL only, in three spellings
 `<fullname>` is `<release>-flare-operator`, or just `<release>` when the release name already
 contains `flare-operator` (release `flare-operator` in `flare-system`:
 `http://flare-operator-flarefake.flare-system.svc:8787/client/v4`). The install NOTES print the
-exact value. Never enable it in a cluster that
-manages a real Cloudflare account.
+exact value. Never enable it in a cluster that manages a real Cloudflare account.
 
 `make e2e-images e2e-install e2e e2e-uninstall` builds the images (plus the cloudflared stand-in
 `test/e2e/cloudflared-stub`), installs this chart with flarefake, runs `test/e2e` and removes the
@@ -42,13 +46,98 @@ k0s: `sudo k0s ctr -n k8s.io images rm`); see the Makefile and `test/e2e/doc.go`
 
 ## Values
 
-See `values.yaml`. `values.schema.json` validates them: an unknown key or a wrong type fails
-`helm install`, `upgrade`, `template` and `lint`. Update the schema with any change to
-`values.yaml`; `test/chart` checks that it rejects typos. Common values: `image.*`,
-`clusterName`, `ownershipTags`, `controllers`, `baseURLOverride.{allowAny,allowed}`,
-`leaderElection.enabled`, `replicas`, `metrics.*`, `resources`, `nodeSelector`,
-`tolerations`, `affinity`, `extraArgs`, `extraEnv`, `rbac.aggregateToDefaultRoles`,
-`flarefake.*`.
+`values.schema.json` validates the values: an unknown key or a wrong type fails `helm install`,
+`upgrade`, `template` and `lint`. `go test ./test/chart/` (part of `make test`) checks that the
+schema rejects typos. Its `TestValuesTableMatchesChart` checks the table below against
+`values.yaml` and `values.schema.json`:
+
+- every key in `values.yaml` has a row (a row for an object covers its fields);
+- every row names a key of both files;
+- the Type column is the schema's type;
+- a Default written as code is the `values.yaml` default.
+
+When you change `values.yaml`, update the schema and this table in the same change. The
+toolchain has no helm-docs generator; the test takes its place.
+
+<!-- values-table:begin -->
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `nameOverride` | string | `""` | Override the chart name used in resource names. |
+| `fullnameOverride` | string | `""` | Override the full resource name prefix (default: `<release>-<chart>`, or `<release>` if it already contains the chart name). |
+| `image.repository` | string | `"flare-operator"` | Manager image repository. Build it with `make docker-build`. |
+| `image.tag` | string | `""` | Manager image tag (empty: the chart `appVersion`). |
+| `image.pullPolicy` | string | `"IfNotPresent"` | `Always`, `IfNotPresent` or `Never`. |
+| `imagePullSecrets` | array | `[]` | Pull secrets for the manager and flarefake pods. |
+| `replicas` | integer | `1` | Manager replicas. More than one requires `leaderElection.enabled`; only the leader reconciles. |
+| `leaderElection.enabled` | boolean | `true` | `--leader-elect`. The Lease lives in the release namespace (`--leader-election-namespace`). |
+| `clusterName` | string | `"default"` | `--cluster-name`: the cluster identity in ownership tags (`flare.dev/owner=<clusterName>/<ns>/<name>`). Give every cluster that manages the same Cloudflare account a distinct name. |
+| `ownershipTags` | boolean | `true` | `--ownership-tags`: tag managed Cloudflare resources through Resource Tagging. |
+| `userAgent` | string | `""` | `--user-agent` for Cloudflare API calls (empty: the binary default, `flare-operator`). |
+| `controllers` | array | `[]` | `--controller`, once per entry: run only these controllers. Empty runs all of them. |
+| `baseURLOverride.allowAny` | boolean | `false` | `--allow-base-url-override`: honour any CloudflareAccount `spec.baseURL`. Test clusters only: an override sends the account's token to that URL. |
+| `baseURLOverride.allowed` | array | `[]` | `--allowed-base-url`, once per entry: honour exactly these `spec.baseURL` values. |
+| `reconcile.pollInterval` | string | `""` | `--poll-interval`, a Go duration, minimum `10s`. Empty keeps the controller defaults (5m for generated kinds, 10m for Tunnel, VPCService and WorkerScript). |
+| `reconcile.maxConcurrentReconciles` | integer | `1` | `--max-concurrent-reconciles`: parallel reconciles per controller. All workers of a token share its rate limit. |
+| `reconcile.timeout` | string | `"5m"` | `--reconcile-timeout`: context deadline of one reconcile (`0` disables it). |
+| `reconcile.cloudflareRequestTimeout` | string | `"60s"` | `--cloudflare-request-timeout`: timeout of one Cloudflare API HTTP request. |
+| `logging.level` | string or integer | `"info"` | `--zap-log-level`: `debug`, `info`, `error`, `panic`, or an integer verbosity. |
+| `logging.encoder` | string | `"json"` | `--zap-encoder`: `json` or `console`. |
+| `extraArgs` | array | `[]` | Extra manager command-line arguments. |
+| `extraEnv` | array | `[]` | Extra environment variables (EnvVar list) for the manager container. |
+| `metrics.enabled` | boolean | `true` | Serve Prometheus metrics on `metrics.port` (`--metrics-bind-address`; `false` passes `0`). Plain HTTP without authentication; restrict it with `networkPolicy.metricsFrom`. |
+| `metrics.port` | integer | `8080` | Metrics port. |
+| `metrics.service.enabled` | boolean | `true` | A ClusterIP Service `<fullname>-metrics` for the metrics port. |
+| `metrics.service.annotations` | object | `{}` | Annotations of the metrics Service. |
+| `metrics.serviceMonitor.enabled` | boolean | `false` | A prometheus-operator ServiceMonitor. Needs the `monitoring.coreos.com/v1` CRDs, `metrics.enabled` and `metrics.service.enabled`. |
+| `metrics.serviceMonitor.labels` | object | `{}` | Extra labels, e.g. the label your Prometheus selects ServiceMonitors by. |
+| `metrics.serviceMonitor.annotations` | object | `{}` | Annotations of the ServiceMonitor. |
+| `metrics.serviceMonitor.interval` | string | `""` | Scrape interval (empty: Prometheus' default). |
+| `metrics.serviceMonitor.scrapeTimeout` | string | `""` | Scrape timeout (empty: Prometheus' default). |
+| `metrics.serviceMonitor.relabelings` | array | `[]` | ServiceMonitor `relabelings`. |
+| `metrics.serviceMonitor.metricRelabelings` | array | `[]` | ServiceMonitor `metricRelabelings`. |
+| `probes.port` | integer | `8081` | `/healthz` and `/readyz` port (`--health-probe-bind-address`). |
+| `serviceAccount.create` | boolean | `true` | Create the manager's ServiceAccount. |
+| `serviceAccount.name` | string | `""` | ServiceAccount name (empty: the full name). |
+| `serviceAccount.annotations` | object | `{}` | Annotations of the ServiceAccount. |
+| `rbac.create` | boolean | `true` | Create the manager ClusterRole and binding, and the leader-election Role and binding. |
+| `rbac.aggregateToDefaultRoles` | boolean | `true` | ClusterRoles that aggregate the flare-operator kinds into the default `view`, `edit` and `admin` roles. |
+| `podAnnotations` | object | `{}` | Annotations of the manager pods. |
+| `podLabels` | object | `{}` | Labels of the manager pods. |
+| `priorityClassName` | string | `""` | PriorityClass of the manager pods, so the operator is not preempted before your workloads. |
+| `topologySpreadConstraints` | array | `[]` | topologySpreadConstraints of the manager pods. An entry without `labelSelector` gets the manager's selector labels. |
+| `podDisruptionBudget.enabled` | boolean | `true` | Render a PodDisruptionBudget, but only when `replicas` > 1 (with one replica it would block every node drain). |
+| `podDisruptionBudget.minAvailable` | integer or string | `1` | `minAvailable` (integer or percentage). Ignored when `maxUnavailable` is set. |
+| `podDisruptionBudget.maxUnavailable` | integer or string | `""` | `maxUnavailable` (integer or percentage); empty uses `minAvailable`. |
+| `networkPolicy.enabled` | boolean | `false` | A NetworkPolicy for the manager pods ([docs/operations.md](../../docs/operations.md#network-policy)). |
+| `networkPolicy.apiServer.cidrs` | array | `[]` | **Required when enabled**: the API server's endpoint addresses (not the `kubernetes` Service ClusterIP), e.g. `["192.168.5.15/32"]`. |
+| `networkPolicy.apiServer.ports` | array | `[6443]` | API server ports. |
+| `networkPolicy.cloudflareAPI.cidrs` | array | Cloudflare's published IPv4 and IPv6 ranges (22 CIDRs, copied 2026-09-29) | HTTPS egress for `api.cloudflare.com`. Set `[]` and use your CNI's FQDN policy for a tighter rule. |
+| `networkPolicy.cloudflareAPI.ports` | array | `[443]` | Cloudflare API ports. |
+| `networkPolicy.dns.namespaceSelector` | object | `{"kubernetes.io/metadata.name": "kube-system"}` | Namespace labels of the cluster DNS pods (UDP and TCP 53). |
+| `networkPolicy.dns.podSelector` | object | `{"k8s-app": "kube-dns"}` | Labels of the cluster DNS pods. |
+| `networkPolicy.metricsFrom` | array | `[]` | NetworkPolicyPeers allowed to scrape the metrics port; empty allows any source. |
+| `networkPolicy.extraEgress` | array | `[]` | Extra NetworkPolicyEgressRules, e.g. for a `spec.baseURL` override target. |
+| `podSecurityContext` | object | `{"runAsNonRoot": true, "runAsUser": 65532, "runAsGroup": 65532, "seccompProfile": {"type": "RuntimeDefault"}}` | Pod security context of the manager and flarefake pods (restricted Pod Security Standard). |
+| `securityContext` | object | `{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "privileged": false, "capabilities": {"drop": ["ALL"]}}` | Container security context of the manager and flarefake containers. |
+| `resources` | object | `{"requests": {"cpu": "50m", "memory": "128Mi"}, "limits": {"memory": "512Mi"}}` | Manager resources. The manager caches Secrets cluster-wide (for the token refs); size memory for that. |
+| `nodeSelector` | object | `{}` | nodeSelector of the manager pods. |
+| `tolerations` | array | `[]` | Tolerations of the manager pods. |
+| `affinity` | object | `{}` | Affinity of the manager pods. |
+| `clusterDomain` | string | `"cluster.local"` | Cluster DNS domain, used to build the flarefake Service URL. |
+| `flarefake.enabled` | boolean | `false` | Run the flarefake emulator as a Deployment and Service, and pass the manager `--allowed-base-url` for its URL only. **Never in a cluster that manages a real Cloudflare account.** |
+| `flarefake.image.repository` | string | `"flarefake"` | flarefake image repository. Build it with `make docker-build-fake`. |
+| `flarefake.image.tag` | string | `""` | flarefake image tag (empty: the chart `appVersion`). |
+| `flarefake.image.pullPolicy` | string | `"IfNotPresent"` | `Always`, `IfNotPresent` or `Never`. |
+| `flarefake.port` | integer | `8787` | flarefake port. |
+| `flarefake.validateRequests` | boolean | `true` | Validate requests against the pinned OpenAPI spec baked into the image (`-spec`). |
+| `flarefake.rejectSchemaViolations` | boolean | `false` | Answer schema-invalid requests with 400 instead of only journaling them (`-reject-schema-violations`). |
+| `flarefake.extraArgs` | array | `[]` | Extra flarefake arguments. |
+| `flarefake.podAnnotations` | object | `{}` | Annotations of the flarefake pod. |
+| `flarefake.resources` | object | `{"requests": {"cpu": "50m", "memory": "384Mi"}, "limits": {"memory": "1Gi"}}` | flarefake resources. The parsed 26 MB spec keeps an idle flarefake at about 320 MiB (measured on linux/arm64). |
+| `flarefake.nodeSelector` | object | `{}` | nodeSelector of the flarefake pod. |
+| `flarefake.tolerations` | array | `[]` | Tolerations of the flarefake pod. |
+| `flarefake.affinity` | object | `{}` | Affinity of the flarefake pod. |
+<!-- values-table:end -->
 
 Production options (all off or empty by default):
 

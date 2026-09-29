@@ -2,9 +2,11 @@
 
 This is the runbook for installing, upgrading, running and removing flare-operator. For
 concepts (deletionPolicy, managementPolicies, adoption, ownership tags), see the
-[README](../README.md#concepts). For tokens and privileges, see [SECURITY.md](../SECURITY.md).
-Chart values are listed in `charts/flare-operator/values.yaml` and validated by
-`values.schema.json`.
+[README](../README.md#concepts). For tokens and privileges, see [SECURITY.md](../SECURITY.md)
+and the README's [token permissions](../README.md#token-permissions). Every chart value is
+listed in [charts/flare-operator/README.md](../charts/flare-operator/README.md#values) and
+validated by `values.schema.json`; every manager flag in the README's
+[flags table](../README.md#manager-flags).
 
 - [Install](#install)
 - [Upgrade](#upgrade)
@@ -12,7 +14,9 @@ Chart values are listed in `charts/flare-operator/values.yaml` and validated by
 - [Health, metrics and logs](#health-metrics-and-logs)
 - [High availability and leader election](#high-availability-and-leader-election)
 - [Network policy](#network-policy)
+- [Reconcile tuning and the API budget](#reconcile-tuning-and-the-api-budget)
 - [Rate limiting and HTTP 429](#rate-limiting-and-http-429)
+- [Crash consistency](#crash-consistency)
 - [Troubleshooting by condition reason](#troubleshooting-by-condition-reason)
 - [Backup and restore of the custom resources](#backup-and-restore-of-the-custom-resources)
 - [Several Cloudflare accounts, several clusters](#several-cloudflare-accounts-several-clusters)
@@ -29,7 +33,8 @@ Chart values are listed in `charts/flare-operator/values.yaml` and validated by
    ```sh
    helm install flare-operator charts/flare-operator -n flare-system --create-namespace \
      --set image.repository=<registry>/flare-operator --set image.tag=<tag> \
-     --set clusterName=<unique-cluster-name>
+     --set clusterName=<unique-cluster-name> \
+     --set reconcile.pollInterval=10m      # optional; see "Reconcile tuning and the API budget"
    kubectl -n flare-system rollout status deploy/flare-operator
    kubectl -n flare-system logs deploy/flare-operator | head -3   # "flare-operator" version line
    ```
@@ -162,17 +167,24 @@ delete the namespace.
 | `/readyz` | 8081 | Readiness: ping. A standby replica is Ready too; only the leader reconciles. |
 | `/metrics` | 8080 (`metrics.port`) | Prometheus text format, plain HTTP, no authentication. |
 
-The metrics are controller-runtime's standard set. The flare-operator-specific metrics (API
-calls, latency, 429s) are planned in PR-3. Useful series today:
+The operator's own metrics (Cloudflare API calls, latency, rate-limit waits, 429s, retries,
+list cache, sync failures) are listed in the README's [metrics table](../README.md#metrics),
+with their labels; [resilience.md §5](resilience.md#5-metrics) explains how they are counted.
+Next to them are controller-runtime's standard series. What to watch:
 
-- `controller_runtime_reconcile_total{controller,result}` and
-  `controller_runtime_reconcile_errors_total{controller}`: error rate per kind.
-- `controller_runtime_reconcile_time_seconds`: reconcile latency. It includes the time spent
-  waiting on the client-side Cloudflare rate limiter.
-- `workqueue_depth{name}`, `workqueue_retries_total{name}`, `workqueue_longest_running_processor_seconds`:
-  backlog and retry storms.
-- `leader_election_master_status{name="flare-operator.cloudflare.flare.dev"}`: 1 on the leader.
-- `rest_client_requests_total{code}`: Kubernetes API calls, not Cloudflare calls.
+| Question | Series |
+|---|---|
+| Is the token near Cloudflare's limit? | `sum(rate(cloudflare_api_requests_total[5m]))` against 4/s (1200 per 5 minutes per token); `rate(cloudflare_api_throttled_total{source="api"}[5m]) > 0` means Cloudflare is answering 429 |
+| Are calls queueing behind the client-side limiter? | `histogram_quantile(0.9, rate(cloudflare_api_rate_limit_wait_seconds_bucket{reason="limiter"}[5m]))`; seconds here mean the poll load is too high for the budget (see [Reconcile tuning](#reconcile-tuning-and-the-api-budget)) |
+| Is Cloudflare failing? | `cloudflare_api_requests_total{code=~"5..\|error"}`, `cloudflare_api_retries_total{reason=~"5xx\|transport"}`, `cloudflare_api_request_duration_seconds` |
+| Which objects fail, and why? | `flare_managed_sync_failures_total{kind,reason}`; it also counts failures that controllers report through a condition and a timed requeue, which `controller_runtime_reconcile_errors_total{controller}` misses |
+| Do reconciles hang? | `controller_runtime_reconcile_timeouts_total{controller}` (`reconcile.timeout`), `controller_runtime_reconcile_time_seconds`, `workqueue_longest_running_processor_seconds` |
+| Is work piling up? | `workqueue_depth{name}`, `workqueue_retries_total{name}` |
+| Which replica leads? | `leader_election_master_status{name="flare-operator.cloudflare.flare.dev"}`: 1 on the leader |
+
+`rest_client_requests_total{code}` counts Kubernetes API calls, not Cloudflare calls. The
+`controller` and `name` labels are the controller names (`kvnamespace`, `tunnel`, ...; the
+README's [`--controller`](../README.md#manager-flags) row lists them).
 
 `metrics.serviceMonitor.enabled=true` creates a prometheus-operator ServiceMonitor for the
 metrics Service. It needs the `monitoring.coreos.com` CRDs. Add the label your Prometheus
@@ -235,45 +247,122 @@ Things to know:
 - **cloudflared.** The Tunnel controller writes its own egress NetworkPolicy for each
   `cloudflared` Deployment (see the README). This chart value does not affect it.
 
+## Reconcile tuning and the API budget
+
+Four knobs set how hard the manager works and how much of the Cloudflare budget it spends.
+They apply to every controller:
+
+| Chart value | Flag | Default | Raise it when | Lower it when |
+|---|---|---|---|---|
+| `reconcile.pollInterval` | `--poll-interval` | empty / `0`: 5m for generated kinds, 10m for Tunnel, VPCService and WorkerScript (minimum `10s`) | polling crowds out real work (the budget below) | you need drift found faster, and the budget has room |
+| `reconcile.maxConcurrentReconciles` | `--max-concurrent-reconciles` | `1` per controller | many objects wait in `workqueue_depth` while the limiter has room | rarely; each worker still waits for the token's shared limiter |
+| `reconcile.timeout` | `--reconcile-timeout` | `5m` | reconciles of big WorkerScripts or large accounts hit `controller_runtime_reconcile_timeouts_total` | you want a hung call to free its worker sooner |
+| `reconcile.cloudflareRequestTimeout` | `--cloudflare-request-timeout` | `60s` | large uploads time out on a slow link | you want a stalled request to fail sooner (it is retried if idempotent) |
+
+Per account, `spec.rateLimit` on the CloudflareAccount sets the client-side limiter of its
+token: `requestsPerFiveMinutes` (default 1080), `burst` (20), `maxRetries` (4) and
+`listCacheTTL` (off).
+
+**Budget math.** Cloudflare allows 1200 requests per 5 minutes per token. The client limits
+itself to 90 % of that, 3.6 requests/s, which is **12 960 requests per hour** per token.
+Measured costs (flarefake journal, `TestScale` in `internal/resilience`, ownership tags on;
+details in [resilience.md §3](resilience.md#3-api-call-budget-and-polling-cost)):
+
+| Operation | Cloudflare calls |
+|---|---|
+| Drift poll of an in-sync tagged generated object (KVNamespace, Queue, D1Database) | 2 (GET, owner-tag read) |
+| Drift poll of an in-sync untagged generated object (VectorizeIndex, SecretsStore, AIGateway) | 1 |
+| Create of a tagged generated kind | up to 11, plus one list page per 20 (KV and generic kinds) or 100 (Queues, D1) existing resources of the kind |
+| Create of an untagged generated kind | up to 7, plus the list pages |
+| Token re-verification per CloudflareAccount, every 10 minutes | 1 (account-owned token) or 3 (user token: the account verify fails, then user verify and `GET /accounts/{id}`) |
+| Drift poll of a Tunnel, VPCService or WorkerScript | not measured (UNVERIFIED): several GETs, plus the tag read for Tunnel and WorkerScript |
+
+Steady-state cost per hour of N in-sync objects polled every P seconds is
+`N × callsPerPoll × 3600 / P`. For tagged generated kinds (2 calls per poll):
+
+| Objects per token | P = 5m (default) | P = 10m | P = 15m |
+|---|---|---|---|
+| 100 | 2 400/h (19 % of 12 960) | 1 200/h (9 %) | 800/h (6 %) |
+| 300 | 7 200/h (56 %) | 3 600/h (28 %) | 2 400/h (19 %) |
+| 500 | 12 000/h (93 %) | 6 000/h (46 %) | 4 000/h (31 %) |
+
+Keep steady state well below 100 %: creates, updates and deletes need the rest, and a token
+that other tools share (CI, Terraform, wrangler) shares Cloudflare's 1200, not the operator's
+bucket. Above about 300 tagged objects per token at the 5-minute default, do one of these:
+
+- raise `reconcile.pollInterval`;
+- split the objects across CloudflareAccounts with different tokens (each token has its own
+  budget);
+- raise `spec.rateLimit.requestsPerFiveMinutes`, but only if nothing else uses the token;
+- set `spec.rateLimit.listCacheTTL` to cut the list calls of creates in large accounts.
+
+The 500-object scale run converged in 22 minutes, bound by the rate limit (about 4 760 calls at
+3.6/s), and settled at about 8 000 calls per hour with a mix of tagged and untagged kinds.
+`--max-concurrent-reconciles` does not raise throughput past the limiter: all workers of a
+token wait for the same bucket. Polls of generated kinds carry up to 10 % jitter, so objects
+created together do not poll in lockstep.
+
 ## Rate limiting and HTTP 429
 
-Cloudflare allows 1200 requests per 5 minutes per token (global limit). The operator:
+How the client behaves at the limit (tested in `internal/cfclient` and `internal/resilience`,
+see [resilience.md §2](resilience.md#2-faults)):
 
-- keeps **one client-side token bucket per API token**, shared by every CloudflareAccount
-  that uses that token. The default is 3.6 requests/s (1080 per 5 minutes, 90 % of the limit),
-  with a burst of 20. Tune it per account with `spec.rateLimit.requestsPerFiveMinutes` and
-  `spec.rateLimit.burst`. The most recently configured account using a token sets the shared
-  values;
-- on a **429**, blocks the whole token (all accounts and controllers using it) for
+- **One client-side token bucket per API token**, shared by every CloudflareAccount that uses
+  that token (3.6 requests/s and a burst of 20 by default). The most recently configured
+  account using a token sets the shared values.
+- **On a 429**, the whole token pauses (all accounts and controllers using it) for
   `Retry-After`, or for an exponential back-off (250 ms doubling, capped at 10 s, jittered)
-  when there is no header, and retries the same call up to 8 times;
-- does not sleep in a reconcile for more than 30 s (`MaxInlineWait`). A longer
-  `Retry-After` returns the 429 to the reconciler. The object reports `Synced=False` /
-  `ReconcileError` with the API error, and controller-runtime requeues it with per-object
-  exponential back-off (5 ms doubling, up to about 16 minutes). Other objects that use the
-  token wait out the block without calling the API (error code 971, "token is backing off
-  after HTTP 429");
-- retries **5xx and transport errors** only for idempotent calls (GET, PUT, DELETE, HEAD), up
-  to 4 times (`spec.rateLimit.maxRetries`). A POST that failed with a 5xx or a timeout is not
-  retried inside the client. The next reconcile of a generated kind or a Tunnel first looks
-  for a resource with the same name and adopts it, so a create that did succeed is not
-  repeated. A VPCService reports `NameConflict` instead, because it has no owner tag to prove
-  the match (PR-3 adds fault tests for this window);
-- polls in-sync objects every 5 minutes for drift, and re-verifies tokens every 10 minutes.
-  About 300 in-sync objects per token therefore use roughly one request per second at steady
-  state; tag reads add to that. `spec.rateLimit.listCacheTTL` caches collection GETs, such as
-  the name lookups used for adoption.
+  when there is no header. The same call is retried up to 8 times.
+- **A reconcile never sleeps more than 30 s** (`cfclient.MaxInlineWait`). A longer
+  `Retry-After` returns the 429 to the reconciler: the object reports `Synced=False` with
+  reason **`RateLimited`** and the wait in the message, and is requeued after `Retry-After`
+  (at least 1 s), not in a hot retry loop. Until then, other objects that use the token are
+  refused locally without calling the API (error code 971, "token is backing off after HTTP
+  429"; `cloudflare_api_throttled_total{source="client"}`).
+- **5xx and transport errors** are retried only for idempotent calls (GET, HEAD, PUT, DELETE),
+  up to `spec.rateLimit.maxRetries` times (default 4). A POST or PATCH that failed is not
+  retried inside the client; the next reconcile looks the resource up first
+  ([Crash consistency](#crash-consistency)), so a create that did succeed is adopted, not
+  repeated.
 
-Sharing a token with other tools (CI, Terraform, wrangler) shares Cloudflare's budget, not the
-operator's bucket. Give the operator its own token, or lower `requestsPerFiveMinutes`. The
-fault-injection tests for 429 storms and a scale test under the limit are planned in PR-3; the
-behavior above is covered by the `internal/cfclient` unit tests.
+## Crash consistency
+
+A create is two steps: the Cloudflare call, then writing the new ID to the object. A manager
+killed, evicted or cut off from the API server between the two must never leave a second
+resource or lose one. What the operator guarantees (details, residual risks and the tests in
+[resilience.md §1](resilience.md#1-crash-consistency-create-then-record)):
+
+- **Before a create**, the object gets a `cloudflare.flare.dev/create-pending: <uid>/<key>`
+  record (key: the name, or AIGateway's client-chosen id). **After it**, the external-id and
+  ownership-proof annotations are written.
+- **On the next reconcile**, a resource matching the record is the object's own lost create
+  and is adopted, not created again. The generated kinds and a tagged Tunnel also find it by
+  name; AIGateway by its id.
+- **An object deleted while the manager was down**, between the create and the record, is
+  still cleaned up: the finalizer resolves the create-pending record first and deletes the
+  resource under `deletionPolicy: Delete`, through the normal ownership check.
+- **A lost POST answer** (timeout, reset connection) is not retried by the client; the next
+  reconcile's lookup adopts what it created.
+- **A failed page of a paginated list** fails the whole lookup, so a partial list is never
+  taken as "not found".
+
+`TestCrashBetweenCreateAndRecord` and `TestCrashThenDeleteBeforeRestart` check every kind for
+exactly one Cloudflare resource and one create call. Known residual risks, by design:
+
+- While creates keep failing transiently, a same-named resource that someone else creates in
+  that window is adopted as the object's own.
+- If a list lags a create (eventual consistency; UNVERIFIED for every product), a duplicate
+  is possible for Tunnel names, whose uniqueness is UNVERIFIED.
+- If the resource behind a known ID was found gone and its recreate's answer is lost, an object
+  deleted before the next reconcile deletes only the old ID.
 
 ## Troubleshooting by condition reason
 
 Start with `kubectl get cloudflare -A`: every kind is in the `cloudflare` category, and the
 READY/SYNCED columns come from the conditions. Then run `kubectl describe` on the object and
 read the condition message, which carries the Cloudflare error code and message.
+[api-reference.md](api-reference.md#conditions) defines every reason and the kinds that use it
+(generated from `hack/apidocs/reasons.yaml`); the tables below say what to do about each.
 
 **CloudflareAccount, `Ready=False`:**
 
@@ -288,23 +377,32 @@ read the condition message, which carries the Cloudflare error code and message.
 | `Unavailable` (with `Synced=False`, `ReconcileError`) | The first verification failed transiently: 5xx, 429, timeout. A previous `Ready=True` is kept on later blips. | Usually clears by itself; check egress and Cloudflare status. |
 
 A deleting account that is not Ready blocks its objects' cleanup, and its message says how to
-unblock it. `Synced=False` with `TokenSecretUpdateFailed` means the `account-token` finalizer
-could not be added to or removed from the Secret (check the manager's RBAC and the Secret).
+unblock it. A deleting account still used by managed objects reports `DependencyNotReady`
+until they are gone. `Synced=False` with `TokenSecretUpdateFailed` means the `account-token`
+finalizer could not be added to or removed from the Secret (check the manager's RBAC and the
+Secret).
 
-**Managed kinds (KVNamespace, Queue, D1Database, Tunnel, VPCService, …):**
+**Managed kinds (KVNamespace, Queue, D1Database, VectorizeIndex, SecretsStore, AIGateway,
+Tunnel, VPCService, WorkerScript):**
 
 | Condition / reason | Meaning | Fix |
 |---|---|---|
 | `Ready=False` `AccountNotReady` (also on Synced) | The referenced CloudflareAccount is missing or not Ready. Retried every 15 s. | Fix the account first. |
-| `Ready=False` `Creating` | Created, not yet usable (a Tunnel waiting for `cloudflared`). | Wait; for Tunnels, check the `cloudflared` pods. |
+| `Ready=False` `DependencyNotReady` (also on Synced) | A referenced object is not Ready yet (a WorkerScript binding's `*Ref`, a VPCService's `tunnelRef`), or a deletion waits for referrers (a Tunnel still used by VPCServices; a KVNamespace, Queue, D1Database, VPCService or WorkerScript still bound by a WorkerScript). The message names the object. | Make the referenced object Ready, or delete or change the referrer first. |
+| `Ready=False` `Creating` | A create was sent; the resource has not been read back yet. | Wait. |
+| `Ready=False` `Unavailable` | The resource exists but is not usable yet (a Tunnel whose `cloudflared` replicas are not ready or not connected). | Check the `cloudflared` pods, their logs and their egress. |
 | `Ready=False` `ExternalNotFound` | The resource is gone from Cloudflare, or an `Observe` object's target does not exist. | Recreate it by removing the external-id annotation, or fix the name or ID. |
 | `Ready=False` `Deleting` | The finalizer is running (Tunnel: scaling `cloudflared` to zero, waiting for VPCServices). The message says what it waits for. | Wait, or resolve what the message names. |
-| `Synced=False` `ReconcileError` | The last API call failed; the message has the Cloudflare code. 429s and 5xx are retried with back-off. | 403 → token permissions (README table). 400 → a spec value the API rejects. 429 → see [Rate limiting](#rate-limiting-and-http-429). |
+| `Synced=False` `RateLimited` | Cloudflare answered 429 with a long `Retry-After`, or the token is still backing off. The object is requeued after the wait. | Nothing, if it clears. If it persists, lower the load: [Reconcile tuning](#reconcile-tuning-and-the-api-budget). |
+| `Synced=False` `ReconcileError` | The last API call failed; the message has the Cloudflare code. 5xx and transport errors are retried with back-off. It also covers a difference the policies or the API do not allow to fix (no update operation, `Update` not in `managementPolicies`). | 403 → [token permissions](../README.md#token-permissions). 400 → a spec value the API rejects. Timeouts → egress, or `reconcile.cloudflareRequestTimeout`. |
 | `Synced=False` `Immutable` | A create-only field changed; nothing was written. | Revert the field, or delete and recreate the object. |
-| `Synced=False` `NameConflict` (VPCService) | A same-named service exists and cannot be proven ours. | Set `cloudflare.flare.dev/external-id` to adopt it, or rename. |
-| `Synced=False` `InvalidHostname` (VPCService) | The backend host is not usable. | Fix `spec`. |
+| `Synced=False` `NameConflict` (Tunnel, VPCService, WorkerScript) | A same-named resource exists and cannot be proven to be this object's. | Set `cloudflare.flare.dev/external-id` to adopt it, or rename. |
+| `Synced=False` `InvalidHostname` (VPCService) | `host.hostname` looks like a short in-cluster name; `cloudflared` never applies DNS search domains. | Use the fully qualified name. |
+| `Synced=False` `InvalidScriptName` (WorkerScript) | `forProvider.script_name` (or `metadata.name`) is not a valid Workers script name. | Set a valid `script_name`. |
+| `Synced=False` `InvalidSpec` (WorkerScript) | The modules cannot be uploaded: a bad module name or type, content that is not base64 for `wasm-base64`, a `main_module` that is not a module, an unusable `sourceRef` ConfigMap. | Fix `forProvider` or the ConfigMap. |
 | `Synced=True` `ObserveOnly` | `managementPolicies: ["Observe"]`: read-only, as intended. | |
-| Warning event `ExternalResourceKept` | Deletion kept the Cloudflare resource: no ownership proof, or a permanent error reading the tags. | Delete it in Cloudflare by hand if it should go. |
+| Warning event `ExternalResourceKept` | Deletion kept the Cloudflare resource: no ownership proof, a permanent error reading the tags, or the CloudflareAccount is gone. | Delete it in Cloudflare by hand if it should go. |
+| Warning event `ForeignOwnerTunnelKept` (Tunnel) | The tunnel's owner tag names another object or cluster, so it was kept. | Delete it by hand if it should go. |
 
 When an object never changes: check that its `status.observedGeneration` matches
 `metadata.generation`. If it doesn't, the manager has not processed the latest spec; check
