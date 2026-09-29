@@ -1,0 +1,22 @@
+flare-operator {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
+
+  kubectl -n {{ .Release.Namespace }} get deploy {{ include "flare-operator.fullname" . }}
+  kubectl get crds -o name | grep flare.dev
+
+Create a CloudflareAccount that references a Secret holding an API token, then create
+resources (KVNamespace, Queue, D1Database, ...) that reference the account.
+{{- if eq .Values.clusterName "default" }}
+
+NOTE: clusterName is "default". Set a distinct clusterName for every cluster that manages the
+same Cloudflare account, so ownership tags (flare.dev/owner) don't collide.
+{{- end }}
+{{- if .Values.flarefake.enabled }}
+
+flarefake (Cloudflare API emulator) is running. Point a CloudflareAccount at it with
+  spec.baseURL: {{ include "flare-operator.flarefake.baseURLs" . | splitList "\n" | first }}
+Control API: http://{{ include "flare-operator.flarefake.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.flarefake.port }}/_fake
+{{- end }}
+{{- if .Values.baseURLOverride.allowAny }}
+
+WARNING: --allow-base-url-override is on. Any CloudflareAccount may send its API token to any URL.
+{{- end }}

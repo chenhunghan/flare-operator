@@ -1,0 +1,97 @@
+{{- if .Values.flarefake.enabled }}
+# flarefake: the Cloudflare API emulator, for e2e tests only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flare-operator.flarefake.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: flarefake
+spec:
+  # State is in memory: exactly one replica, recreated rather than rolled.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "flare-operator.flarefake.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.flarefake.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "flare-operator.flarefake.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/part-of: flare-operator
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: flarefake
+          image: {{ include "flare-operator.flarefake.image" . }}
+          imagePullPolicy: {{ .Values.flarefake.image.pullPolicy }}
+          args:
+            - -addr=:{{ .Values.flarefake.port }}
+            {{- if .Values.flarefake.validateRequests }}
+            - -spec=/spec/openapi.json.gz
+            {{- end }}
+            - -reject-schema-violations={{ .Values.flarefake.rejectSchemaViolations }}
+            {{- range .Values.flarefake.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.flarefake.port }}
+              protocol: TCP
+          # The spec load happens before the listener opens, so a TCP probe means ready.
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.flarefake.resources | nindent 12 }}
+      {{- with .Values.flarefake.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.flarefake.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.flarefake.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flare-operator.flarefake.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: flarefake
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "flare-operator.flarefake.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.flarefake.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

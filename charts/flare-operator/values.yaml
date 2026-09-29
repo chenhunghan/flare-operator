@@ -1,0 +1,142 @@
+# Default values for flare-operator.
+
+# -- Override the chart name used in resource names.
+nameOverride: ""
+# -- Override the full resource name prefix (default: <release>-<chart>, or <release> if it already contains the chart name).
+fullnameOverride: ""
+
+image:
+  # -- Manager image repository. Build it with `make docker-build`.
+  repository: flare-operator
+  # -- Image tag (default: the chart appVersion).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# -- Manager replicas. More than one requires leaderElection.enabled.
+replicas: 1
+
+leaderElection:
+  # -- Run the manager with --leader-elect. The lease lives in the release namespace.
+  enabled: true
+
+# -- Cluster identity written into ownership tags (flare.dev/owner=<clusterName>/<ns>/<name>).
+# Give every cluster that manages the same Cloudflare account a distinct name.
+clusterName: default
+
+# -- Tag managed Cloudflare resources with flare.dev/owner through Resource Tagging (--ownership-tags).
+ownershipTags: true
+
+# -- User-Agent for Cloudflare API calls (empty: the binary default, "flare-operator").
+userAgent: ""
+
+# -- Run only these controllers (--controller, repeatable). Empty runs every registered controller.
+controllers: []
+
+# CloudflareAccount spec.baseURL overrides. Both are off by default: an override sends the
+# account's API token to that URL.
+baseURLOverride:
+  # -- Honour any spec.baseURL (--allow-base-url-override). Test clusters only.
+  allowAny: false
+  # -- Honour exactly these spec.baseURL values (--allowed-base-url, repeatable).
+  allowed: []
+
+logging:
+  # -- zap log level: debug, info, error, or an integer verbosity.
+  level: info
+  # -- zap encoder: json or console.
+  encoder: json
+
+# -- Extra command-line arguments for the manager.
+extraArgs: []
+# -- Extra environment variables for the manager container.
+extraEnv: []
+
+metrics:
+  # -- Serve Prometheus metrics (--metrics-bind-address); "0" disables when false.
+  enabled: true
+  port: 8080
+  service:
+    # -- Create a ClusterIP Service for the metrics endpoint.
+    enabled: true
+    annotations: {}
+
+probes:
+  # -- Health (/healthz) and readiness (/readyz) port (--health-probe-bind-address).
+  port: 8081
+
+serviceAccount:
+  create: true
+  # -- ServiceAccount name (default: the full name).
+  name: ""
+  annotations: {}
+
+rbac:
+  # -- Create the manager ClusterRole/Binding and the leader-election Role/Binding.
+  create: true
+  # -- Create ClusterRoles that aggregate flare-operator resources into the default view/edit/admin roles.
+  aggregateToDefaultRoles: true
+
+podAnnotations: {}
+podLabels: {}
+priorityClassName: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  privileged: false
+  capabilities:
+    drop:
+      - ALL
+
+# The manager caches Secrets cluster-wide (CloudflareAccount token refs); size memory for that.
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# -- Kubernetes cluster DNS domain, used to build the flarefake Service URL.
+clusterDomain: cluster.local
+
+# flarefake: the Cloudflare API emulator (cmd/flarefake), for e2e tests. Never enable it in a
+# cluster that manages a real Cloudflare account. When enabled, the manager gets
+# --allowed-base-url for this Service's URL only (http://<fullname>-flarefake.<ns>.svc[.<clusterDomain>]:<port>/client/v4).
+flarefake:
+  enabled: false
+  image:
+    # -- flarefake image repository. Build it with `make docker-build-fake`.
+    repository: flarefake
+    # -- Image tag (default: the chart appVersion).
+    tag: ""
+    pullPolicy: IfNotPresent
+  port: 8787
+  # -- Validate requests against the pinned OpenAPI spec baked into the image (-spec).
+  validateRequests: true
+  # -- Answer schema-invalid requests with 400 instead of only journaling them.
+  rejectSchemaViolations: false
+  extraArgs: []
+  podAnnotations: {}
+  # The parsed 26 MB spec keeps an idle flarefake at ~320 MiB (measured on linux/arm64).
+  resources:
+    requests:
+      cpu: 50m
+      memory: 384Mi
+    limits:
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

@@ -1,0 +1,116 @@
+{{- if and (gt (int .Values.replicas) 1) (not .Values.leaderElection.enabled) }}
+{{- fail "replicas > 1 requires leaderElection.enabled=true" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flare-operator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: manager
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "flare-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "flare-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/part-of: flare-operator
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "flare-operator.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: manager
+          image: {{ include "flare-operator.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --metrics-bind-address={{ if .Values.metrics.enabled }}:{{ .Values.metrics.port }}{{ else }}0{{ end }}
+            - --health-probe-bind-address=:{{ .Values.probes.port }}
+            - --leader-elect={{ .Values.leaderElection.enabled }}
+            - --leader-election-namespace={{ .Release.Namespace }}
+            - --cluster-name={{ required "clusterName is required" .Values.clusterName }}
+            - --ownership-tags={{ .Values.ownershipTags }}
+            {{- with .Values.userAgent }}
+            - --user-agent={{ . }}
+            {{- end }}
+            {{- range .Values.controllers }}
+            - --controller={{ . }}
+            {{- end }}
+            {{- if .Values.baseURLOverride.allowAny }}
+            - --allow-base-url-override
+            {{- end }}
+            {{- range .Values.baseURLOverride.allowed }}
+            - --allowed-base-url={{ . }}
+            {{- end }}
+            {{- if .Values.flarefake.enabled }}
+            {{- range splitList "\n" (include "flare-operator.flarefake.baseURLs" .) }}
+            - --allowed-base-url={{ . }}
+            {{- end }}
+            {{- end }}
+            - --zap-log-level={{ .Values.logging.level }}
+            - --zap-encoder={{ .Values.logging.encoder }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
+            - name: health
+              containerPort: {{ .Values.probes.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

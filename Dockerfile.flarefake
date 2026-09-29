@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+# flarefake: the Cloudflare API emulator (cmd/flarefake) for e2e tests, with the pinned OpenAPI
+# spec baked in at /spec/openapi.json.gz for request validation. Multi-arch like ./Dockerfile.
+ARG GO_VERSION=1.26.1
+
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
+ARG TARGETOS=linux
+ARG TARGETARCH
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY api/ api/
+COPY cmd/ cmd/
+COPY internal/ internal/
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" -o /out/flarefake ./cmd/flarefake
+
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="flarefake" \
+      org.opencontainers.image.description="Cloudflare API emulator for flare-operator e2e tests" \
+      org.opencontainers.image.version="${VERSION}"
+COPY --from=build /out/flarefake /flarefake
+# spec/LOCK records the spec's source and sha256; ship it for traceability.
+COPY spec/openapi.json.gz spec/LOCK /spec/
+USER 65532:65532
+EXPOSE 8787
+ENTRYPOINT ["/flarefake"]
+# The default listen address is 127.0.0.1, which is unreachable from outside the container.
+CMD ["-addr=:8787", "-spec=/spec/openapi.json.gz"]
