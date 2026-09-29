@@ -108,18 +108,23 @@ func TestSecretWatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.WaitAccountCondition(t, ns, "late", metav1.ConditionFalse, cloudflarev1alpha1.ReasonSecretKeyMissing)
-	sec.Data = map[string][]byte{"token": []byte(a.Token)}
-	if err := e.Client.Update(ctx, sec); err != nil {
-		t.Fatal(err)
-	}
+	setSecretData(t, e, sec, map[string][]byte{"token": []byte(a.Token)})
 	e.WaitAccountCondition(t, ns, "late", metav1.ConditionTrue, commonv1alpha1.ReasonAvailable)
 
 	// Rotating the Secret to an unknown token flips it to TokenInvalid.
-	sec.Data = map[string][]byte{"token": []byte("rotated-but-unknown")}
-	if err := e.Client.Update(ctx, sec); err != nil {
+	setSecretData(t, e, sec, map[string][]byte{"token": []byte("rotated-but-unknown")})
+	e.WaitAccountCondition(t, ns, "late", metav1.ConditionFalse, cloudflarev1alpha1.ReasonTokenInvalid)
+}
+
+// setSecretData replaces sec's data with a patch (the operator adds its finalizer to token
+// Secrets, so sec's resourceVersion may be stale).
+func setSecretData(t *testing.T, e *testenv.Env, sec *corev1.Secret, data map[string][]byte) {
+	t.Helper()
+	base := sec.DeepCopy()
+	sec.Data = data
+	if err := e.Client.Patch(testenv.Context(t, 10*time.Second), sec, client.MergeFrom(base)); err != nil {
 		t.Fatal(err)
 	}
-	e.WaitAccountCondition(t, ns, "late", metav1.ConditionFalse, cloudflarev1alpha1.ReasonTokenInvalid)
 }
 
 func TestSpecChangeReverifies(t *testing.T) {

@@ -8,11 +8,18 @@
 // object of an API group ending in ".cloudflare.flare.dev" in the same namespace carries the
 // label cloudflare.flare.dev/account=<name> (set by reconcile.Accounts.Resolve). While blocked it
 // re-lists users every DependencyRequeue but re-verifies with Cloudflare only on the normal
-// schedule and writes status only on change. Known limit: the client kept for a deleting account
-// whose token Secret is gone lives in process memory only; after an operator restart such an
-// account is Ready=False (SecretNotFound), its users cannot clean up, and the deletion stays
-// blocked until the Secret is restored or the users are removed by hand (the condition messages
-// say so; see reconcile.DeletingAccountHint).
+// schedule and writes status only on change. An account nothing uses is released at once,
+// whatever its Ready condition says; one that is used but not Ready (token expired, Secret gone,
+// base URL not allowed, ...) stays blocked, and its condition messages say how to unblock it
+// (reconcile.DeletingAccountHint).
+//
+// Token protection (secret.go): while an account has not been released, the Secret it
+// references carries AccountTokenFinalizer, so a namespace deletion cannot remove the token
+// before the account's users have cleaned up. Known limit: should the Secret go away anyway (it
+// was deleted before it was protected, or its finalizer was removed by hand), the client kept
+// for the deleting account lives in process memory only; after an operator restart the account
+// is Ready=False (SecretNotFound) and its users cannot clean up until the Secret is restored or
+// they are removed by hand.
 package account
 
 import (
@@ -107,7 +114,7 @@ type verifySchedule struct {
 
 // +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;update;patch
 //
 // Usage protection lists every kind of the *.cloudflare.flare.dev groups (metadata only). RBAC
 // cannot match a group suffix, so each group is listed here; a group missing from this list is
@@ -115,7 +122,8 @@ type verifySchedule struct {
 // +kubebuilder:rbac:groups=kv.cloudflare.flare.dev;queues.cloudflare.flare.dev;d1.cloudflare.flare.dev;tunnels.cloudflare.flare.dev;workersvpc.cloudflare.flare.dev,resources=*,verbs=get;list;watch
 
 // SetupWithManager registers the controller. It watches CloudflareAccounts (spec changes only,
-// so its own status writes do not loop) and the Secrets they reference.
+// so its own status writes do not loop) and the Secrets they reference. It also registers the
+// token controller (TokenControllerName), which releases token Secrets (see secret.go).
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Discovery == nil {
 		d, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
@@ -135,6 +143,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		func(o client.Object) []string {
 			return []string{o.(*cloudflarev1alpha1.CloudflareAccount).Spec.TokenSecretRef.Name}
 		}); err != nil {
+		return err
+	}
+	if err := r.setupTokenController(mgr); err != nil {
 		return err
 	}
 	return ctrl.NewControllerManagedBy(mgr).
@@ -212,6 +223,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return ctrl.Result{}, err
 		}
 	}
+	if err := r.syncSecret(ctx, acct.Namespace, acct.Spec.TokenSecretRef.Name, &acct); err != nil {
+		return ctrl.Result{}, err
+	}
 	base := acct.DeepCopy()
 	res, verr := r.verify(ctx, &acct)
 	r.schedule(&acct, res, verr)
@@ -237,8 +251,9 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, acct *cloudflarev1alph
 	if !controllerutil.ContainsFinalizer(acct, cloudflarev1alpha1.AccountInUseFinalizer) {
 		r.Accounts.Forget(nn)
 		r.clearSchedule(nn)
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.syncSecret(ctx, acct.Namespace, acct.Spec.TokenSecretRef.Name, acct)
 	}
+	// Released whatever Ready says: with no users left nothing needs the token any more.
 	users, more, uerr := r.usersOf(ctx, acct)
 	if uerr == nil && len(users) == 0 {
 		base := acct.DeepCopy()
@@ -248,7 +263,14 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, acct *cloudflarev1alph
 		}
 		r.Accounts.Forget(nn)
 		r.clearSchedule(nn)
-		return ctrl.Result{}, nil
+		// Release the token Secret now (acct no longer holds it); the token controller also
+		// does it on the account's update or delete event.
+		return ctrl.Result{}, r.syncSecret(ctx, acct.Namespace, acct.Spec.TokenSecretRef.Name, acct)
+	}
+	// Still used: the token must outlive the users' cleanup (this also protects a Secret that
+	// predates the protection).
+	if err := r.syncSecret(ctx, acct.Namespace, acct.Spec.TokenSecretRef.Name, acct); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	base := acct.DeepCopy()
@@ -267,14 +289,20 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, acct *cloudflarev1alph
 		r.setCond(acct, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, commonv1alpha1.ReasonReconcileError,
 			"deletion blocked: cannot check for managed objects using this account: "+uerr.Error())
 	} else {
-		msg := fmt.Sprintf("deletion blocked: %d managed object(s) in namespace %s still use this account (label %s=%s): %s",
-			len(users), acct.Namespace, reconcile.AccountLabel, reconcile.AccountLabelValue(acct.Name), strings.Join(users, ", "))
+		count := fmt.Sprintf("%d managed object(s)", len(users))
 		if more {
-			msg = fmt.Sprintf("deletion blocked: more than %d managed objects in namespace %s still use this account (label %s=%s), e.g. %s",
-				len(users), acct.Namespace, reconcile.AccountLabel, reconcile.AccountLabelValue(acct.Name), strings.Join(users, ", "))
+			count = fmt.Sprintf("more than %d managed objects", len(users))
 		}
+		msg := fmt.Sprintf("deletion blocked: %s in namespace %s still use this account (label %s=%s)",
+			count, acct.Namespace, reconcile.AccountLabel, reconcile.AccountLabelValue(acct.Name))
+		// Not Ready (for any reason): the users cannot clean up, so say why and how to unblock.
+		// The hint goes before the (long) user list so the message bound does not cut it off.
 		if c := meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionReady); c != nil && c.Status != metav1.ConditionTrue {
 			msg += reconcile.DeletingAccountHint(acct, c.Reason)
+		}
+		msg += "; used by: " + strings.Join(users, ", ")
+		if more {
+			msg += ", ..."
 		}
 		r.setCond(acct, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, commonv1alpha1.ReasonDependency, msg)
 	}
@@ -402,6 +430,8 @@ func (r *Reconciler) usersOf(ctx context.Context, acct *cloudflarev1alpha1.Cloud
 // verify updates acct.Status in memory and returns the requeue policy.
 func (r *Reconciler) verify(ctx context.Context, acct *cloudflarev1alpha1.CloudflareAccount) (ctrl.Result, error) {
 	notReady := func(reason, msg string) {
+		// A deleting account that is not Ready blocks its users' cleanup: say so.
+		msg += reconcile.DeletingAccountHint(acct, reason)
 		r.setCond(acct, commonv1alpha1.ConditionReady, metav1.ConditionFalse, reason, msg)
 		r.setCond(acct, commonv1alpha1.ConditionSynced, metav1.ConditionTrue, commonv1alpha1.ReasonReconcileOK, "")
 	}
@@ -419,7 +449,7 @@ func (r *Reconciler) verify(ctx context.Context, acct *cloudflarev1alpha1.Cloudf
 		var ae *reconcile.AccountError
 		if errors.As(err, &ae) {
 			clearToken(acct)
-			notReady(ae.Reason, ae.Message+reconcile.DeletingAccountHint(acct, ae.Reason))
+			notReady(ae.Reason, ae.Message)
 			return ctrl.Result{RequeueAfter: r.interval()}, nil
 		}
 		return transient(err)

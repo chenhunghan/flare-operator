@@ -83,6 +83,11 @@ const (
 	// AccountInUseFinalizer keeps a CloudflareAccount until no managed object in its namespace
 	// carries AccountLabel for it.
 	AccountInUseFinalizer = "cloudflare.flare.dev/account-in-use"
+	// AccountTokenFinalizer keeps a token Secret while a CloudflareAccount references it and
+	// has not been released (it is not being deleted, or still has AccountInUseFinalizer), so
+	// a namespace deletion cannot remove the token before the account's users have cleaned up
+	// in Cloudflare.
+	AccountTokenFinalizer = "cloudflare.flare.dev/account-token"
 )
 
 // CloudflareAccountStatus reports the result of the last token verification.

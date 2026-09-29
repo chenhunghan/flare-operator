@@ -180,11 +180,13 @@ func (a *Accounts) ClientFor(ctx context.Context, acct *cloudflarev1alpha1.Cloud
 	nn := types.NamespacedName{Namespace: acct.Namespace, Name: acct.Name}
 	tok, err := a.Token(ctx, acct)
 	if err != nil {
-		// A namespace deletion removes the token Secret at once while the account waits for its
-		// managed objects (finalizer); keep serving them the cached client so they can clean up.
-		// The cache is in-process only: after an operator restart a deleting account whose Secret
-		// is gone cannot serve its users, and its deletion stays blocked until the Secret is
-		// restored or the users are removed by hand (see DeletingAccountHint).
+		// The account controller keeps the token Secret of an unreleased account with a finalizer
+		// (AccountTokenFinalizer), so a namespace deletion does not remove it early. Should the
+		// Secret still go away (it was not protected yet, or its finalizer was removed by hand)
+		// while a deleting account waits for its managed objects, keep serving them the cached
+		// client so they can clean up. The cache is in-process only: after an operator restart
+		// such an account cannot serve its users, and its deletion stays blocked until the Secret
+		// is restored or the users are removed by hand (see DeletingAccountHint).
 		if IsAccountNotReady(err) && !acct.DeletionTimestamp.IsZero() {
 			a.mu.Lock()
 			cc, ok := a.clients[nn]
@@ -210,19 +212,31 @@ func (a *Accounts) ClientFor(ctx context.Context, acct *cloudflarev1alpha1.Cloud
 	return c, nil
 }
 
-// DeletingAccountHint explains, for an account that is being deleted and cannot build a client
-// (reason: an AccountError reason), how the deadlock between the account's usage finalizer and
-// its managed objects' cleanup is broken. It returns "" when acct is not being deleted or
-// the reason is not about the token Secret.
+// DeletingAccountHint explains, for an account that is being deleted and is not usable (reason:
+// its Ready=False reason, e.g. an AccountError reason), that the managed objects still using it
+// cannot clean up in Cloudflare, so its deletion stays blocked, and how to break that deadlock.
+// It returns "" when acct is not being deleted or reason is empty or ReasonAvailable. (An
+// account nothing uses is released at once whatever its Ready condition says.)
 func DeletingAccountHint(acct *cloudflarev1alpha1.CloudflareAccount, reason string) string {
-	if acct.DeletionTimestamp.IsZero() ||
-		(reason != cloudflarev1alpha1.ReasonSecretNotFound && reason != cloudflarev1alpha1.ReasonSecretKeyMissing) {
+	if acct.DeletionTimestamp.IsZero() || reason == "" || reason == commonv1alpha1.ReasonAvailable {
 		return ""
 	}
-	return fmt.Sprintf("; the account is being deleted but its token Secret %q is unusable, so the managed objects "+
-		"that still use it cannot clean up in Cloudflare and the deletion stays blocked: restore the Secret, "+
-		"or delete those objects and remove their finalizers by hand (their Cloudflare resources are then orphaned)",
-		acct.Spec.TokenSecretRef.Name)
+	secret := acct.Spec.TokenSecretRef.Name
+	var fix string
+	switch reason {
+	case cloudflarev1alpha1.ReasonSecretNotFound, cloudflarev1alpha1.ReasonSecretKeyMissing:
+		fix = fmt.Sprintf("restore the token Secret %q", secret)
+	case cloudflarev1alpha1.ReasonTokenInvalid, cloudflarev1alpha1.ReasonTokenDisabled, cloudflarev1alpha1.ReasonTokenExpired,
+		cloudflarev1alpha1.ReasonTokenNotYetValid, cloudflarev1alpha1.ReasonAccountMismatch:
+		fix = fmt.Sprintf("put a valid, active token for account %s into Secret %q", acct.Spec.AccountID, secret)
+	case cloudflarev1alpha1.ReasonBaseURLNotAllowed:
+		fix = "allow its spec.baseURL (operator flag --allow-base-url-override or --allowed-base-url)"
+	default:
+		fix = "fix the cause above"
+	}
+	return fmt.Sprintf("; the account is being deleted but is not usable (%s), so the managed objects that still use it "+
+		"cannot clean up in Cloudflare and the deletion stays blocked: %s, or delete those objects and remove their "+
+		"finalizers by hand (their Cloudflare resources are then orphaned)", reason, fix)
 }
 
 // Forget drops the cached client of a deleted account.
