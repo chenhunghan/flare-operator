@@ -38,7 +38,8 @@ It ships as one Go manager binary and one Helm chart (`charts/flare-operator`).
   in the code and listed in [docs/emulator-fidelity.md](docs/emulator-fidelity.md). The largest
   gaps are:
   - `VectorizeIndex`, `SecretsStore` and `AIGateway`: flarefake's generic profile emulates them
-    from the spec alone, with no recording and no live run;
+    from the spec. The only recordings are one list call each for Vectorize and Secrets Store
+    (0154, 0155); AI Gateway has none;
   - Resource Tagging (the ownership tags): no recording at all;
   - error codes and messages for invalid input;
   - several Workers details (versions, settings, subdomains);
@@ -59,9 +60,9 @@ Open issues are tracked in [docs/STATUS.md](docs/STATUS.md).
 | `KVNamespace` | `kv.cloudflare.flare.dev` | `cfkv` | `TITLE` | `Orphan` | generated (`generator.yaml`) |
 | `Queue` | `queues.cloudflare.flare.dev` | `cfqueue`, `cfq` | `QUEUE`, *`CONSUMERS`* | `Orphan` | generated |
 | `D1Database` | `d1.cloudflare.flare.dev` | `cfd1` | `DATABASE`, *`VERSION`* | `Orphan` | generated |
-| `VectorizeIndex` | `vectorize.cloudflare.flare.dev` | `cfvec` | `DIMENSIONS`, `METRIC` | `Delete` | generated; emulated from the spec only |
-| `SecretsStore` | `secretsstore.cloudflare.flare.dev` | `cfstore` | `STORE` | `Delete` | generated; emulated from the spec only |
-| `AIGateway` | `aigateway.cloudflare.flare.dev` | `cfaigw` | `COLLECT-LOGS`, *`CACHE-TTL`* | `Delete` | generated; emulated from the spec only |
+| `VectorizeIndex` | `vectorize.cloudflare.flare.dev` | `cfvec` | `DIMENSIONS`, `METRIC` | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
+| `SecretsStore` | `secretsstore.cloudflare.flare.dev` | `cfstore` | `STORE` | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
+| `AIGateway` | `aigateway.cloudflare.flare.dev` | `cfaigw` | `COLLECT-LOGS`, *`CACHE-TTL`* | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
 | `Tunnel` | `tunnels.cloudflare.flare.dev` | `cftunnel`, `cftun` | `STATUS`, `CONNECTORS` | `Delete` | hand-written; also runs `cloudflared` and an egress NetworkPolicy |
 | `VPCService` | `workersvpc.cloudflare.flare.dev` | `cfvpcsvc`, `cfvpc` | `TYPE`, `TUNNEL` | `Delete` | hand-written (Workers VPC) |
 | `WorkerScript` | `workers.cloudflare.flare.dev` | `cfworker`, `cfscript` | `URL`, *`VERSION`* | `Delete` | hand-written (Workers scripts: modules, bindings, workers.dev) |
@@ -73,8 +74,9 @@ is, all but `CloudflareAccount`. Each managed kind is also in the category of it
 (`kubectl get vectorize`). [docs/api-reference.md](docs/api-reference.md) lists every field,
 validation rule, printer column JSONPath and condition reason.
 
-`VectorizeIndex` and `SecretsStore` hold data but default to `Delete` (set in `generator.yaml`).
-Set `deletionPolicy: Orphan` on them if deleting the object must not delete the index or store.
+`VectorizeIndex` and `SecretsStore` hold data but default to `Delete` (`generator.yaml` sets no
+`defaultDeletionPolicy` for them). Set `deletionPolicy: Orphan` on them if deleting the object
+must not delete the index or store.
 
 ## Quickstart
 
@@ -233,7 +235,7 @@ spec lists no group.
 | `VectorizeIndex` | `Vectorize Write` (`Vectorize Read`) | Vectorize › Edit (Read) |
 | `SecretsStore` | `Secrets Store Write` (`Secrets Store Read`) | Secrets Store › Edit (Read) |
 | `AIGateway` | `AI Gateway Write` (`AI Gateway Read`) | AI Gateway › Edit (Read) |
-| `Tunnel` | `Cloudflare Tunnel Write` (`Cloudflare Tunnel Read`). Fetching the connector token needs Write. | Cloudflare One Connector: cloudflared › Edit (Read); formerly "Cloudflare Tunnel" |
+| `Tunnel` | `Cloudflare Tunnel Write` (`Cloudflare Tunnel Read`). The spec also accepts `Cloudflare One Connector: cloudflared Write`/`Read` and `Cloudflare One Connectors Write`/`Read`. Fetching the connector token for `cloudflared` needs Write. | Cloudflare One Connector: cloudflared › Edit (Read); formerly "Cloudflare Tunnel" |
 | `WorkerScript` | Legacy `Workers Scripts Write` (`Workers Scripts Read`). The spec also accepts `Workers Tail Read` for reading a script, its settings, deployments and subdomain, but not for `GET /accounts/{id}/workers/subdomain` (the workers.dev URL), so Observe needs `Workers Scripts Read`. | Legacy: Workers Scripts › Edit (Read). Granular roles: **Admin at Workers product scope** to create or delete scripts; per-Worker Editor only for an adopted Worker; Content Read-Only for Observe. See [below](#workers-roles-legacy-and-granular). |
 | `VPCService` | UNVERIFIED: the spec lists no group for `/connectivity/directory/services`. | Connectivity Directory (UNVERIFIED) |
 | Ownership tags (on by default) | UNVERIFIED: the spec lists no group for `/accounts/{id}/tags`. Or install with `ownershipTags=false`. | Tag, formerly "Resource Tagging" (UNVERIFIED) |
