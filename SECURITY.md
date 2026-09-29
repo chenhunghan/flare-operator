@@ -72,7 +72,7 @@ The manager runs as one Deployment with the ServiceAccount the chart creates:
 |---|---|
 | ClusterRole `…-manager` (generated from the controllers' RBAC markers, `config/rbac/role.yaml`) | Watch and update the flare.dev kinds everywhere, and read Secrets for the token references. The Tunnel controller also manages the `cloudflared` Deployment, the token Secret and the egress NetworkPolicy it creates next to each Tunnel. |
 | Role `…-leader-election` in the release namespace | The leader-election Lease and its events. |
-| ClusterRoles `…-aggregate-to-{view,edit,admin}` (optional, `rbac.aggregateToDefaultRoles`) | Let the default user roles work with the flare.dev kinds. |
+| ClusterRoles `…-aggregate-to-view` and `…-aggregate-to-edit` (the latter also aggregates to `admin`; optional, `rbac.aggregateToDefaultRoles`) | Let the default user roles work with the flare.dev kinds. |
 
 The manager caches Secrets cluster-wide, so it can read every Secret. That is the cost of
 supporting a CloudflareAccount in any namespace. To narrow it, restrict where

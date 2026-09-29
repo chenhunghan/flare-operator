@@ -181,7 +181,9 @@ FAKE_IMG ?= flarefake:dev
 PLATFORM ?= linux/$(shell go env GOARCH)
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
-BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+# The commit time, not the wall clock, so rebuilding a commit gives the same stamp and labels
+# (goreleaser uses .CommitDate the same way).
+BUILD_DATE ?= $(shell TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
 # org.opencontainers.image.source; empty until the repository has a permanent home.
 SOURCE_URL ?=
 CHART ?= charts/flare-operator
@@ -256,7 +258,8 @@ GORELEASER ?= $(shell command -v goreleaser 2>/dev/null)
 release-check:   ## goreleaser check (skipped with a note when goreleaser is not installed)
 	@if [ -n "$(GORELEASER)" ]; then $(GORELEASER) check; else echo "goreleaser not installed; skipped (go install github.com/goreleaser/goreleaser/v2@v2.18.2)"; fi
 
-release-snapshot: ## goreleaser release --snapshot --clean: build everything into dist/ locally, publish nothing
+release-snapshot: ## goreleaser release --snapshot --clean: build everything into dist/ locally, publish nothing (needs docker buildx, helm, syft)
+	@[ -n "$(GORELEASER)" ] || { echo "goreleaser not installed (go install github.com/goreleaser/goreleaser/v2@v2.18.2)"; exit 1; }
 	$(GORELEASER) release --snapshot --clean
 
 ## CRD upgrades. Helm installs crds/ on the first install only and never upgrades or deletes
