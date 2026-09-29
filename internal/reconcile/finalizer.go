@@ -117,7 +117,9 @@ func DeletionResult(mg commonv1alpha1.Managed, err error) (ctrl.Result, error) {
 //     DeletionResult).
 //   - Otherwise (Orphan, Observe-only, no Delete in managementPolicies, or deleteExternal nil
 //     because the resource is kept or cannot be reached) the Cloudflare resource is left alone.
-//   - Finally the finalizer is removed (an object already gone is not an error).
+//   - Finally the finalizer is removed (an object already gone is not an error). After a
+//     deletion, a Conflict from a stale mg is retried on the fresh object while it still pins
+//     the deleted resource (removeFinalizerAfterDelete), so a requeue does not delete again.
 //
 // It does nothing when mg is not being deleted or has no finalizer. Callers learn whether the
 // finalizer was removed from controllerutil.ContainsFinalizer(mg, commonv1alpha1.Finalizer).
@@ -126,14 +128,16 @@ func Finalize(ctx context.Context, c client.Client, mg ManagedObject, kindDefaul
 	if mg.GetDeletionTimestamp().IsZero() || !controllerutil.ContainsFinalizer(mg, commonv1alpha1.Finalizer) {
 		return ctrl.Result{}, nil
 	}
+	deleted := ""
 	if ShouldDeleteExternal(mg, kindDefault) {
 		if id := ExternalID(mg); id != "" && deleteExternal != nil {
 			if err := deleteExternal(ctx, id); err != nil && !cfclient.IsNotFound(err) {
 				return DeletionResult(mg, err)
 			}
+			deleted = id
 		}
 	}
-	return ctrl.Result{}, client.IgnoreNotFound(RemoveFinalizer(ctx, c, mg))
+	return ctrl.Result{}, client.IgnoreNotFound(removeFinalizerAfterDelete(ctx, c, mg, deleted))
 }
 
 // EventReasonExternalResourceKept is the reason of the Warning event recorded when an object

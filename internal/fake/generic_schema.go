@@ -3,6 +3,7 @@ package fake
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,7 +21,10 @@ import (
 // follows what the spec says, not what a recording shows (see generic.go).
 
 // gSchema is an OpenAPI schema with allOf merged and oneOf/anyOf unioned (the same flattening
-// idea as internal/flaregen, simplified: only what shaping a result needs).
+// idea as internal/flaregen, simplified: only what shaping a result needs). The union is only a
+// view: alts keeps each oneOf/anyOf branch (merged with the rest of the schema), and srcs the
+// spec schemas the node stands for, so that shaping can pick one branch whose result the spec
+// accepts (pickBranch) instead of emitting a mix of branches that may match none.
 type gSchema struct {
 	typ      string // object | array | string | integer | number | boolean | "" (unknown)
 	props    map[string]*gSchema
@@ -34,9 +38,21 @@ type gSchema struct {
 	min      *float64
 
 	readOnly, writeOnly, nullable bool
+
+	// alts are the oneOf/anyOf branches, in spec order, each merged with the rest of the
+	// schema (allOf members with branches of their own multiply out, up to gMaxAlts). The
+	// branches themselves have no alts.
+	alts []*gSchema
+	// srcs are the spec schemas a value of this node must satisfy, all of them (one for a
+	// schema node; several for a property that several allOf members declare). Empty: nothing
+	// to check against (a recursion or depth cut-off).
+	srcs []*openapi3.Schema
 }
 
-const gMaxDepth = 12
+const (
+	gMaxDepth = 12
+	gMaxAlts  = 32
+)
 
 // flattenSchema converts a spec schema. Recursive schemas stop at the point of recursion
 // (an unknown-typed node), as do schemas nested deeper than gMaxDepth.
@@ -55,6 +71,7 @@ func flattenRec(ref *openapi3.SchemaRef, stack map[*openapi3.Schema]bool, depth 
 	out := &gSchema{
 		format: s.Format, example: s.Example, enum: s.Enum, min: s.Min,
 		readOnly: s.ReadOnly, writeOnly: s.WriteOnly, nullable: s.Nullable,
+		srcs: []*openapi3.Schema{s},
 	}
 	if s.Default != nil {
 		out.def, out.hasDef = s.Default, true
@@ -107,7 +124,47 @@ func flattenRec(ref *openapi3.SchemaRef, stack map[*openapi3.Schema]bool, depth 
 		union = append(union, f)
 	}
 	if len(union) > 0 {
-		out = mergeAll(out, unionOf(union))
+		var branches []*gSchema
+		for _, f := range union {
+			branches = append(branches, altsOf(f)...)
+		}
+		alts := crossAlts(altsOf(out), branches)
+		out = mergeAll(withoutAlts(out), unionOf(union))
+		out.alts = alts
+	}
+	// s itself (its allOf, oneOf and anyOf included) is what a value of this node must satisfy.
+	out.srcs = []*openapi3.Schema{s}
+	for _, a := range out.alts {
+		a.srcs = out.srcs
+	}
+	return out
+}
+
+// altsOf returns s's branches, or s itself (without alts) when it has none.
+func altsOf(s *gSchema) []*gSchema {
+	if len(s.alts) > 0 {
+		return s.alts
+	}
+	return []*gSchema{withoutAlts(s)}
+}
+
+func withoutAlts(s *gSchema) *gSchema {
+	c := *s
+	c.alts = nil
+	return &c
+}
+
+// crossAlts merges every x with every y (both hold: an allOf of alternatives), in order,
+// keeping at most gMaxAlts.
+func crossAlts(xs, ys []*gSchema) []*gSchema {
+	var out []*gSchema
+	for _, x := range xs {
+		for _, y := range ys {
+			if len(out) == gMaxAlts {
+				return out
+			}
+			out = append(out, mergeAll(withoutAlts(x), withoutAlts(y)))
+		}
 	}
 	return out
 }
@@ -122,6 +179,11 @@ func mergeAll(a, b *gSchema) *gSchema {
 		return a
 	}
 	out := *a
+	out.alts = nil
+	out.srcs = append(append([]*openapi3.Schema(nil), a.srcs...), b.srcs...)
+	if len(a.alts)+len(b.alts) > 0 {
+		out.alts = crossAlts(altsOf(a), altsOf(b))
+	}
 	if out.typ == "" {
 		out.typ = b.typ
 	}
@@ -396,10 +458,134 @@ type shapeCtx struct {
 // ones dropped), others are dropped, unless the schema declares no properties (free-form
 // objects keep everything). With ctx.fill, absent properties get their spec default, server
 // timestamps, or (when required) a type-appropriate zero value.
+//
+// A schema with oneOf/anyOf branches is shaped by one branch (pickBranch); a null the spec does
+// not accept is replaced by a zero value when filling.
 func shape(s *gSchema, in any, ctx shapeCtx) any {
 	if s == nil {
 		return deepCopyJSON(in)
 	}
+	if in == nil && ctx.fill && !s.accepts(nil) {
+		return zeroValue(s, ctx)
+	}
+	if len(s.alts) > 0 {
+		if v, found := pickBranch(s, in, ctx); found {
+			return v
+		}
+	}
+	return shapeOne(s, in, ctx)
+}
+
+// shapeTop shapes a stored or returned object: like shapeObject, but through pickBranch when
+// the object schema itself is a oneOf/anyOf.
+func shapeTop(s *gSchema, in map[string]any, ctx shapeCtx) map[string]any {
+	if len(s.alts) > 0 {
+		if v, found := pickBranch(s, in, ctx); found {
+			if m, isObj := v.(map[string]any); isObj {
+				return m
+			}
+		}
+	}
+	return shapeObject(s, in, ctx)
+}
+
+// pickBranch shapes in by each of s's branches and returns the result the spec accepts (s.srcs:
+// for a oneOf that means exactly one branch matches it) that keeps the most of in: fewest of
+// in's keys dropped, then fewest keys added (zero-filled required fields, defaults), then the
+// earliest branch in spec order; the union view (every branch's properties) competes last, so
+// an anyOf value that uses several branches keeps them all. Deterministic. found is false when
+// no candidate is accepted (the caller falls back to the union view).
+func pickBranch(s *gSchema, in any, ctx shapeCtx) (v any, found bool) {
+	var best [3]int
+	try := func(i int, cand any) {
+		if !s.accepts(cand) {
+			return
+		}
+		lost, added := keyDiff(in, cand)
+		score := [3]int{lost, added, i}
+		if !found || score[0] < best[0] || score[0] == best[0] && (score[1] < best[1] || score[1] == best[1] && score[2] < best[2]) {
+			v, best, found = cand, score, true
+		}
+	}
+	for i, alt := range s.alts {
+		try(i, shapeOne(alt, in, ctx))
+	}
+	try(len(s.alts), shapeOne(s, in, ctx))
+	return v, found
+}
+
+// keyDiff counts the object keys of in missing from out (lost) and those of out missing from in
+// (added), recursively through objects and arrays present in both.
+func keyDiff(in, out any) (lost, added int) {
+	switch x := in.(type) {
+	case map[string]any:
+		y, isObj := out.(map[string]any)
+		if !isObj {
+			return len(x), 0
+		}
+		for k, v := range x {
+			w, has := y[k]
+			if !has {
+				lost++
+				continue
+			}
+			l, a := keyDiff(v, w)
+			lost, added = lost+l, added+a
+		}
+		for k := range y {
+			if _, has := x[k]; !has {
+				added++
+			}
+		}
+	case []any:
+		y, isArr := out.([]any)
+		if !isArr {
+			return len(x), 0
+		}
+		for i := range min(len(x), len(y)) {
+			l, a := keyDiff(x[i], y[i])
+			lost, added = lost+l, added+a
+		}
+	case nil:
+		if m, isObj := out.(map[string]any); isObj {
+			return 0, len(m)
+		}
+	}
+	return lost, added
+}
+
+// accepts reports whether v satisfies every spec schema s stands for, validated as a response
+// (writeOnly properties must be absent, readOnly ones may be present), as strict response
+// validation does. A node without schemas (recursion or depth cut-off) accepts anything.
+func (s *gSchema) accepts(v any) bool {
+	if s == nil || len(s.srcs) == 0 {
+		return true
+	}
+	j := jsonValue(v)
+	for _, src := range s.srcs {
+		if err := src.VisitJSON(j, openapi3.VisitAsResponse()); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// jsonValue returns v as encoding/json decodes it (float64 numbers), the form kin-openapi
+// validates.
+func jsonValue(v any) any {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return v
+	}
+	var out any
+	if json.Unmarshal(b, &out) != nil {
+		return v
+	}
+	return out
+}
+
+// shapeOne is shape for one branch (or a schema without branches).
+func shapeOne(s *gSchema, in any, ctx shapeCtx) any {
 	switch x := in.(type) {
 	case map[string]any:
 		if len(s.props) == 0 {
@@ -455,8 +641,24 @@ func shapeObject(s *gSchema, in map[string]any, ctx shapeCtx) map[string]any {
 	return out
 }
 
-// zeroValue is what an absent required property reads back as (UNVERIFIED).
+// zeroValue is what an absent required property reads back as (UNVERIFIED): the first of its
+// default, null (nullable), its first enum value, the zero value of its type, a branch's zero
+// value, {}, [], "", false or 0 that the spec accepts (the first candidate when none is).
 func zeroValue(s *gSchema, ctx shapeCtx) any {
+	cands := []any{zeroGuess(s, ctx)}
+	for _, a := range s.alts {
+		cands = append(cands, zeroValue(a, ctx))
+	}
+	cands = append(cands, map[string]any{}, []any{}, "", false, 0, nil)
+	for _, c := range cands {
+		if s.accepts(c) {
+			return c
+		}
+	}
+	return cands[0]
+}
+
+func zeroGuess(s *gSchema, ctx shapeCtx) any {
 	switch {
 	case s.hasDef:
 		return deepCopyJSON(s.def)

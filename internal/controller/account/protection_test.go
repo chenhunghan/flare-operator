@@ -84,8 +84,32 @@ func TestAccountUsageProtection(t *testing.T) {
 	})
 
 	// A used account is kept, stays Ready (so users can clean up) and says why.
+	beforeDelete, err := get("acct")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := e.Client.Delete(ctx, a.CloudflareAccount); err != nil {
 		t.Fatal(err)
+	}
+	// Users read the account from the manager's cache, which may lag behind the API server:
+	// wait until it shows the deletion, so that the checks below see a deleting account.
+	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
+		var cached cloudflarev1alpha1.CloudflareAccount
+		if err := m.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: "acct"}, &cached); err != nil {
+			return false, err.Error()
+		}
+		// Setting deletionTimestamp bumps the generation (the premise of reconcile.AccountReady's
+		// deletion allowance, which keeps the account Ready in that cached view until the
+		// controller re-stamps its conditions).
+		if !cached.DeletionTimestamp.IsZero() && cached.Generation <= beforeDelete.Generation {
+			t.Fatalf("deletion did not bump the generation: %d -> %d", beforeDelete.Generation, cached.Generation)
+		}
+		return !cached.DeletionTimestamp.IsZero(), "waiting for the cache to show the deletion"
+	})
+	// From the moment users can see the deletion they keep resolving the account, whether or
+	// not the controller has re-stamped its conditions for the bumped generation yet.
+	if _, err := m.Deps.Accounts.Resolve(ctx, kv); err != nil {
+		t.Fatalf("resolve right after the account's deletion: %v", err)
 	}
 	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
 		acct, err := get("acct")

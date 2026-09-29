@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -295,7 +296,7 @@ func (w *workerScript) settingsJSON() map[string]any {
 		"tail_consumers":      emptyIfNil(w.TailConsumers), // [] here, null in the upload response
 		"logpush":             w.Logpush,
 		"annotations":         map[string]any{"workers/triggered_by": w.currentVersion().TriggeredBy},
-		"bindings":            emptyIfNil(w.Bindings), // echoed as uploaded (0065)
+		"bindings":            readBindings(w.Bindings), // echoed as uploaded (0065), secrets withheld
 	}
 	if w.Observability != nil {
 		m["observability"] = w.Observability.expanded() // UNVERIFIED: not recorded in settings
@@ -385,6 +386,34 @@ func decodeMetadata(raw []byte, into *workerMetadata) *response {
 		return &r
 	}
 	return nil
+}
+
+// bindingSecretFields are the binding fields the settings read never returns: the spec marks
+// them writeOnly (workers_binding_kind_secret_text.text, workers_binding_kind_secret_key
+// .key_base64/.key_jwk), and a response carrying them violates the spec. UNVERIFIED: no
+// recording reads back a secret binding (0065/0091 have vpc_service bindings only); the
+// operator already treats secret_text values as never returned (workerscript drift.go).
+var bindingSecretFields = map[string][]string{
+	"secret_text": {"text"},
+	"secret_key":  {"key_base64", "key_jwk"},
+}
+
+// readBindings is bindings as the settings read reports them: as uploaded (0065), minus
+// bindingSecretFields; never null.
+func readBindings(bindings []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(bindings))
+	for _, b := range bindings {
+		t, _ := b["type"].(string)
+		drop := bindingSecretFields[t]
+		c := make(map[string]any, len(b))
+		for k, v := range b {
+			if !slices.Contains(drop, k) {
+				c[k] = v
+			}
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // validateBindings checks vpc_service bindings against the account's VPC services (0106: the

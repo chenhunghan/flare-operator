@@ -66,7 +66,7 @@ because a real response can't satisfy the spec either. Each entry has exactly on
 evidence, and `TestResponseAllowlistReproducedByRecordings` checks it:
 
 - **recording**: the cited recording's real response must show a matching violation.
-  `TestRecordedResponsesAgainstSpec` validates all 216 recorded responses; 71 of them violate the
+  `TestRecordedResponsesAgainstSpec` validates all 216 recorded responses; 70 of them violate the
   spec, including responses from surfaces that are not emulated yet.
 - **unsatisfiable**: the schema rejects every candidate value (null, {}, [], ""). An example is
   `tunnel_empty_response`, which is `allOf(result anyOf[object,array,string], result enum
@@ -89,6 +89,21 @@ evidence, and `TestResponseAllowlistReproducedByRecordings` checks it:
 The broadest class is `unsatisfiable-4xx-allof-success`: many 4XX schemas are
 `allOf(<success response>, <common failure>)`, which requires `success` to be both true and
 false. Real errors such as 0095 violate them.
+
+**readOnly/writeOnly across allOf.** OpenAPI applies a `required` entry for a writeOnly
+property to requests only (and for a readOnly one to responses only). kin-openapi honors that
+only when the property is declared in the same schema as the `required` list. `LoadSpec`
+therefore copies such properties from allOf members into the requiring schema
+(`liftAccessRequired`, `spec_access.go`), which changes nothing else. Without it, every real
+Hyperdrive config response (0195: an origin without the writeOnly `password` that
+`hyperdrive_hyperdrive-database-full` requires) failed its origin oneOf.
+
+**Generic profile.** The generic profile synthesizes its results from the spec, so no allowlist
+entry covers it. At a oneOf/anyOf it shapes the value by each branch and keeps the result that
+the spec accepts and that keeps the most of the value (then spec order). A null that the spec
+rejects becomes the first zero value it accepts, for example Vectorize v2's delete result `{}`.
+`TestGenericCRUDStrictResponses` drives every generic kind, one create per oneOf branch where
+there are several, through its lifecycle under strict validation.
 
 When a new violation fails a test, fix the profile. Allowlist it only if a recording (or an
 unsatisfiable schema) proves that no conforming response exists. Never widen an entry's regexp
