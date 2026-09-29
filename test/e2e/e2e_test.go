@@ -246,8 +246,12 @@ func (s *suite) testAccount(t *testing.T, o *objects) {
 		r := cond(o.account.Status.Conditions, commonv1alpha1.ConditionReady)
 		return r != nil && r.Status == metav1.ConditionTrue, condString(o.account.Status.Conditions)
 	})
-	if o.account.Status.AtProvider.Status != "active" {
-		t.Errorf("atProvider.status = %q, want active", o.account.Status.AtProvider.Status)
+	// The pre phase of make e2e-upgrade runs this against an older manager that only writes the
+	// deprecated status.tokenStatus; everything after the upgrade must report atProvider.status.
+	//lint:ignore SA1019 reading the deprecated field is the point of the upgrade compatibility check
+	legacy := o.account.Status.TokenStatus
+	if got := o.account.Status.AtProvider.Status; got != "active" && !(os.Getenv("E2E_UPGRADE_PHASE") == "pre" && legacy == "active") {
+		t.Errorf("atProvider.status = %q (tokenStatus %q), want active", got, legacy)
 	}
 	// The account holds its token Secret (account-token finalizer).
 	eventually(t, 30*time.Second, "token Secret finalizer", func() (bool, string) {
