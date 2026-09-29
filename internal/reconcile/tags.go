@@ -38,6 +38,20 @@ type Tagger interface {
 	EnsureOwner(ctx context.Context, cf cfclient.Client, accountID string, t TagTarget, owner string) error
 	// RemoveOwner removes the owner tag if (and only if) it equals owner.
 	RemoveOwner(ctx context.Context, cf cfclient.Client, accountID string, t TagTarget, owner string) error
+	// Owner reads the owner tag without writing ("" when the resource has none). tagged=false
+	// means the tags endpoint answered 500 and the tag index did not list the resource (never
+	// tagged, or a transient failure: callers must not treat it as proof of absence). A
+	// NoopTagger answers "", false, nil without calling the API.
+	Owner(ctx context.Context, cf cfclient.Client, accountID string, t TagTarget) (owner string, tagged bool, err error)
+}
+
+// TaggingEnabled reports whether t maintains ownership tags (it is neither nil nor a NoopTagger).
+func TaggingEnabled(t Tagger) bool {
+	switch t.(type) {
+	case nil, NoopTagger, *NoopTagger:
+		return false
+	}
+	return true
 }
 
 // OwnershipConflictError: the resource is tagged as owned by someone else.
@@ -58,6 +72,9 @@ func (NoopTagger) EnsureOwner(context.Context, cfclient.Client, string, TagTarge
 }
 func (NoopTagger) RemoveOwner(context.Context, cfclient.Client, string, TagTarget, string) error {
 	return nil
+}
+func (NoopTagger) Owner(context.Context, cfclient.Client, string, TagTarget) (string, bool, error) {
+	return "", false, nil
 }
 
 // ResourceTagger implements Tagger over /accounts/{account_id}/tags.
@@ -190,9 +207,10 @@ func (r ResourceTagger) readFromIndex(ctx context.Context, cf cfclient.Client, a
 	return &tagState{tags: map[string]string{}}, nil
 }
 
-// Owner returns the resource's owner tag ("" when it has none). tagged=false means the tags
-// endpoint answered 500: the resource was never tagged, or the read failed transiently: the two
-// cannot be told apart, so callers must not treat it as proof of absence. It never writes.
+// Owner implements Tagger: the resource's owner tag ("" when it has none). tagged=false means
+// the tags endpoint answered 500: the resource was never tagged, or the read failed
+// transiently: the two cannot be told apart, so callers must not treat it as proof of absence.
+// It never writes.
 func (r ResourceTagger) Owner(ctx context.Context, cf cfclient.Client, accountID string, t TagTarget) (owner string, tagged bool, err error) {
 	tags, tagged, err := r.Get(ctx, cf, accountID, t)
 	if err != nil {

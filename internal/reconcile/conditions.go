@@ -11,6 +11,11 @@ import (
 // MaxConditionMessage bounds condition messages; they often quote API error text.
 const MaxConditionMessage = 1024
 
+// ReasonNameConflict marks a managing object whose Cloudflare name is taken by a resource it
+// cannot prove it owns (no ownership tag is possible): it is adopted only through the
+// external-id annotation.
+const ReasonNameConflict = "NameConflict"
+
 // SetCondition sets (or updates) a condition on mg, stamped with mg's generation. The
 // transition time only changes when the status changes. The message is sanitized (control
 // characters removed) and cut to MaxConditionMessage bytes.

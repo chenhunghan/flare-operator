@@ -10,19 +10,23 @@
 //     a same-named service: it reports Synced=False, reason NameConflict. Only observe-only
 //     objects look a service up by name, and they keep the ID they find only in
 //     status.atProvider (not in the annotation or status.id), so switching such an object to
-//     management still hits the NameConflict check. Known gap: if the create succeeds but persisting the
-//     new ID fails (API server unavailable), the next reconcile reports NameConflict for the
-//     object's own service and the annotation must be set by hand.
+//     management still hits the NameConflict check. The new ID and the ownership record are
+//     written right after a create without an optimistic lock (reconcile.RecordCreated), so a
+//     concurrent change of the object cannot lose them. Known gap: if persisting fails anyway
+//     (API server unavailable), the next reconcile reports NameConflict for the object's own
+//     service and the annotation must be set by hand.
 //   - The desired body is compared with the observed service; only a difference sends a PUT,
 //     which is always the full body (PUT is a full replace).
 //   - Cloudflare does not check dependencies on delete (0099), so the delete order is enforced
 //     here: the Tunnel's finalizer waits for every VPCService that references it. A VPCService
 //     whose Tunnel is missing, being deleted or has no ID yet is DependencyNotReady.
-//   - Deletion (Delete policy) removes the service only when ownership is proven: this object
-//     created it (annotation created-by-uid, persisted with the ID right after the create) or
-//     pins it with the external-id annotation. Otherwise, or when the CloudflareAccount no
-//     longer exists, the service is kept with a Warning Event ExternalResourceKept and the
-//     finalizer is removed; an account that exists but is not Ready is waited for.
+//   - Deletion (Delete policy) removes the service only when ownership is proven
+//     (reconcile.MayDeleteExternal with no tag possible): this object created it (the
+//     ownership-proof annotation; an older build's created-by-uid annotation is honoured and
+//     migrated) or pins it with the external-id annotation. Otherwise, or when the
+//     CloudflareAccount no longer exists (reconcile.FinalizeAccount), the service is kept with a
+//     Warning Event ExternalResourceKept and the finalizer is removed (no warning when the
+//     service is already gone); an account that exists but is not Ready is waited for.
 package vpcservice
 
 import (
@@ -72,7 +76,7 @@ const (
 	ReasonInvalidHostname = "InvalidHostname"
 	// ReasonNameConflict marks a managing object whose service name is taken by a service it
 	// does not manage (it is adopted only through the external-id annotation).
-	ReasonNameConflict = "NameConflict"
+	ReasonNameConflict = reconcile.ReasonNameConflict
 )
 
 func init() {
@@ -195,13 +199,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return res, err
 }
 
-// owns reports whether vs has proven ownership of its service: it created it, or it pins the
-// ID with the external-id annotation (VPC services carry no ownership tag). status.id alone
-// is no proof.
-func owns(vs *workersvpcv1alpha1.VPCService) bool {
-	return tunnelnet.CreatedByThis(vs) || reconcile.HasExternalIDAnnotation(vs)
-}
-
 func (r *Reconciler) apiReader() client.Reader {
 	if r.APIReader != nil {
 		return r.APIReader
@@ -209,35 +206,36 @@ func (r *Reconciler) apiReader() client.Reader {
 	return r.Client
 }
 
-// warn records a Warning Event on vs (when a Recorder is set).
-func (r *Reconciler) warn(vs *workersvpcv1alpha1.VPCService, reason, format string, args ...any) {
-	if r.Recorder != nil {
-		r.Recorder.Eventf(vs, nil, corev1.EventTypeWarning, reason, "Delete", format, args...)
-	}
-}
-
+// finalize runs the deletion flow (package doc). gone reports that the finalizer was removed.
 func (r *Reconciler) finalize(ctx context.Context, vs *workersvpcv1alpha1.VPCService) (ctrl.Result, bool, error) {
 	if !controllerutil.ContainsFinalizer(vs, commonv1alpha1.Finalizer) {
 		return ctrl.Result{}, true, nil
 	}
 	var deleteExternal func(context.Context, string) error
 	if id := reconcile.ExternalID(vs); id != "" && reconcile.ShouldDeleteExternal(vs, commonv1alpha1.DeletionDelete) {
-		if !owns(vs) {
-			r.warn(vs, tunnelnet.EventReasonExternalResourceKept,
-				"deletionPolicy is Delete, but this VPCService neither created VPC service %s nor pins it with the %s annotation; it was kept in Cloudflare",
-				id, commonv1alpha1.AnnotationExternalID)
-		} else {
-			acct, accountGone, err := tunnelnet.ResolveForDelete(ctx, r.Accounts, r.apiReader(), vs)
-			switch {
-			case accountGone:
-				r.warn(vs, tunnelnet.EventReasonExternalResourceKept,
-					"deletionPolicy is Delete, but CloudflareAccount %s no longer exists; VPC service %s was kept in Cloudflare", vs.Spec.AccountRef.Name, id)
-			case reconcile.IsAccountNotReady(err):
-				reconcile.MarkAccountNotReady(vs, err)
-				return ctrl.Result{RequeueAfter: reconcile.AccountRetryInterval}, false, nil
-			case err != nil:
-				return ctrl.Result{}, false, err
-			default:
+		// VPC services carry no ownership tag (Resource Tagging has no resource_type for them),
+		// so the ownership record or the external-id annotation must prove ownership; no
+		// Cloudflare call is needed to decide.
+		dec, err := reconcile.MayDeleteExternal(ctx, reconcile.NoopTagger{}, nil, "", reconcile.TagTarget{ID: id}, "", vs, id, r.serviceExists(vs, id))
+		if err != nil {
+			res, err := reconcile.DeletionResult(vs, err)
+			return res, false, err
+		}
+		switch {
+		case dec.Gone:
+			log.FromContext(ctx).Info("the VPC service is already gone", "id", id)
+		case !dec.Delete:
+			log.FromContext(ctx).Info("not deleting a VPC service whose ownership is not proven: "+dec.Why, "id", id)
+			reconcile.WarnExternalKept(r.Recorder, vs, "Delete",
+				fmt.Sprintf("VPC service %s was left in Cloudflare despite deletionPolicy Delete: %s", id, dec.Why))
+		default:
+			acct, err := reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, vs, "Delete",
+				fmt.Sprintf("VPC service %s was left in Cloudflare despite deletionPolicy Delete", id))
+			if err != nil {
+				res, err := reconcile.DeletionResult(vs, err)
+				return res, false, err
+			}
+			if acct != nil { // nil: the account is gone, the service is kept
 				deleteExternal = func(ctx context.Context, id string) error {
 					return deleteService(ctx, acct.Client, acct.AccountID, id)
 				}
@@ -245,10 +243,23 @@ func (r *Reconciler) finalize(ctx context.Context, vs *workersvpcv1alpha1.VPCSer
 		}
 	}
 	// deleteExternal nil: the service is kept and only the finalizer is removed.
-	if _, err := reconcile.Finalize(ctx, r.Client, vs, commonv1alpha1.DeletionDelete, deleteExternal); err != nil {
-		return ctrl.Result{}, false, client.IgnoreNotFound(err)
+	res, err := reconcile.Finalize(ctx, r.Client, vs, commonv1alpha1.DeletionDelete, deleteExternal)
+	return res, !controllerutil.ContainsFinalizer(vs, commonv1alpha1.Finalizer), err
+}
+
+// serviceExists is the exists check of reconcile.MayDeleteExternal for a service whose
+// ownership is not proven: it only avoids a spurious ExternalResourceKept warning for a service
+// that is already gone, so it is best effort (an unusable account or a failed read count as
+// "exists").
+func (r *Reconciler) serviceExists(vs *workersvpcv1alpha1.VPCService, id string) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		acct, err := r.Accounts.Resolve(ctx, vs)
+		if err != nil {
+			return true, nil
+		}
+		cur, err := getService(ctx, acct.Client, acct.AccountID, id)
+		return err != nil || cur != nil, nil
 	}
-	return ctrl.Result{}, true, nil
 }
 
 // dependencyError marks vs DependencyNotReady.
@@ -459,12 +470,17 @@ func (r *Reconciler) sync(ctx context.Context, vs *workersvpcv1alpha1.VPCService
 			if cur, err = createService(ctx, cf, accountID, body); err != nil {
 				return syncErr(err)
 			}
-			if err := tunnelnet.PersistCreated(ctx, r.Client, vs, cur.ServiceID); err != nil {
-				return ctrl.Result{}, err
+			// Created by this object: proof of ownership, written so a Conflict cannot lose it.
+			if err := reconcile.RecordCreated(ctx, r.Client, vs, cur.ServiceID); err != nil {
+				return syncErr(fmt.Errorf("record the new VPC service %s: %w", cur.ServiceID, err))
 			}
 		default:
 			return notFound(fmt.Sprintf("no VPC service named %q and managementPolicies do not allow Create", body.Name))
 		}
+	}
+	// An older build's created-by-uid record becomes an ownership-proof annotation.
+	if err := reconcile.MigrateLegacyOwnership(ctx, r.Client, vs, cur.ServiceID); err != nil {
+		return syncErr(fmt.Errorf("record ownership of VPC service %s: %w", cur.ServiceID, err))
 	}
 	vs.Status.ID = cur.ServiceID
 	inSync := matches(body, cur)
