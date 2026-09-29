@@ -140,10 +140,25 @@ func TestScale(t *testing.T) {
 		t.Errorf("%d API calls to converge, budget %d", len(j), budget)
 	}
 
-	// Steady state: over two poll intervals, count the calls per poll (item GETs mark polls).
-	mark := len(accountJournal(t, e, acct.AccountID))
-	time.Sleep(2*poll + 2*time.Second)
-	steady := accountJournal(t, e, acct.AccountID)[mark:]
+	// Steady state: over about two poll rounds, count the calls per poll (item GETs mark polls).
+	// The window ends when the journal shows two item GETs per object, not after a fixed time,
+	// which a loaded machine may fill with fewer polls (or none).
+	itemGet := func(en fake.JournalEntry) bool {
+		if en.Method != http.MethodGet || strings.Contains(en.Path, "/tags") {
+			return false
+		}
+		for p := range idOf {
+			if strings.HasPrefix(en.Path, strings.TrimRight(p, "/")+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	mark := len(e.Journal(t))
+	steady := testenv.ForAccount(e.WaitJournal(t, mark, 4*poll+2*time.Minute, func(j []fake.JournalEntry) (bool, string) {
+		got := len(testenv.Filter(testenv.ForAccount(j, acct.AccountID), itemGet))
+		return got >= 2*n, fmt.Sprintf("%d item GETs (drift polls), waiting for %d", got, 2*n)
+	}), acct.AccountID)
 	if w := testenv.Writes(steady); len(w) > 0 {
 		t.Errorf("%d writes in steady state:\n%s", len(w), testenv.Summary(w))
 	}

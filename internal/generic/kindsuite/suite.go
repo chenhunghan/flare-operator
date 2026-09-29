@@ -195,7 +195,7 @@ func (k *kindTest) run() {
 	item := k.path(en.ItemPath, id)
 
 	// 2. Idempotent.
-	k.assertNoWrites("in-sync object", 6*k.o.Poll, item)
+	k.assertNoWrites("in-sync object", 3, item)
 
 	// 3. Update one mutable field.
 	cur := fp
@@ -208,7 +208,7 @@ func (k *kindTest) run() {
 		if len(w) != 1 || w[0].Method != en.UpdateMethod || w[0].Path != item {
 			t.Fatalf("update of %s: want exactly one %s %s, got:\n%s", what, en.UpdateMethod, item, testenv.Summary(w))
 		}
-		k.assertNoWrites("after update", 4*k.o.Poll, item)
+		k.assertNoWrites("after update", 2, item)
 		cur = upd
 	} else {
 		t.Logf("no update step: %s", what)
@@ -221,7 +221,7 @@ func (k *kindTest) run() {
 		k.waitFor(obj, "Synced=False/Immutable", func() (bool, string) {
 			return condIs(obj, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, commonv1alpha1.ReasonImmutable), "not Immutable"
 		})
-		k.assertNoWrites("immutable change", 4*k.o.Poll, item)
+		k.assertNoWrites("immutable change", 2, item)
 		k.setImmutable(obj, cur)
 		k.waitSynced(obj, "immutable change reverted")
 	} else {
@@ -249,7 +249,7 @@ func (k *kindTest) run() {
 	k.waitSynced(obj, "recreated")
 	id = obj.GetResourceStatus().ID
 	item = k.path(en.ItemPath, id)
-	k.assertNoWrites("after recreate", 4*k.o.Poll, item)
+	k.assertNoWrites("after recreate", 2, item)
 
 	// 6. Observe-only.
 	observer := k.newObj("observer", map[string]any{"managementPolicies": []string{"Observe"}, "forProvider": map[string]any{}})
@@ -261,7 +261,7 @@ func (k *kindTest) run() {
 			condIs(observer, commonv1alpha1.ConditionSynced, metav1.ConditionTrue, "") &&
 			observer.GetResourceStatus().ID == id, "conditions"
 	})
-	k.assertNoWrites("observe-only object", 4*k.o.Poll, item)
+	k.assertNoWrites("observe-only object", 2, item)
 	k.delete(observer)
 	k.waitGone(observer)
 	if w := k.writesSince(mark); len(w) != 0 {
@@ -517,18 +517,20 @@ func (k *kindTest) writesSince(n int) []fake.JournalEntry {
 	return testenv.Writes(testenv.ForAccount(k.e.Journal(k.t)[n:], k.acct.AccountID))
 }
 
-// assertNoWrites waits d and fails on any Cloudflare write of this kind's account meanwhile,
-// and when the item was not re-observed.
-func (k *kindTest) assertNoWrites(what string, d time.Duration, item string) {
+// assertNoWrites waits until the item was re-observed (one GET per reconcile of the poll loop)
+// more than reconciles times, so that at least reconciles complete reconciles ran, and fails on
+// any Cloudflare write of this kind's account meanwhile. It waits for those reconciles rather
+// than for a fixed time, which proves nothing on a slow machine (and failed there when no
+// reconcile fit into the window).
+func (k *kindTest) assertNoWrites(what string, reconciles int, item string) {
 	k.t.Helper()
 	n := k.mark()
-	time.Sleep(d)
-	j := testenv.ForAccount(k.e.Journal(k.t)[n:], k.acct.AccountID)
-	if w := testenv.Writes(j); len(w) != 0 {
+	j := k.e.WaitJournal(k.t, n, 2*time.Minute, func(j []fake.JournalEntry) (bool, string) {
+		got := testenv.CountPath(testenv.ForAccount(j, k.acct.AccountID), http.MethodGet, item)
+		return got > reconciles, fmt.Sprintf("%s: %d GETs of %s, waiting for %d: the object is not re-observed", what, got, item, reconciles+1)
+	})
+	if w := testenv.Writes(testenv.ForAccount(j, k.acct.AccountID)); len(w) != 0 {
 		k.t.Errorf("%s: %d Cloudflare writes, want 0:\n%s", what, len(w), testenv.Summary(w))
-	}
-	if testenv.Count(j, http.MethodGet, item) == 0 {
-		k.t.Errorf("%s: no GET %s within %v: the object was not re-observed", what, item, d)
 	}
 }
 

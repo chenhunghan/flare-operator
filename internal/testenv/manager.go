@@ -7,11 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"flare.dev/operator/internal/controller"
@@ -62,6 +64,7 @@ type Manager struct {
 	// Client is the manager's cached client.
 	Client client.Client
 
+	tracker  *reconcileTracker
 	stopOnce sync.Once
 	stop     func() error
 }
@@ -94,7 +97,10 @@ func (e *Env) StartManager(t testing.TB, o ManagerOptions) *Manager {
 			cacheOpts.DefaultNamespaces[ns] = cache.Config{}
 		}
 	}
+	tracker := newReconcileTracker()
 	mgr, err := ctrl.NewManager(e.Config, ctrl.Options{
+		// Every controller's logger feeds the reconcile tracker (reconciles.go).
+		Logger:                 logr.New(&trackingSink{under: logf.Log.GetSink(), tracker: tracker}),
 		Cache:                  cacheOpts,
 		Scheme:                 e.Scheme,
 		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
@@ -152,7 +158,7 @@ func (e *Env) StartManager(t testing.TB, o ManagerOptions) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- mgr.Start(ctx) }()
-	m := &Manager{Manager: mgr, Deps: deps, Client: mgr.GetClient()}
+	m := &Manager{Manager: mgr, Deps: deps, Client: mgr.GetClient(), tracker: tracker}
 	m.stop = func() error {
 		cancel()
 		select {

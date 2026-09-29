@@ -39,11 +39,22 @@ ENVTEST_DIR ?= $(HOME)/.cache/flare-operator/envtest
 # envtest assets for tests: installed copy first, download if missing.
 ENVTEST_ASSETS = $$($(SETUP_ENVTEST) use -i $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_DIR) -p path 2>/dev/null || $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_DIR) -p path)
 
-test: envtest     ## all tests (loads the pinned 26 MB spec once; runs envtest suites)
-	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test ./... -count=1
+# Test packages run in parallel (go test -p). Every envtest package starts its own
+# kube-apiserver and etcd, and the race detector multiplies CPU and memory use, so the race run
+# is capped: uncapped on a busy machine it starves those API servers, and waits that are long
+# enough on an idle machine run out. A cap changes only how many packages run at once; every
+# test still runs and every failure still fails. Override with TEST_P=... / RACE_P=...
+# (TEST_P empty: go's default, GOMAXPROCS). The timeouts bound one package's test binary.
+TEST_P ?=
+RACE_P ?= 4
+TEST_TIMEOUT ?= 20m
+RACE_TIMEOUT ?= 30m
 
-test-race: envtest ## all tests with the race detector (cgo off on darwin, on elsewhere; see RACE_CGO_ENABLED)
-	CGO_ENABLED=$(RACE_CGO_ENABLED) KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test -race ./... -count=1
+test: envtest     ## all tests (loads the pinned 26 MB spec once; runs envtest suites)
+	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test $(if $(TEST_P),-p $(TEST_P)) -timeout $(TEST_TIMEOUT) ./... -count=1
+
+test-race: envtest ## all tests with the race detector (cgo off on darwin, on elsewhere; see RACE_CGO_ENABLED; RACE_P packages at a time)
+	CGO_ENABLED=$(RACE_CGO_ENABLED) KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test -race $(if $(RACE_P),-p $(RACE_P)) -timeout $(RACE_TIMEOUT) ./... -count=1
 
 test-short: envtest ## skip spec-loading tests
 	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test ./... -short -count=1

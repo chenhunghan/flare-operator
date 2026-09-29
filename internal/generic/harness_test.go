@@ -137,7 +137,11 @@ func newHarness(t *testing.T, which controllers) *harness {
 	t.Helper()
 	e := testenv.Require(t, env)
 	h := &harness{t: t, e: e, rec: &recorder{}}
-	o := testenv.ManagerOptions{}
+	h.ns = e.Namespace(t)
+	// The manager sees only this harness's namespace: objects that earlier tests left behind
+	// (envtest runs no namespace controller) are not reconciled with their own accounts, so the
+	// recorder holds this test's requests only.
+	o := testenv.ManagerOptions{Namespaces: []string{h.ns}}
 	switch which {
 	case registered:
 		o.Controllers = kinds.Names()
@@ -155,7 +159,6 @@ func newHarness(t *testing.T, which controllers) *harness {
 		}}
 	}
 	e.StartManager(t, o)
-	h.ns = e.Namespace(t)
 	h.acct = e.CreateReadyAccount(t, h.ns, "acct")
 	cf, err := cfclient.New(cfclient.Options{Token: h.acct.Token, BaseURL: e.BaseURL, RPS: 1000, Burst: 1000, MaxRetries: -1})
 	if err != nil {
@@ -421,18 +424,20 @@ func (h *harness) journal() []fake.JournalEntry {
 	return testenv.ForAccount(h.e.Journal(h.t)[h.journal0:], h.acct.AccountID)
 }
 
-// assertNoWrites waits d and fails if the operator wrote anything to Cloudflare meanwhile
-// (checked in the flarefake journal), while it did observe (GETs of the item).
-func (h *harness) assertNoWrites(what string, d time.Duration, itemPath string) {
+// assertNoWrites waits until the object was re-observed (GET of the item, once per reconcile
+// of the poll loop) more than reconciles times, so that at least reconciles complete
+// reconciles ran, and fails if the operator wrote anything to Cloudflare meanwhile (checked in
+// the flarefake journal). It waits for those reconciles rather than for a fixed time, which
+// proves nothing on a slow machine.
+func (h *harness) assertNoWrites(what string, reconciles int, itemPath string) {
 	h.t.Helper()
 	n := len(h.e.Journal(h.t))
-	time.Sleep(d)
-	j := testenv.ForAccount(h.e.Journal(h.t)[n:], h.acct.AccountID)
-	if w := testenv.Writes(j); len(w) != 0 {
+	j := h.e.WaitJournal(h.t, n, 2*time.Minute, func(j []fake.JournalEntry) (bool, string) {
+		got := testenv.CountPath(testenv.ForAccount(j, h.acct.AccountID), http.MethodGet, itemPath)
+		return got > reconciles, fmt.Sprintf("%s: %d GETs of %s, waiting for %d: the object is not re-observed", what, got, itemPath, reconciles+1)
+	})
+	if w := testenv.Writes(testenv.ForAccount(j, h.acct.AccountID)); len(w) != 0 {
 		h.t.Errorf("%s: %d Cloudflare writes, want 0:\n%s", what, len(w), testenv.Summary(w))
-	}
-	if itemPath != "" && testenv.Count(j, http.MethodGet, itemPath) == 0 {
-		h.t.Errorf("%s: no GET %s in %v: the object was not re-observed", what, itemPath, d)
 	}
 }
 

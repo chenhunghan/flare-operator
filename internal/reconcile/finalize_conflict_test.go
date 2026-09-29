@@ -2,10 +2,15 @@ package reconcile_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
@@ -68,5 +73,75 @@ func TestFinalizeStaleCopy(t *testing.T) {
 				t.Fatalf("err %v, want a Conflict", err)
 			}
 		})
+	}
+}
+
+// conflictingPatches fails every Patch with a Conflict while fail is set (a cache that never
+// catches up within the retry budget).
+type conflictingPatches struct {
+	client.Client
+	fail bool
+}
+
+func (c *conflictingPatches) Patch(ctx context.Context, obj client.Object, p client.Patch, opts ...client.PatchOption) error {
+	if c.fail {
+		return apierrors.NewConflict(schema.GroupResource{Resource: "widgets"}, obj.GetName(), errors.New("stale"))
+	}
+	return c.Client.Patch(ctx, obj, p, opts...)
+}
+
+// A finalizer whose removal keeps conflicting after the Cloudflare delete is retried by a
+// requeue; that pass must not DELETE again (the deletion is remembered per UID), and once the
+// removal works the finalizer comes off. Another object (UID) with the same ID still deletes.
+func TestFinalizeDeletesOncePerObject(t *testing.T) {
+	ctx := context.Background()
+	w := widget(nil, "")
+	// A fresh UID per run: the deletion memory is process-wide (go test -count=N).
+	w.UID = types.UID(fmt.Sprintf("uid-once-%d", time.Now().UnixNano()))
+	w.Finalizers = []string{commonv1alpha1.Finalizer}
+	w.Annotations = map[string]string{commonv1alpha1.AnnotationExternalID: "x"}
+	kube := &conflictingPatches{Client: newKube(t, w), fail: true}
+	if err := kube.Delete(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	if err := kube.Get(ctx, client.ObjectKeyFromObject(w), w); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	del := func(context.Context, string) error { calls++; return nil }
+	if _, err := reconcile.Finalize(ctx, kube, w, "", del); !apierrors.IsConflict(err) {
+		t.Fatalf("first pass: err %v, want the Conflict", err)
+	}
+	if _, err := reconcile.Finalize(ctx, kube, w, "", del); !apierrors.IsConflict(err) {
+		t.Fatalf("second pass: err %v, want the Conflict", err)
+	}
+	if calls != 1 {
+		t.Fatalf("deleteExternal called %d times over two passes, want 1", calls)
+	}
+	kube.fail = false
+	if _, err := reconcile.Finalize(ctx, kube, w, "", del); err != nil {
+		t.Fatalf("third pass: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("deleteExternal called %d times over three passes, want 1", calls)
+	}
+	if err := kube.Get(ctx, client.ObjectKeyFromObject(w), &Widget{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("finalizer not removed: %v", err)
+	}
+
+	other := widget(nil, "")
+	other.Name = "other"
+	other.UID = types.UID(fmt.Sprintf("uid-other-%d", time.Now().UnixNano()))
+	other.Finalizers = []string{commonv1alpha1.Finalizer}
+	other.Annotations = map[string]string{commonv1alpha1.AnnotationExternalID: "x"}
+	kube2 := newKube(t, other)
+	if err := kube2.Delete(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if err := kube2.Get(ctx, client.ObjectKeyFromObject(other), other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconcile.Finalize(ctx, kube2, other, "", del); err != nil || calls != 2 {
+		t.Fatalf("another object with the same ID: err %v, %d calls, want 2", err, calls)
 	}
 }

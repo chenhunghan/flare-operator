@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -13,6 +14,7 @@ import (
 	"flare.dev/operator/internal/cfclient"
 	"flare.dev/operator/internal/generic/descriptors"
 	"flare.dev/operator/internal/reconcile"
+	"flare.dev/operator/internal/testenv"
 )
 
 // kindCase describes one generated kind for the lifecycle tests. forProvider values are JSON
@@ -129,7 +131,7 @@ func TestLifecycle(t *testing.T) {
 			}
 
 			// Idempotent: repeated reconciles of an unchanged object make zero writes.
-			h.assertNoWrites("in-sync object", 6*poll, item)
+			h.assertNoWrites("in-sync object", 3, item)
 
 			// Update.
 			mark := h.rec.mark()
@@ -149,7 +151,7 @@ func TestLifecycle(t *testing.T) {
 			if en.UpdateMethod == http.MethodPut && len(body) != len(en.UpdateFields) {
 				t.Errorf("PUT body %s is not the full UpdateFields body %v", ups[0].Body, en.UpdateFields)
 			}
-			h.assertNoWrites("after update", 4*poll, item)
+			h.assertNoWrites("after update", 2, item)
 
 			// Drift: a change made outside the operator is reverted.
 			mark = h.rec.mark()
@@ -157,13 +159,21 @@ func TestLifecycle(t *testing.T) {
 			_ = json.Unmarshal([]byte(kc.fp(kc.driftBody, name)), &drift)
 			h.mustAPI(kc.driftMethod, item, drift)
 			h.waitFor(obj, "drift corrected", func() (bool, string) {
-				w := writesOf(h.rec.since(mark))
-				return len(w) > 0, "no write yet"
+				for _, w := range writesOf(h.rec.since(mark)) {
+					if w.Method == en.UpdateMethod && w.Path == item {
+						return true, ""
+					}
+				}
+				return false, "no " + en.UpdateMethod + " " + item + " yet"
 			})
 			h.waitSynced(obj, en)
-			if got := h.mustAPI(http.MethodGet, item, nil); !covers(t, kc.fp(kc.update, name), got, en) {
-				t.Errorf("after drift correction the resource is %v", got)
-			}
+			// The recorder sees a request when it is sent, before the fake applies it: wait
+			// for the correction to land rather than read the resource once.
+			var got map[string]any
+			testenv.Eventually(t, time.Minute, func() (bool, string) {
+				got = h.mustAPI(http.MethodGet, item, nil)
+				return covers(t, kc.fp(kc.update, name), got, en), fmt.Sprintf("after drift correction the resource is %v", got)
+			})
 
 			// Immutable change: Synced=False/Immutable and no write at all (made past the CRD's
 			// CEL immutability rules, which reject an in-place change at once).
@@ -171,7 +181,7 @@ func TestLifecycle(t *testing.T) {
 			h.waitFor(obj, "Immutable", func() (bool, string) {
 				return condIs(obj, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, commonv1alpha1.ReasonImmutable), "not Immutable"
 			})
-			h.assertNoWrites("immutable change", 4*poll, item)
+			h.assertNoWrites("immutable change", 2, item)
 			h.setImmutable(obj, kc.fp(kc.update, name))
 			h.waitSynced(obj, en)
 
@@ -184,7 +194,7 @@ func TestLifecycle(t *testing.T) {
 			h.waitSynced(obj, en)
 			id = obj.GetResourceStatus().ID
 			item = h.path(en.ItemPath, id)
-			h.assertNoWrites("after recreate", 4*poll, item)
+			h.assertNoWrites("after recreate", 2, item)
 
 			// Delete (deletionPolicy Delete): DELETE without a body, then gone.
 			mark = h.rec.mark()

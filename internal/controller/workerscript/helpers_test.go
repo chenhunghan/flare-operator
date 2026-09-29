@@ -21,7 +21,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
+	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
+	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
 	"flare.dev/operator/internal/cfclient"
 	"flare.dev/operator/internal/controller"
 	"flare.dev/operator/internal/controller/vpcservice"
@@ -50,6 +52,7 @@ const fetchModule = `export default {
 type harness struct {
 	t    *testing.T
 	e    *testenv.Env
+	m    *testenv.Manager
 	ns   string
 	acct *testenv.Account
 	cf   cfclient.Client
@@ -71,9 +74,11 @@ func startWith(t *testing.T, o testenv.ManagerOptions) *harness {
 			return (&vpcservice.Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts,
 				Recorder: mgr.GetEventRecorder(vpcservice.Name), APIReader: mgr.GetAPIReader()}).SetupWithManager(mgr)
 		})
-	e.StartManager(t, o)
-	h := &harness{t: t, e: e}
-	h.ns = e.Namespace(t)
+	// The manager sees only this test's namespace: objects that earlier
+	// tests left behind (envtest runs no namespace controller) are not reconciled meanwhile.
+	ns := e.Namespace(t)
+	o.Namespaces = []string{ns}
+	h := &harness{t: t, e: e, m: e.StartManager(t, o), ns: ns}
 	h.acct = e.CreateReadyAccount(t, h.ns, "acct")
 	cf, err := cfclient.New(cfclient.Options{Token: h.acct.Token, BaseURL: e.BaseURL, RPS: 1000, Burst: 1000})
 	if err != nil {
@@ -243,25 +248,56 @@ func (h *harness) poke(obj client.Object) {
 	}
 }
 
-// assertNoWrites pokes the scripts, waits until each was re-read (GET …/settings) and asserts
-// that nothing was written to the fake.
+// settle pokes objs and waits until each was reconciled after the poke, with no reconcile of it
+// still running: whatever an earlier reconcile was doing has finished (reconciles of one
+// object are serialized), and one more reconcile ran on the current state. It is the positive
+// signal to wait for before asserting that something did not happen.
+func (h *harness) settle(objs ...client.Object) {
+	h.t.Helper()
+	mark := h.m.Mark()
+	for _, o := range objs {
+		h.poke(o)
+	}
+	for _, o := range objs {
+		h.m.WaitReconciled(h.t, controllerOf(o), client.ObjectKey{Namespace: h.ns, Name: o.GetName()}, mark, 1, 2*time.Minute)
+	}
+}
+
+// controllerOf is the name of the controller that reconciles obj ("" = any).
+func controllerOf(obj client.Object) string {
+	switch obj.(type) {
+	case *workersv1alpha1.WorkerScript:
+		return workerscript.Name
+	case *workersvpcv1alpha1.VPCService:
+		return vpcservice.Name
+	case *kvv1alpha1.KVNamespace:
+		return "kvnamespace"
+	}
+	return ""
+}
+
+// script is a WorkerScript reference by name (for poke and settle).
+func script(name string) *workersv1alpha1.WorkerScript {
+	return &workersv1alpha1.WorkerScript{ObjectMeta: metav1.ObjectMeta{Name: name}}
+}
+
+// assertNoWrites pokes the scripts, waits until each was reconciled after the poke (and re-read:
+// GET …/settings) and asserts that nothing was written to the fake.
 func (h *harness) assertNoWrites(names ...string) {
 	h.t.Helper()
 	m := h.mark()
+	objs := make([]client.Object, 0, len(names))
 	for _, n := range names {
-		h.poke(&workersv1alpha1.WorkerScript{ObjectMeta: metav1.ObjectMeta{Name: n}})
+		objs = append(objs, script(n))
 	}
-	testenv.Eventually(h.t, 30*time.Second, func() (bool, string) {
-		j := h.since(m)
-		for _, n := range names {
-			if testenv.Count(j, http.MethodGet, "/workers/scripts/"+n+"/settings") == 0 {
-				return false, "no GET settings of " + n + " yet:\n" + testenv.Summary(j)
-			}
+	h.settle(objs...)
+	j := h.since(m)
+	for _, n := range names {
+		if testenv.CountPath(j, http.MethodGet, "/accounts/"+h.acct.AccountID+"/workers/scripts/"+n+"/settings") == 0 {
+			h.t.Fatalf("the reconcile after the poke did not read the settings of %s:\n%s", n, testenv.Summary(j))
 		}
-		return true, ""
-	})
-	time.Sleep(time.Second)
-	if w := testenv.Writes(h.since(m)); len(w) != 0 {
+	}
+	if w := testenv.Writes(j); len(w) != 0 {
 		h.t.Fatalf("a reconcile without changes wrote to Cloudflare:\n%s", testenv.Summary(w))
 	}
 }

@@ -143,6 +143,38 @@ func Count(j []fake.JournalEntry, method, pathSubstr string) int {
 	}))
 }
 
+// CountPath returns how many entries have method (""=any) and exactly path (no query).
+func CountPath(j []fake.JournalEntry, method, path string) int {
+	return len(Filter(j, func(e fake.JournalEntry) bool {
+		return (method == "" || e.Method == method) && e.Path == path
+	}))
+}
+
+// WaitJournal polls the fake's journal entries after since (a journal length) until ready
+// reports true for them, and returns them; it fails t with ready's last message after timeout.
+// It is the positive signal tests wait for before asserting that something did not happen
+// (e.g. "no writes while the object was re-observed n times").
+func (e *Env) WaitJournal(t testing.TB, since int, timeout time.Duration, ready func(j []fake.JournalEntry) (bool, string)) []fake.JournalEntry {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		j := e.Journal(t)
+		if since < len(j) {
+			j = j[since:]
+		} else {
+			j = nil
+		}
+		ok, msg := ready(j)
+		if ok {
+			return j
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("journal condition not met within %v: %s", timeout, msg)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // Summary renders entries one per line ("PUT /accounts/…/tags 200"), for failure messages.
 func Summary(j []fake.JournalEntry) string {
 	var b strings.Builder

@@ -724,9 +724,11 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 	if d.Singleton {
 		id = ""
 	}
-	if _, pending := reconcile.PendingCreate(obj); id == "" && deleteExternal && pending {
-		// No ID, but a create was announced: the manager may have died between the create and
-		// RecordCreated. Find that resource and record it, so it is deleted rather than leaked.
+	if _, pending := reconcile.PendingCreate(obj); deleteExternal && pending {
+		// A create was announced and its result never recorded: the manager may have died
+		// between the create and RecordCreated. With no ID, or with the ID of a resource that
+		// was found gone (the create recreated it), find the resource the record names and
+		// record it, so it is deleted rather than leaked.
 		var err error
 		if id, err = r.adoptPendingCreate(ctx, obj); err != nil {
 			return reconcile.DeletionResult(obj, err)
@@ -827,21 +829,33 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 }
 
 // adoptPendingCreate resolves the resource of obj's create-pending record for its finalizer
-// (reconcile.AdoptPendingCreate). Without a usable account nothing can be looked up: a gone
-// account leaves it with a Warning event, one that is not Ready yet is waited for.
+// (reconcile.AdoptPendingCreateReplacing): with no external ID, or with one whose resource is
+// gone, the record's resource is recorded and its ID returned; otherwise obj's ID. Without a
+// usable account nothing can be looked up: a gone account leaves it with a Warning event (and
+// obj's ID for the finalizer's own account step), one that is not Ready yet is waited for.
 func (r *Reconciler) adoptPendingCreate(ctx context.Context, obj reconcile.ManagedObject) (string, error) {
 	d := r.Descriptor
 	key, _ := reconcile.PendingCreate(obj)
 	acct, err := reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, obj, "Delete",
 		fmt.Sprintf("the %s this object may have created before a restart (create-pending %q) was not looked up and may be left in Cloudflare", d.Kind, key))
-	if err != nil || acct == nil {
+	if err != nil {
 		return "", err
+	}
+	if acct == nil {
+		return reconcile.ExternalID(obj), nil
 	}
 	sc, err := r.scopeFor(obj, acct)
 	if err != nil {
 		return "", err
 	}
-	return reconcile.AdoptPendingCreate(ctx, r.Client, r.Recorder, obj, d.Kind, func(ctx context.Context, key string) (string, error) {
+	gone := func(ctx context.Context, id string) (bool, error) {
+		_, err := r.get(ctx, sc, id)
+		if cfclient.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	return reconcile.AdoptPendingCreateReplacing(ctx, r.Client, r.Recorder, obj, d.Kind, gone, func(ctx context.Context, key string) (string, error) {
 		return r.findPending(ctx, sc, key)
 	})
 }

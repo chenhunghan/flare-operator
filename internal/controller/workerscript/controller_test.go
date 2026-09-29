@@ -176,7 +176,7 @@ func TestPendingReferenceNoUpload(t *testing.T) {
 	if c := condOf(ws.Status.Conditions, "Synced"); !strings.Contains(c, "KVNamespace later not found") {
 		t.Fatalf("condition %s", c)
 	}
-	time.Sleep(time.Second)
+	h.settle(script("waits")) // one more reconcile with the reference still pending
 	if n := h.uploads(h.since(m), "waits"); n != 0 {
 		t.Fatalf("%d uploads while the reference is pending", n)
 	}
@@ -211,7 +211,7 @@ func TestContentAndSettingsChanges(t *testing.T) {
 		ws := h.waitScript("app", func(ws *workersv1alpha1.WorkerScript) bool {
 			return scriptReady(ws) && ws.Status.AtProvider.VersionID != prev.Status.AtProvider.VersionID
 		})
-		time.Sleep(500 * time.Millisecond)
+		h.settle(script("app")) // stragglers finished; a no-op reconcile must not write either
 		j := h.since(m)
 		if u, p := h.uploads(j, "app"), h.patches(j, "app"); u != wantUploads || p != wantPatches {
 			t.Fatalf("%s: %d uploads and %d settings PATCHes, want %d and %d:\n%s", what, u, p, wantUploads, wantPatches, testenv.Summary(j))
@@ -291,7 +291,7 @@ func TestAdoptByExternalID(t *testing.T) {
 	h.waitScript("legacy", func(ws *workersv1alpha1.WorkerScript) bool {
 		return hasCond(ws.Status.Conditions, ws.Generation, "Synced", metav1.ConditionFalse, workerscriptNameConflict)
 	})
-	time.Sleep(time.Second)
+	h.settle(script("legacy")) // one more reconcile of the conflict
 	if w := testenv.Writes(h.since(m)); len(w) != 0 {
 		t.Fatalf("a name conflict wrote:\n%s", testenv.Summary(w))
 	}
@@ -409,7 +409,7 @@ func TestReferencedDeletionWaits(t *testing.T) {
 	wait(h, vs, func(o *workersvpcv1alpha1.VPCService) bool {
 		return strings.Contains(condOf(o.Status.Conditions, "Ready"), commonv1alpha1.ReasonDependency)
 	})
-	time.Sleep(time.Second)
+	h.settle(kv, vs) // one more finalizer pass of each while still bound
 	if n := testenv.Count(h.since(m), http.MethodDelete, ""); n != 0 {
 		t.Fatalf("deleted while bound:\n%s", testenv.Summary(h.since(m)))
 	}

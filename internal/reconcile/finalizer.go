@@ -119,7 +119,9 @@ func DeletionResult(mg commonv1alpha1.Managed, err error) (ctrl.Result, error) {
 //     because the resource is kept or cannot be reached) the Cloudflare resource is left alone.
 //   - Finally the finalizer is removed (an object already gone is not an error). After a
 //     deletion, a Conflict from a stale mg is retried on the fresh object while it still pins
-//     the deleted resource (removeFinalizerAfterDelete), so a requeue does not delete again.
+//     the deleted resource (removeFinalizerAfterDelete). Should the removal still not stick,
+//     a later pass for the same object and ID skips deleteExternal: the deletion is remembered
+//     in-process per object UID (deletedExternal), so it is never sent twice.
 //
 // It does nothing when mg is not being deleted or has no finalizer. Callers learn whether the
 // finalizer was removed from controllerutil.ContainsFinalizer(mg, commonv1alpha1.Finalizer).
@@ -131,8 +133,13 @@ func Finalize(ctx context.Context, c client.Client, mg ManagedObject, kindDefaul
 	deleted := ""
 	if ShouldDeleteExternal(mg, kindDefault) {
 		if id := ExternalID(mg); id != "" && deleteExternal != nil {
-			if err := deleteExternal(ctx, id); err != nil && !cfclient.IsNotFound(err) {
-				return DeletionResult(mg, err)
+			// A pass after an earlier one deleted id but could not remove the finalizer yet
+			// (deletedExternal) does not send the DELETE again.
+			if !alreadyDeleted(mg.GetUID(), id) {
+				if err := deleteExternal(ctx, id); err != nil && !cfclient.IsNotFound(err) {
+					return DeletionResult(mg, err)
+				}
+				rememberDeleted(mg.GetUID(), id)
 			}
 			deleted = id
 		}

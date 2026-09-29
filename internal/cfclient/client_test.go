@@ -210,13 +210,18 @@ func TestRatelimitHeaderIgnored(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv.URL, func(o *Options) { o.RPS, o.Burst = 0, 0 }) // defaults: burst 20
+	// Honouring the header means waiting for its reset, 300 s away. The bound sits far below
+	// that and far above what ten local requests take on any machine, however loaded, so it
+	// tells the two apart without depending on the machine's speed.
 	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 	for range 10 {
-		if _, err := c.Do(context.Background(), Request{Path: "/x"}); err != nil {
-			t.Fatal(err)
+		if _, err := c.Do(ctx, Request{Path: "/x"}); err != nil {
+			t.Fatalf("request after %v: %v (does the client wait for the Ratelimit header's reset?)", time.Since(start), err)
 		}
 	}
-	if d := time.Since(start); d > 2*time.Second {
+	if d := time.Since(start); d > time.Minute {
 		t.Errorf("10 requests took %v; Ratelimit header must be ignored", d)
 	}
 }
