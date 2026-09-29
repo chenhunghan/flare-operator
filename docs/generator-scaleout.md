@@ -28,8 +28,9 @@ The pieces:
    registered with the manager automatically (`internal/generic/kinds`). `make generate-check` and
    `make verify-generated` must be clean.
 4. **Update the pinned expectations:** add the kind to `TestGeneratedUpToDate`,
-   `TestRegistry` and `TestDescriptorsMatchEmulator` (`internal/flaregen`), and give
-   `TestDescriptorsAgainstFlarefake` (`internal/generic/descriptors`) a create/update sample.
+   `TestRegistry` and `TestDescriptorsMatchEmulator` (`internal/flaregen`), give
+   `TestDescriptorsAgainstFlarefake` (`internal/generic/descriptors`) a create/update sample, and
+   add a manifest to `examples/` (`TestEveryKindHasAnExample`, validated by a dry-run create).
 5. **Run the suite:** `go test ./internal/generic/kindsuite/ -run 'TestKinds/<Kind>' -v`. The suite
    synthesizes a minimal forProvider from the CRD schema (required fields; first enum value; a
    `flare-spike-*` name that satisfies pattern and length; the smallest allowed number; false),
