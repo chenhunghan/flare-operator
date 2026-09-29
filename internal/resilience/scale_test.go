@@ -194,10 +194,6 @@ func TestScale(t *testing.T) {
 	cf := apiClient(t, e, verify)
 	for _, it := range items {
 		id := it.obj.GetResourceStatus().ID
-		field := it.en.NameField
-		if field == "" {
-			field = it.en.IDField
-		}
 		have := listField(t, cf, strings.ReplaceAll(it.en.ListPath, "{account_id}", acct.AccountID), it.en.IDField)
 		if count(have, id) != 1 {
 			t.Errorf("%s %s: %d resources with id %q", it.en.Kind, it.obj.GetName(), count(have, id), id)
