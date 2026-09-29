@@ -21,7 +21,8 @@
 //	}
 //
 // Envtest assets (kube-apiserver, etcd) come from $KUBEBUILDER_ASSETS or, when unset, from
-// ./bin/k8s/<K8sVersion>-<os>-<arch> as installed by `make envtest`. When neither exists every
+// ~/.cache/flare-operator/envtest/k8s (shared by all worktrees; `make envtest`) or
+// ./bin/k8s/<K8sVersion>-<os>-<arch>. When neither exists every
 // test that calls Require is skipped with a message saying how to fetch them.
 //
 // The fake starts in strict token mode (a sentinel token is registered), so only tokens
@@ -102,16 +103,25 @@ func Assets() (string, bool) {
 	if d := os.Getenv("KUBEBUILDER_ASSETS"); d != "" {
 		return d, has(d)
 	}
-	base := filepath.Join(RepoRoot(), "bin", "k8s")
-	want := filepath.Join(base, fmt.Sprintf("%s-%s-%s", K8sVersion, goruntime.GOOS, goruntime.GOARCH))
-	if has(want) {
-		return want, true
+	name := fmt.Sprintf("%s-%s-%s", K8sVersion, goruntime.GOOS, goruntime.GOARCH)
+	var bases []string
+	if home, err := os.UserHomeDir(); err == nil {
+		bases = append(bases, filepath.Join(home, ".cache", "flare-operator", "envtest", "k8s"))
 	}
-	matches, _ := filepath.Glob(filepath.Join(base, "*-"+goruntime.GOOS+"-"+goruntime.GOARCH))
-	sort.Sort(sort.Reverse(sort.StringSlice(matches)))
-	for _, m := range matches {
-		if has(m) {
-			return m, true
+	bases = append(bases, filepath.Join(RepoRoot(), "bin", "k8s"))
+	want := filepath.Join(bases[0], name)
+	for _, base := range bases {
+		if has(filepath.Join(base, name)) {
+			return filepath.Join(base, name), true
+		}
+	}
+	for _, base := range bases {
+		matches, _ := filepath.Glob(filepath.Join(base, "*-"+goruntime.GOOS+"-"+goruntime.GOARCH))
+		sort.Sort(sort.Reverse(sort.StringSlice(matches)))
+		for _, m := range matches {
+			if has(m) {
+				return m, true
+			}
 		}
 	}
 	return want, false
