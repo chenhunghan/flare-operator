@@ -1,4 +1,5 @@
-# Default values for flare-operator.
+# Default values for flare-operator. values.schema.json validates them (helm install/upgrade/
+# lint/template fail on an unknown key or a wrong type); update it with any change here.
 
 # -- Override the chart name used in resource names.
 nameOverride: ""
@@ -54,13 +55,27 @@ extraArgs: []
 extraEnv: []
 
 metrics:
-  # -- Serve Prometheus metrics (--metrics-bind-address); "0" disables when false.
+  # -- Serve Prometheus metrics (--metrics-bind-address); "0" disables when false. The
+  # endpoint is plain HTTP without authentication (controller-runtime's default); restrict
+  # who can reach it with networkPolicy.metricsFrom.
   enabled: true
   port: 8080
   service:
     # -- Create a ClusterIP Service for the metrics endpoint.
     enabled: true
     annotations: {}
+  # A prometheus-operator ServiceMonitor for the metrics Service. Needs the
+  # monitoring.coreos.com/v1 CRDs in the cluster, and metrics.service.enabled.
+  serviceMonitor:
+    enabled: false
+    # -- Extra labels, e.g. the release label your Prometheus selects ServiceMonitors by.
+    labels: {}
+    annotations: {}
+    # -- Scrape interval (empty: Prometheus' default).
+    interval: ""
+    scrapeTimeout: ""
+    relabelings: []
+    metricRelabelings: []
 
 probes:
   # -- Health (/healthz) and readiness (/readyz) port (--health-probe-bind-address).
@@ -80,7 +95,81 @@ rbac:
 
 podAnnotations: {}
 podLabels: {}
+# -- PriorityClass for the manager pods (e.g. a class above your workloads so the operator is
+# not preempted first).
 priorityClassName: ""
+
+# -- topologySpreadConstraints for the manager pods. An entry without labelSelector gets the
+# manager's selector labels, e.g.
+#   - maxSkew: 1
+#     topologyKey: topology.kubernetes.io/zone
+#     whenUnsatisfiable: ScheduleAnyway
+topologySpreadConstraints: []
+
+# A PodDisruptionBudget for the manager. It is rendered only when replicas > 1: with one
+# replica a minAvailable 1 budget would block every node drain, and the standby replica is
+# what makes a voluntary disruption harmless (the lease moves in about a second, because the
+# manager releases it on shutdown).
+podDisruptionBudget:
+  enabled: true
+  # -- minAvailable (integer or percentage). Ignored when maxUnavailable is set.
+  minAvailable: 1
+  # -- maxUnavailable (integer or percentage); empty uses minAvailable.
+  maxUnavailable: ""
+
+# A NetworkPolicy that limits the manager pods to the traffic they need. Off by default:
+# plain NetworkPolicy matches IP blocks, not host names, so it needs the API server endpoint
+# addresses of your cluster. See docs/operations.md "Network policy".
+networkPolicy:
+  enabled: false
+  # Egress to the Kubernetes API server. NetworkPolicy sees the API server's endpoint
+  # addresses (after the Service DNAT), not the kubernetes Service ClusterIP, so list the
+  # endpoints: kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes
+  apiServer:
+    # -- Required when enabled, e.g. ["192.168.5.15/32"].
+    cidrs: []
+    ports: [6443]
+  # Egress to api.cloudflare.com:443. Plain NetworkPolicy cannot match a host name, so the
+  # default allows HTTPS to all of Cloudflare's published ranges (DOCS:
+  # https://www.cloudflare.com/ips/, fetched 2026-09-29), which api.cloudflare.com resolves
+  # into. With a CNI that supports FQDN policies (Cilium toFQDNs, Calico domain names), set
+  # cidrs: [] and add an FQDN rule through extraEgress or your CNI's own policy kind.
+  cloudflareAPI:
+    cidrs:
+      - 173.245.48.0/20
+      - 103.21.244.0/22
+      - 103.22.200.0/22
+      - 103.31.4.0/22
+      - 141.101.64.0/18
+      - 108.162.192.0/18
+      - 190.93.240.0/20
+      - 188.114.96.0/20
+      - 197.234.240.0/22
+      - 198.41.128.0/17
+      - 162.158.0.0/15
+      - 104.16.0.0/13
+      - 104.24.0.0/14
+      - 172.64.0.0/13
+      - 131.0.72.0/22
+      - 2400:cb00::/32
+      - 2606:4700::/32
+      - 2803:f800::/32
+      - 2405:b500::/32
+      - 2405:8100::/32
+      - 2a06:98c0::/29
+      - 2c0f:f248::/32
+    ports: [443]
+  # Egress to cluster DNS (UDP and TCP 53).
+  dns:
+    namespaceSelector:
+      kubernetes.io/metadata.name: kube-system
+    podSelector:
+      k8s-app: kube-dns
+  # -- Peers (NetworkPolicyPeer list) allowed to scrape the metrics port; empty allows any
+  # source. Health probes come from the kubelet on the node, which NetworkPolicy always allows.
+  metricsFrom: []
+  # -- Extra egress rules (NetworkPolicyEgressRule list), e.g. a spec.baseURL override target.
+  extraEgress: []
 
 podSecurityContext:
   runAsNonRoot: true

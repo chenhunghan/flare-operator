@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # cloudflared stand-in for e2e tests (see main.go). Build context: this directory
 # (`make e2e-images`). Stdlib only, so no go.mod is copied.
-ARG GO_VERSION=1.26.1
+ARG GO_VERSION=1.26.8
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
 ARG TARGETOS=linux

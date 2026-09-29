@@ -1,14 +1,35 @@
-flare-operator {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
+flare-operator {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}, image {{ include "flare-operator.image" . }}) is installed in namespace {{ .Release.Namespace }}.
 
-  kubectl -n {{ .Release.Namespace }} get deploy {{ include "flare-operator.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "flare-operator.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "flare-operator.fullname" . }} | head -3   # version line
   kubectl get crds -o name | grep flare.dev
 
 Create a CloudflareAccount that references a Secret holding an API token, then create
 resources (KVNamespace, Queue, D1Database, ...) that reference the account.
+{{- if .Release.IsUpgrade }}
+
+UPGRADE: Helm does not upgrade CRDs. If this chart version changed them, apply them now
+(from a checkout of the chart version you upgraded to):
+  make crds-apply    # kubectl apply --server-side --force-conflicts -f charts/flare-operator/crds/
+{{- end }}
 {{- if eq .Values.clusterName "default" }}
 
 NOTE: clusterName is "default". Set a distinct clusterName for every cluster that manages the
 same Cloudflare account, so ownership tags (flare.dev/owner) don't collide.
+{{- end }}
+{{- if .Values.metrics.enabled }}
+
+Metrics (plain HTTP, no auth): :{{ .Values.metrics.port }}/metrics{{ if .Values.metrics.service.enabled }} via Service {{ include "flare-operator.fullname" . }}-metrics{{ end }}.
+{{- end }}
+{{- if and (gt (int .Values.replicas) 1) .Values.podDisruptionBudget.enabled }}
+PodDisruptionBudget {{ include "flare-operator.fullname" . }} limits voluntary disruptions of the {{ .Values.replicas }} manager replicas.
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+
+NetworkPolicy {{ include "flare-operator.fullname" . }} restricts the manager's traffic. If CloudflareAccounts show
+Synced=False/ReconcileError with a dial or TLS timeout, check networkPolicy.cloudflareAPI.cidrs; if
+the manager cannot start (leader election or cache sync timeouts), check networkPolicy.apiServer.cidrs
+(docs/operations.md "Network policy").
 {{- end }}
 {{- if .Values.flarefake.enabled }}
 

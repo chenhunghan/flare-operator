@@ -1,0 +1,19 @@
+# Rendered by `make helm-lint`: every optional feature on (a PDB through replicas 2, topology
+# spread, NetworkPolicy, ServiceMonitor, flarefake). The API server CIDR is an example value.
+replicas: 2
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+networkPolicy:
+  enabled: true
+  apiServer:
+    cidrs: [192.168.5.15/32]
+  metricsFrom:
+    - namespaceSelector:
+        matchLabels: {kubernetes.io/metadata.name: monitoring}
+metrics:
+  serviceMonitor:
+    enabled: true
+flarefake:
+  enabled: true

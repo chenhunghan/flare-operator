@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1
+# Release image for flarefake, built by goreleaser (dockers_v2 in .goreleaser.yaml) from the
+# prebuilt <os>/<arch>/flarefake plus the pinned spec (extra_files). Same layout as
+# ./Dockerfile.flarefake.
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/flarefake /flarefake
+COPY spec/openapi.json.gz spec/LOCK /spec/
+USER 65532:65532
+EXPOSE 8787
+ENTRYPOINT ["/flarefake"]
+CMD ["-addr=:8787", "-spec=/spec/openapi.json.gz"]

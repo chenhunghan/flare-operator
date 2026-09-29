@@ -1,0 +1,119 @@
+# goreleaser v2 configuration (validated with goreleaser v2.18.2: `make release-check`).
+#
+# Produces, for a tag vX.Y.Z:
+#   - manager (linux) and flarefake (linux, darwin) binaries for amd64 and arm64, archived,
+#     with checksums and an SPDX SBOM per archive (syft)
+#   - multi-arch images <IMAGE_REGISTRY>/flare-operator and <IMAGE_REGISTRY>/flarefake
+#     (linux/amd64 + linux/arm64) with OCI labels and BuildKit SBOM attestations
+#   - the Helm chart packaged as flare-operator-X.Y.Z.tgz (chart version = appVersion = X.Y.Z)
+#
+# Nothing is published yet: the repository has no permanent home (README "Status"), so
+# release.disable is true and IMAGE_REGISTRY defaults to a placeholder. `make release-snapshot`
+# builds everything locally into dist/. To publish, set IMAGE_REGISTRY, a release target and
+# drop release.disable; see docs/operations.md "Releases".
+version: 2
+project_name: flare-operator
+
+env:
+  - CGO_ENABLED=0
+  - IMAGE_REGISTRY={{ envOrDefault "IMAGE_REGISTRY" "registry.example.com/flare-operator" }}
+
+before:
+  hooks:
+    - go mod verify
+    # The chart's CRDs and ClusterRoles must match config/ (hack/chartsync).
+    - go run ./hack/chartsync -check
+    - rm -rf bin/chart
+    - helm package charts/flare-operator --version {{ .Version }} --app-version {{ .Version }} --destination bin/chart
+
+builds:
+  - id: manager
+    main: ./cmd/manager
+    binary: manager
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X flare.dev/operator/internal/version.Version={{ .Version }}
+      - -X flare.dev/operator/internal/version.Commit={{ .FullCommit }}
+      - -X flare.dev/operator/internal/version.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+  - id: flarefake
+    main: ./cmd/flarefake
+    binary: flarefake
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X flare.dev/operator/internal/version.Version={{ .Version }}
+      - -X flare.dev/operator/internal/version.Commit={{ .FullCommit }}
+      - -X flare.dev/operator/internal/version.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: manager
+    ids: [manager]
+    name_template: "manager_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+  - id: flarefake
+    ids: [flarefake]
+    name_template: "flarefake_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    # flarefake validates requests against the pinned spec (-spec).
+    files:
+      - spec/openapi.json.gz
+      - spec/LOCK
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - id: archives
+    artifacts: archive
+
+dockers_v2:
+  - id: manager
+    ids: [manager]
+    dockerfile: hack/release/Dockerfile.manager
+    images: ["{{ .Env.IMAGE_REGISTRY }}/flare-operator"]
+    tags: ["{{ .Version }}", "{{ if not .Prerelease }}latest{{ end }}"]
+    platforms: [linux/amd64, linux/arm64]
+    sbom: true
+    labels:
+      org.opencontainers.image.title: flare-operator
+      org.opencontainers.image.description: Kubernetes operator for Cloudflare resources
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
+      org.opencontainers.image.base.name: gcr.io/distroless/static-debian12:nonroot
+  - id: flarefake
+    ids: [flarefake]
+    dockerfile: hack/release/Dockerfile.flarefake
+    images: ["{{ .Env.IMAGE_REGISTRY }}/flarefake"]
+    tags: ["{{ .Version }}", "{{ if not .Prerelease }}latest{{ end }}"]
+    platforms: [linux/amd64, linux/arm64]
+    sbom: true
+    extra_files:
+      - spec/openapi.json.gz
+      - spec/LOCK
+    labels:
+      org.opencontainers.image.title: flarefake
+      org.opencontainers.image.description: Cloudflare API emulator for flare-operator e2e tests
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
+      org.opencontainers.image.base.name: gcr.io/distroless/static-debian12:nonroot
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot.{{ .ShortCommit }}"
+
+# CHANGELOG.md is written by hand.
+changelog:
+  disable: true
+
+release:
+  disable: true
+  extra_files:
+    - glob: bin/chart/*.tgz

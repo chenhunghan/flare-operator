@@ -262,7 +262,3 @@ type VPCServiceList struct {
 }
 
 var _ commonv1alpha1.Managed = &VPCService{}
-
-func init() {
-	SchemeBuilder.Register(&VPCService{}, &VPCServiceList{})
-}

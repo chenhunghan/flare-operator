@@ -219,7 +219,3 @@ type TunnelList struct {
 }
 
 var _ commonv1alpha1.Managed = &Tunnel{}
-
-func init() {
-	SchemeBuilder.Register(&Tunnel{}, &TunnelList{})
-}

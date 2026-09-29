@@ -17,6 +17,7 @@ import (
 
 	"flare.dev/operator/internal/controller"
 	"flare.dev/operator/internal/reconcile"
+	"flare.dev/operator/internal/version"
 )
 
 // Options are the manager's command-line settings.
@@ -107,11 +108,17 @@ func main() {
 	flag.BoolVar(&o.AllowBaseURLOverride, "allow-base-url-override", false,
 		"honour any CloudflareAccount spec.baseURL (e.g. flarefake in tests); off by default because an override sends the account's API token to that URL")
 	flag.Var(&o.AllowedBaseURLs, "allowed-base-url", "a CloudflareAccount spec.baseURL to honour (repeatable; exact match, trailing slash ignored)")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	zo := zap.Options{Development: false}
 	zo.BindFlags(flag.CommandLine)
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(version.Get().String("flare-operator"))
+		return
+	}
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zo)))
 	setupLog := ctrl.Log.WithName("setup")
+	setupLog.Info("flare-operator", version.Get().KeysAndValues()...)
 
 	if err := run(o); err != nil {
 		setupLog.Error(err, "manager exited")
@@ -142,6 +149,6 @@ func run(o Options) error {
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		return err
 	}
-	ctrl.Log.WithName("setup").Info("starting manager", "controllers", len(controller.Registrations()), "cluster", o.ClusterName)
+	ctrl.Log.WithName("setup").Info("starting manager", "version", version.Version, "controllers", len(controller.Registrations()), "cluster", o.ClusterName)
 	return mgr.Start(ctrl.SetupSignalHandler())
 }

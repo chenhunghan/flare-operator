@@ -1,5 +1,5 @@
 # CI for flare-operator. Every job is one or more Makefile targets, so `make ci` runs the same
-# checks locally in the same order: lint, test, race, generate-check, conformance.
+# checks locally in the same order: lint, static, test, race, generate-check, chart, conformance.
 # No job talks to the live Cloudflare API; conformance replays test/recordings against flarefake.
 name: ci
 
@@ -35,6 +35,54 @@ jobs:
         run: make vet
       - name: spec-check
         run: make spec-check
+
+  static:
+    name: static analysis (staticcheck, govulncheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      # STATICCHECK_VERSION / GOVULNCHECK_VERSION live in the Makefile, hence the key.
+      - name: Cache tool binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: tools-static-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
+      - name: staticcheck
+        run: make lint-static
+      # Reads vuln.go.dev; reports only vulnerabilities reachable from our code.
+      - name: govulncheck
+        run: make vulncheck
+
+  chart:
+    name: chart (helm lint, schema, render tests, goreleaser check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.0.4 # the helm used to develop the chart (make helm-lint)
+      # helm-lint = chart-check + helm lint --strict (values.schema.json) + helm template of
+      # every ci/*-values.yaml; test/chart renders the chart and checks the objects.
+      - name: make helm-lint
+        run: make helm-lint
+      - name: chart render tests
+        run: go test ./test/chart/ -count=1 -v
+      - name: goreleaser check
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: v2.18.2
+          args: check
 
   test:
     name: test (envtest)

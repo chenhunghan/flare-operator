@@ -18,6 +18,7 @@ type envelopeStyle int
 
 const (
 	// styleDefault: result, success, errors ([]), messages ([]); result_info when given.
+	//lint:ignore U1000 names the zero value, which callers get by not choosing a style.
 	styleDefault envelopeStyle = iota
 	// styleNullErrorsMessages: errors and messages are null (Queues list, recording 0148).
 	styleNullErrorsMessages
