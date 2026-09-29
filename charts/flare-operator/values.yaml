@@ -201,7 +201,10 @@ securityContext:
     drop:
       - ALL
 
-# The manager caches Secrets cluster-wide (CloudflareAccount token refs); size memory for that.
+# The manager caches Secrets, ConfigMaps, Deployments and Services cluster-wide (token and
+# binding references, Tunnel connectors). managedFields and the data of Helm release Secrets and
+# service account tokens are dropped from the cache, but every other Secret and ConfigMap is kept
+# in full: on a cluster with many or large ones, raise limits.memory (GOMEMLIMIT follows it).
 resources:
   requests:
     cpu: 50m

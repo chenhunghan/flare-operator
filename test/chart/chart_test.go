@@ -143,6 +143,11 @@ func TestDefaults(t *testing.T) {
 	if c.LivenessProbe == nil || c.ReadinessProbe == nil {
 		t.Error("probes missing")
 	}
+	if !slices.ContainsFunc(c.Env, func(e corev1.EnvVar) bool {
+		return e.Name == "GOMEMLIMIT" && e.ValueFrom != nil && e.ValueFrom.ResourceFieldRef != nil && e.ValueFrom.ResourceFieldRef.Resource == "limits.memory"
+	}) {
+		t.Errorf("env %v: no GOMEMLIMIT from limits.memory", c.Env)
+	}
 	if !slices.Contains(c.Args, "--leader-elect=true") {
 		t.Errorf("args %v lack --leader-elect=true", c.Args)
 	}

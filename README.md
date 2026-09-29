@@ -455,7 +455,10 @@ Kubernetes Service.
   `queue_name`, `database_id`, `service_id`, `service`) or a reference to an object in the same
   namespace (`kvNamespaceRef`, `queueRef`, `d1DatabaseRef`, `vpcServiceRef`, `serviceRef`).
   Until every referenced object is Ready, nothing is uploaded and `Synced` is `False` with
-  reason `DependencyNotReady`.
+  reason `DependencyNotReady`. A `secret_text` Secret must carry the label
+  `cloudflare.flare.dev/worker-binding=true` and must not be a service account token: the
+  Worker's code can return the value, so only Secrets opted in for Workers are read (see
+  [SECURITY.md](SECURITY.md#api-tokens)).
 - **Updates.** Cloudflare does not return script content, so the operator stores a hash of the
   modules in `status.contentHash`. A content change is one multipart upload, which creates a new
   version and deploys it at 100%. A change that only touches settings (bindings, compatibility

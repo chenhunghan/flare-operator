@@ -98,7 +98,10 @@ type WorkerBinding struct {
 	// +optional
 	Text *string `json:"text,omitempty"`
 	// SecretKeyRef is the value of a secret_text binding. It is write-only in Cloudflare: a
-	// change of the Secret's value is detected through status.writeOnlyHash.
+	// change of the Secret's value is detected through status.writeOnlyHash. The Secret must
+	// carry the label cloudflare.flare.dev/worker-binding=true (and not be a service account
+	// token): the Worker's code can return the value, so only Secrets opted in for Workers are
+	// read.
 	// +optional
 	SecretKeyRef *SecretKeyRef `json:"secretKeyRef,omitempty"`
 	// JSON value of a json binding (required for, and only valid with, type json; checked by

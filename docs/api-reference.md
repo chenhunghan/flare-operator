@@ -828,7 +828,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.forProvider.bindings[].queueRef` | object | QueueRef names a Queue whose queue name (status.atProvider.queue_name) is bound. |  |
 | `spec.forProvider.bindings[].queueRef.name` | string | **Required.** |  |
 | `spec.forProvider.bindings[].queue_name` | string | QueueName of a queue binding (queues are bound by name). |  |
-| `spec.forProvider.bindings[].secretKeyRef` | object | SecretKeyRef is the value of a secret_text binding. It is write-only in Cloudflare: a change of the Secret's value is detected through status.writeOnlyHash. |  |
+| `spec.forProvider.bindings[].secretKeyRef` | object | SecretKeyRef is the value of a secret_text binding. It is write-only in Cloudflare: a change of the Secret's value is detected through status.writeOnlyHash. The Secret must carry the label cloudflare.flare.dev/worker-binding=true (and not be a service account token): the Worker's code can return the value, so only Secrets opted in for Workers are read. |  |
 | `spec.forProvider.bindings[].secretKeyRef.key` | string | **Required.** Key in the Secret's data. | length ≥ 1 |
 | `spec.forProvider.bindings[].secretKeyRef.name` | string | **Required.** Name of the Secret. | length ≥ 1 |
 | `spec.forProvider.bindings[].service` | string | Service is the Worker script name of a service binding. |  |

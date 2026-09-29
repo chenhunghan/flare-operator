@@ -43,7 +43,8 @@ spec:
         type: plain_text
         text: hello
       - name: API_TOKEN
-        type: secret_text          # write-only: a change of the Secret is re-applied
+        type: secret_text          # write-only: a change of the Secret is re-applied. The Secret
+                                   # needs the label cloudflare.flare.dev/worker-binding=true.
         secretKeyRef:
           name: frontend-secrets
           key: api-token

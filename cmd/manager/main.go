@@ -12,6 +12,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -119,6 +120,9 @@ func managerOptions(o Options, scheme *runtime.Scheme) ctrl.Options {
 		LeaderElectionNamespace:       o.LeaderElectNS,
 		LeaderElectionReleaseOnCancel: true,
 		GracefulShutdownTimeout:       ptr.To(GracefulShutdownTimeout),
+		// The cache holds Secrets, ConfigMaps, Deployments and Services cluster-wide: keep out
+		// what the operator never reads (managedFields, Helm release data).
+		Cache: cache.Options{DefaultTransform: controller.CacheTransform},
 		// Applied to every controller (builder defaults): parallel workers and a context
 		// deadline per reconcile, so a hung Cloudflare call cannot hold a worker forever.
 		Controller: config.Controller{

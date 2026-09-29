@@ -333,18 +333,32 @@ func (r *Reconciler) bindings(ctx context.Context, ws *workersv1alpha1.WorkerScr
 	return out, secrets, nil, nil
 }
 
+// LabelWorkerBinding opts a Secret in to secret_text bindings: only a Secret labelled
+// cloudflare.flare.dev/worker-binding=true can be read through a WorkerScript's secretKeyRef.
+// The operator reads Secrets with its own, cluster-wide access, and the Worker's code (which the
+// WorkerScript's author writes) can return a binding's value, so without the opt-in anyone
+// allowed to create WorkerScripts could read every Secret of the namespace, the CloudflareAccount
+// token included.
+const LabelWorkerBinding = "cloudflare.flare.dev/worker-binding"
+
 func (r *Reconciler) secretValue(ctx context.Context, ws *workersv1alpha1.WorkerScript, b workersv1alpha1.WorkerBinding) (string, *problem, error) {
 	ref := b.SecretKeyRef
+	// One message for a missing, a not-opted-in and a refused Secret, so a WorkerScript cannot
+	// probe which Secrets exist.
+	unusable := func() (string, *problem, error) {
+		return "", dependency("Secret %s key %s is not usable: it must exist, carry the label %s=true, and not be a service account token",
+			ref.Name, ref.Key, LabelWorkerBinding), nil
+	}
 	var sec corev1.Secret
 	if err := r.Get(ctx, client.ObjectKey{Namespace: ws.Namespace, Name: ref.Name}, &sec); err != nil {
 		if apierrors.IsNotFound(err) {
-			return "", dependency("Secret %s not found", ref.Name), nil
+			return unusable()
 		}
 		return "", nil, err
 	}
 	v, ok := sec.Data[ref.Key]
-	if !ok {
-		return "", dependency("Secret %s has no key %s", ref.Name, ref.Key), nil
+	if !ok || sec.Labels[LabelWorkerBinding] != "true" || sec.Type == corev1.SecretTypeServiceAccountToken {
+		return unusable()
 	}
 	return string(v), nil, nil
 }

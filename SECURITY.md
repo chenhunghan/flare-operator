@@ -18,9 +18,16 @@ There are no releases yet. Only the current `main` branch gets fixes.
 ## API tokens
 
 - **Where a token lives.** Each `CloudflareAccount` names a Secret in its own namespace
-  (`spec.tokenSecretRef`, key `token` by default). The operator reads only the Secrets that a
-  CloudflareAccount references. It never writes a token into a status, an event, a log line or
-  another object.
+  (`spec.tokenSecretRef`, key `token` by default). It never writes a token into a status, an
+  event, a log line or another object. The operator reads the Secret values of:
+  - the token Secrets that CloudflareAccounts reference;
+  - the Secrets that WorkerScript `secret_text` bindings reference (`secretKeyRef`), and only
+    those labelled `cloudflare.flare.dev/worker-binding=true` that are not service account
+    tokens. The value is uploaded to Cloudflare as a Worker secret, and the Worker's code can
+    return it, so never put that label on a token Secret;
+  - the `<tunnel>-cloudflared-token` Secrets it writes itself for Tunnel connectors.
+
+  It caches every Secret of the cluster, though (see [In-cluster privileges](#in-cluster-privileges)).
 - **Use one token per purpose.** Use an account-owned API token scoped to the one account
   (`spec.accountID`), with only the permissions the kinds you create need. See
   [Least-privilege permissions](#least-privilege-permissions). Don't use a Global API Key: the
@@ -52,6 +59,12 @@ There are no releases yet. Only the current `main` branch gets fixes.
   there. Grant `cloudflareaccounts` create/update like you grant Secret access. The chart's
   aggregated roles give `cloudflareaccounts` write access to `edit` and `admin`, matching those
   roles' Secret access.
+- **RBAC on WorkerScripts and Tunnels.** Anyone who can create or update a WorkerScript can read,
+  through a Worker they write, every Secret of the namespace labelled
+  `cloudflare.flare.dev/worker-binding=true`: treat that label as granting Secret read access to
+  WorkerScript authors. Anyone who can create or update a Tunnel can have the operator run a
+  Deployment with any image (`spec.connector.image`) in that namespace: grant `tunnels` like you
+  grant `deployments` create.
 
 ## Least-privilege permissions
 
@@ -70,13 +83,17 @@ The manager runs as one Deployment with the ServiceAccount the chart creates:
 
 | Grant | Why |
 |---|---|
-| ClusterRole `…-manager` (generated from the controllers' RBAC markers, `config/rbac/role.yaml`) | Watch and update the flare.dev kinds everywhere, and read Secrets for the token references. The Tunnel controller also manages the `cloudflared` Deployment, the token Secret and the egress NetworkPolicy it creates next to each Tunnel. |
+| ClusterRole `…-manager` (generated from the controllers' RBAC markers, `config/rbac/role.yaml`) | Watch and update the flare.dev kinds everywhere. Cluster-wide `get`/`list`/`watch` on ConfigMaps and Services, and `get`/`list`/`watch`/`create`/`update`/`patch`/`delete` on Secrets, Deployments and NetworkPolicies: the Tunnel controller creates the `cloudflared` Deployment, the token Secret and the egress NetworkPolicy next to each Tunnel, and the account controller adds and removes a finalizer on token Secrets. |
 | Role `…-leader-election` in the release namespace | The leader-election Lease and its events. |
 | ClusterRoles `…-aggregate-to-view` and `…-aggregate-to-edit` (the latter also aggregates to `admin`; optional, `rbac.aggregateToDefaultRoles`) | Let the default user roles work with the flare.dev kinds. |
 
-The manager caches Secrets cluster-wide, so it can read every Secret. That is the cost of
-supporting a CloudflareAccount in any namespace. To narrow it, restrict where
-CloudflareAccounts may be created, with admission policy or RBAC for tenants.
+The manager caches Secrets, ConfigMaps, Deployments and Services cluster-wide, so it can read
+(and, for Secrets, Deployments and NetworkPolicies, write) every one of them. That is the cost of
+supporting CloudflareAccounts and Tunnels in any namespace; the chart has no option yet to scope
+the manager to some namespaces. Restricting where CloudflareAccounts, WorkerScripts and Tunnels may
+be created (admission policy, or RBAC for tenants) limits what tenants can make it do, not what the
+manager itself can reach. The cache drops managedFields and the data of Helm release and service
+account token Secrets; size the manager's memory for the remaining Secrets and ConfigMaps.
 
 Pod hardening (chart defaults, checked by `test/chart`): non-root UID 65532, `runAsNonRoot`,
 seccomp `RuntimeDefault`, no privilege escalation, a read-only root filesystem, all

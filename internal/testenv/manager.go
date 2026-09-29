@@ -90,7 +90,7 @@ func (e *Env) StartManager(t testing.TB, o ManagerOptions) *Manager {
 	if metricsAddr == "" {
 		metricsAddr = "0"
 	}
-	var cacheOpts cache.Options
+	cacheOpts := cache.Options{DefaultTransform: controller.CacheTransform} // as cmd/manager
 	if len(o.Namespaces) > 0 {
 		cacheOpts.DefaultNamespaces = map[string]cache.Config{}
 		for _, ns := range o.Namespaces {
