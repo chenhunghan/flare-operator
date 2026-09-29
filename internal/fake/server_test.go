@@ -161,6 +161,9 @@ func TestTunnelConnectionsFieldRemovedAfterSunset(t *testing.T) {
 
 func TestTunnelLifecycleAndDependencies(t *testing.T) {
 	s := New(Options{})
+	// Pinned before tunnelConnectionsFieldSunset: the checks below read the "connections" field,
+	// which the emulator stops returning on that date (TestTunnelConnectionsFieldRemovedAfterSunset).
+	s.Clock.Set(time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC))
 	c := newClient(t, s)
 	_, env, _ := c.do("POST", acct+"/cfd_tunnel", map[string]string{"name": "t", "config_src": "cloudflare"})
 	tun := env.Result.(map[string]any)
@@ -177,7 +180,7 @@ func TestTunnelLifecycleAndDependencies(t *testing.T) {
 	}
 	s.ConnectTunnel("0123456789abcdef0123456789abcdef", id, 2, 4)
 	_, env, _ = c.do("GET", acct+"/cfd_tunnel/"+id, nil)
-	if env.Result.(map[string]any)["status"] != "healthy" || len(env.Result.(map[string]any)["connections"].([]any)) != 8 {
+	if conns, _ := env.Result.(map[string]any)["connections"].([]any); env.Result.(map[string]any)["status"] != "healthy" || len(conns) != 8 {
 		t.Fatalf("connected tunnel: %v", env.Result)
 	}
 	if st, env, _ := c.do("DELETE", acct+"/cfd_tunnel/"+id, nil); st != 400 || env.Errors[0].Code != 1022 {
