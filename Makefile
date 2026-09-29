@@ -1,4 +1,4 @@
-.PHONY: test test-short fake conformance classify spec-check fmt vet generate manifests envtest controller-gen setup-envtest run tools
+.PHONY: test test-race test-short fake conformance classify spec-check fmt vet generate manifests envtest controller-gen setup-envtest run tools
 
 # Operator binaries and tests build without cgo, as the container image does. This also avoids
 # linking prometheus/client_golang's darwin cgo files, which fails with toolchains whose ld
@@ -22,6 +22,9 @@ ENVTEST_ASSETS = $$($(SETUP_ENVTEST) use -i $(ENVTEST_K8S_VERSION) --bin-dir $(L
 
 test: envtest     ## all tests (loads the pinned 26 MB spec once; runs envtest suites)
 	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test ./... -count=1
+
+test-race: envtest ## all tests with the race detector (works without cgo on darwin)
+	CGO_ENABLED=0 KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test -race ./... -count=1
 
 test-short: envtest ## skip spec-loading tests
 	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test ./... -short -count=1
