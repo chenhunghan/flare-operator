@@ -5,4 +5,6 @@ package main
 import (
 	_ "flare.dev/operator/internal/controller/account"
 	_ "flare.dev/operator/internal/generic/kinds" // KVNamespace, Queue, D1Database (generated kinds)
+	_ "flare.dev/operator/internal/controller/tunnel"
+	_ "flare.dev/operator/internal/controller/vpcservice"
 )

@@ -9,6 +9,18 @@ rules:
   resources:
   - secrets
   verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
   - get
   - list
   - watch
@@ -20,6 +32,18 @@ rules:
   verbs:
   - create
   - patch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - cloudflare.flare.dev
   resources:
@@ -78,6 +102,8 @@ rules:
   - d1.cloudflare.flare.dev
   - kv.cloudflare.flare.dev
   - queues.cloudflare.flare.dev
+  - tunnels.cloudflare.flare.dev
+  - workersvpc.cloudflare.flare.dev
   resources:
   - '*'
   verbs:
@@ -109,6 +135,18 @@ rules:
   - patch
   - update
 - apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - queues.cloudflare.flare.dev
   resources:
   - queues
@@ -128,6 +166,54 @@ rules:
   - queues.cloudflare.flare.dev
   resources:
   - queues/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - tunnels.cloudflare.flare.dev
+  resources:
+  - tunnels
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - tunnels.cloudflare.flare.dev
+  resources:
+  - tunnels/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - tunnels.cloudflare.flare.dev
+  resources:
+  - tunnels/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - workersvpc.cloudflare.flare.dev
+  resources:
+  - vpcservices
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - workersvpc.cloudflare.flare.dev
+  resources:
+  - vpcservices/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - workersvpc.cloudflare.flare.dev
+  resources:
+  - vpcservices/status
   verbs:
   - get
   - patch
