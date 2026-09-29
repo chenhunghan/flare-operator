@@ -78,14 +78,15 @@ $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
 fmt:
-	gofmt -w api cmd internal test/e2e
+	gofmt -w api cmd internal test/e2e test/live
 
-vet:             ## go vet, including the e2e-tagged test/e2e package
+vet:             ## go vet, including the e2e-tagged test/e2e and live-tagged test/live packages
 	go vet ./...
 	go vet -tags e2e ./test/e2e/...
+	go vet -tags live ./test/live/...
 
-fmt-check:       ## fail if gofmt would change anything in api, cmd, internal, test/e2e (the dirs `make fmt` rewrites)
-	@out="$$(gofmt -l api cmd internal test/e2e)"; if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi; echo "gofmt OK"
+fmt-check:       ## fail if gofmt would change anything in api, cmd, internal, test/e2e, test/live (the dirs `make fmt` rewrites)
+	@out="$$(gofmt -l api cmd internal test/e2e test/live)"; if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi; echo "gofmt OK"
 
 # Directories written by `make generate manifests` (controller-gen) and `make generate-crds` (flaregen).
 GENERATED_PATHS ?= api config internal/generic
@@ -209,3 +210,11 @@ e2e-uninstall:   ## helm uninstall, then delete the chart's CRDs (Helm keeps the
 	-$(HELM) uninstall $(E2E_RELEASE) -n $(E2E_NAMESPACE) --wait
 	kubectl delete -f $(CHART)/crds/ --ignore-not-found
 	kubectl delete namespace $(E2E_NAMESPACE) --ignore-not-found
+
+## Live smoke test (test/live): the real controllers in envtest against the Cloudflare API.
+## Needs FLARE_LIVE=1, CLOUDFLARE_ACCOUNT_ID and FLARE_LIVE_TOKEN_FILE; writes RAW cassettes to
+## FLARE_LIVE_RAW_DIR (outside the repo), to be sanitized with hack/sanitize_recordings.py.
+## FLARE_LIVE_FAKE=1 runs the same test against the in-process flarefake (no credentials).
+.PHONY: live
+live: envtest    ## run test/live (skips unless FLARE_LIVE=1; see test/live/live_test.go)
+	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test -tags live ./test/live/ -count=1 -v -timeout 30m
