@@ -57,6 +57,10 @@ func fail(status, code int, msg string) response {
 func (r response) withStyle(s envelopeStyle) response { r.style = s; return r }
 
 func writeResponse(w http.ResponseWriter, resp response) {
+	if resp.status == http.StatusNoContent { // no envelope at all (tags-delete per spec; UNVERIFIED)
+		w.WriteHeader(resp.status)
+		return
+	}
 	success := len(resp.errors) == 0 && resp.status < 400
 	env := map[string]any{"success": success}
 	errs := any(resp.errors)

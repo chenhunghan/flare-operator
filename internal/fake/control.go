@@ -16,6 +16,7 @@ import (
 //	POST   /_fake/faults  Fault                DELETE /_fake/faults
 //	POST   /_fake/accounts/{account}/tunnels/{id}/connect     {"replicas":1,"connections":4}
 //	POST   /_fake/accounts/{account}/tunnels/{id}/disconnect
+//	POST   /_fake/tokens  Token                DELETE /_fake/tokens   (tokens.go)
 func (s *Server) serveControl(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/_fake/"), "/"), "/")
 	writeJSON := func(status int, v any) {
@@ -94,6 +95,18 @@ func (s *Server) serveControl(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.faults = nil
 		s.mu.Unlock()
+		writeJSON(http.StatusOK, map[string]bool{"ok": true})
+
+	case parts[0] == "tokens" && r.Method == http.MethodPost:
+		var t Token
+		if err := json.NewDecoder(r.Body).Decode(&t); err != nil || t.Value == "" {
+			bad("need a JSON Token with a non-empty \"token\"")
+			return
+		}
+		s.AddToken(t)
+		writeJSON(http.StatusOK, map[string]bool{"ok": true})
+	case parts[0] == "tokens" && r.Method == http.MethodDelete:
+		s.ClearTokens()
 		writeJSON(http.StatusOK, map[string]bool{"ok": true})
 
 	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "tunnels" && r.Method == http.MethodPost:
