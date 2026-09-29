@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,7 +22,23 @@ import (
 func TestMain(m *testing.M) {
 	backoffBase = 5 * time.Millisecond
 	backoffCap = 50 * time.Millisecond
-	os.Exit(m.Run())
+	// Strict flarefake response validation (as testenv.StrictMain, which this package cannot
+	// import): outside -short every emulated response is checked against the pinned spec.
+	flag.Parse()
+	if !testing.Short() {
+		spec, err := fake.LoadDefaultSpec()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "load spec:", err)
+			os.Exit(1)
+		}
+		fake.EnableStrictResponses(spec)
+	}
+	code := m.Run()
+	if err := fake.StrictResponseError(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		code = max(code, 1)
+	}
+	os.Exit(code)
 }
 
 func newTestClient(t *testing.T, srvURL string, mod func(*Options)) Client {

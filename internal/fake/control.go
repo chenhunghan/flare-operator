@@ -11,6 +11,7 @@ import (
 //
 //	POST   /_fake/reset
 //	GET    /_fake/journal                      DELETE /_fake/journal
+//	GET    /_fake/response_violations          (Options.ValidateResponses; allowlisted ones marked "allowed")
 //	POST   /_fake/clock   {"set":"RFC3339"} | {"advance":"90s"} | {"real":true}
 //	POST   /_fake/ids     {"ids":["…"]}
 //	POST   /_fake/faults  Fault                DELETE /_fake/faults
@@ -38,6 +39,13 @@ func (s *Server) serveControl(w http.ResponseWriter, r *http.Request) {
 		s.journal = nil
 		s.mu.Unlock()
 		writeJSON(http.StatusOK, map[string]bool{"ok": true})
+
+	case parts[0] == "response_violations" && r.Method == http.MethodGet:
+		vs := s.ResponseViolations()
+		if vs == nil {
+			vs = []ResponseViolation{}
+		}
+		writeJSON(http.StatusOK, vs)
 
 	case parts[0] == "clock" && r.Method == http.MethodPost:
 		var req struct {

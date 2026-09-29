@@ -121,6 +121,14 @@ func parseVPC(c *reqCtx, exceptID string) (*vpcService, *response) {
 		}
 	}
 	h := *req.Host
+	ip := h.IPv4 != nil || h.IPv6 != nil
+	if ip == (h.Hostname != nil) || ip && h.Network == nil || !ip && h.ResolverNetwork == nil {
+		// The spec's infra_ServiceHost is ipv4/ipv6 + network or hostname + resolver_network;
+		// every recorded create used one of those (0052, 0055, 0056). The API's error for other
+		// shapes is UNVERIFIED (not recorded); the invalid-parameters code of 0059 is used.
+		r := vpcInvalid("host must set ipv4 and/or ipv6 with network, or hostname with resolver_network")
+		return nil, &r
+	}
 	for _, n := range []*vpcNetwork{h.Network, h.ResolverNetwork} {
 		if n == nil {
 			continue
@@ -188,7 +196,7 @@ func vpcPut(c *reqCtx) response {
 func vpcDelete(c *reqCtx) response {
 	id := c.params["service_id"]
 	if _, found := c.account.vpc[id]; !found {
-		return vpcNotFound(id) // UNVERIFIED for DELETE
+		return vpcNotFound(id) // code/message as GET (0058, 0111); UNVERIFIED for DELETE
 	}
 	// 0089: allowed even while a Worker still binds the service.
 	delete(c.account.vpc, id)

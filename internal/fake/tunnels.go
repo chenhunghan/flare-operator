@@ -138,7 +138,10 @@ func (s *Server) registerTunnels() {
 	s.handle(http.MethodDelete, vn+"/{virtual_network_id}", vnetDelete)
 }
 
-// tunnelNotFound: status/code for unknown tunnel IDs is UNVERIFIED (not yet recorded).
+// tunnelNotFound: unknown tunnel IDs answer 404. SOURCED (relies): terraform removes a tunnel
+// from state exactly on a 404 read,
+// cloudflare/terraform-provider-cloudflare@65783c2:internal/services/zero_trust_tunnel_cloudflared/resource.go#L175.
+// The error code and message are UNVERIFIED (not yet recorded).
 func tunnelNotFound() response {
 	return fail(http.StatusNotFound, 1003, "Tunnel not found")
 }
@@ -167,8 +170,15 @@ func tunnelCreate(c *reqCtx) response {
 	if req.ConfigSrc != "local" && req.ConfigSrc != "cloudflare" { // spec enum; code UNVERIFIED
 		return fail(http.StatusBadRequest, 1001, "config_src must be one of: local, cloudflare")
 	}
-	// Duplicate tunnel names: the real API's behavior is UNVERIFIED (not yet recorded), so the
-	// emulator allows them for now.
+	// Duplicate names among live tunnels answer 409. SOURCED (relies): cloudflared maps exactly
+	// a 409 from this call to "tunnel with name already exists",
+	// cloudflare/cloudflared@ad3c6d1:cfapi/tunnel.go#L117-L118. That a soft-deleted tunnel's
+	// name can be reused, and the error code/message, are UNVERIFIED (not yet recorded).
+	for _, other := range c.account.tunnels {
+		if other.Name == req.Name && other.Deleted == nil {
+			return fail(http.StatusConflict, 1013, "tunnel with name already exists")
+		}
+	}
 	if req.TunnelSecret == "" {
 		req.TunnelSecret = base64.StdEncoding.EncodeToString(randBytes(32))
 	}
@@ -181,7 +191,10 @@ func tunnelCreate(c *reqCtx) response {
 	m := t.json(c.account.id, c.now)
 	// 0040: the create response (not only GET /token) carries secrets.
 	m["token"] = t.token(c.account.id)
-	m["credentials_file"] = map[string]any{"AccountTag": c.account.id, "TunnelID": t.ID, "TunnelName": t.Name, "TunnelSecret": t.Secret} // shape UNVERIFIED (redacted in recording)
+	// credentials_file is redacted in 0040, so its shape is UNVERIFIED. The keys are those of the
+	// credentials file cloudflared reads (SOURCED, tolerates only:
+	// cloudflare/cloudflared@ad3c6d1:connection/connection.go#L65-L70, which ignores TunnelName).
+	m["credentials_file"] = map[string]any{"AccountTag": c.account.id, "TunnelID": t.ID, "TunnelName": t.Name, "TunnelSecret": t.Secret}
 	return ok(m)
 }
 
@@ -299,7 +312,10 @@ func tunnelCleanupConnections(c *reqCtx) response {
 		t.ConnsInactive, t.ConnsActiveAt = &now, nil
 	}
 	t.Clients = nil
-	return ok(nil) // result shape UNVERIFIED
+	// result null: UNVERIFIED (not recorded). cloudflared checks only the status
+	// (cloudflare/cloudflared@ad3c6d1:cfapi/tunnel.go#L248, tolerates any result), and the
+	// spec's tunnel_empty_response accepts no value at all (responseAllowlist).
+	return ok(nil)
 }
 
 func tunnelConfigGet(c *reqCtx) response {
@@ -386,15 +402,22 @@ func vnetList(c *reqCtx) response {
 	return okList(out, PageInfo{Count: len(out), Page: intp(1), PerPage: intp(1000), TotalCount: intp(len(out))})
 }
 
-// vnetCreate: request/response shape follows the spec; not yet recorded (UNVERIFIED).
+// vnetCreate: not yet recorded. The response is the virtual network object as listed (0160).
+// The body's default flag is is_default_network (SOURCED: cloudflared sends it,
+// cloudflare/cloudflared@ad3c6d1:cfapi/virtual_network.go#L19); the spec keeps the deprecated
+// is_default as an alias, accepted too. The missing-name error is UNVERIFIED.
 func vnetCreate(c *reqCtx) response {
 	var req struct {
-		Name      string `json:"name"`
-		Comment   string `json:"comment"`
-		IsDefault bool   `json:"is_default"`
+		Name             string `json:"name"`
+		Comment          string `json:"comment"`
+		IsDefault        bool   `json:"is_default"`
+		IsDefaultNetwork *bool  `json:"is_default_network"`
 	}
 	if r := c.decodeJSON(&req); r != nil {
 		return *r
+	}
+	if req.IsDefaultNetwork != nil {
+		req.IsDefault = *req.IsDefaultNetwork
 	}
 	if req.Name == "" {
 		return fail(http.StatusBadRequest, 1001, "name is required")
@@ -414,14 +437,20 @@ func vnetCreate(c *reqCtx) response {
 func vnetDelete(c *reqCtx) response {
 	v, found := c.account.vnets[c.params["virtual_network_id"]]
 	if !found {
-		return fail(http.StatusNotFound, 1003, "Virtual network not found") // UNVERIFIED
+		// 404: SOURCED (relies): terraform drops a virtual network from state on a 404 read,
+		// cloudflare/terraform-provider-cloudflare@65783c2:internal/services/zero_trust_tunnel_cloudflared_virtual_network/resource.go#L172
+		// (GET; assumed for DELETE). Code and message UNVERIFIED.
+		return fail(http.StatusNotFound, 1003, "Virtual network not found")
 	}
 	if v.IsDefault { // 0163
 		return fail(http.StatusBadRequest, 1049, "Cannot delete the Virtual Network because: it is the default virtual network")
 	}
 	d := c.now
 	v.Deleted = &d
-	return ok(v.json()) // UNVERIFIED shape
+	// The deleted object is returned: SOURCED (tolerates) cloudflared decodes the delete result
+	// as a virtual network, cloudflare/cloudflared@ad3c6d1:cfapi/virtual_network.go#L98-L100.
+	// Not recorded, so the exact shape is UNVERIFIED.
+	return ok(v.json())
 }
 
 // ConnectTunnel simulates cloudflared replicas connecting (each opens `conns` HA connections;

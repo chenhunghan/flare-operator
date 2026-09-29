@@ -65,8 +65,10 @@ func (c *client) upload(name string, meta map[string]any) (int, testEnv, http.He
 
 func (c *client) createVPCService(name string) string {
 	c.t.Helper()
+	_, tenv, _ := c.do("POST", acct+"/cfd_tunnel", map[string]string{"name": "t-" + name, "config_src": "cloudflare"})
+	tid := tenv.Result.(map[string]any)["id"].(string)
 	st, env, _ := c.do("POST", acct+"/connectivity/directory/services",
-		map[string]any{"name": name, "type": "http", "http_port": 80, "host": map[string]any{"ipv4": "10.0.0.1"}})
+		map[string]any{"name": name, "type": "http", "http_port": 80, "host": map[string]any{"ipv4": "10.0.0.1", "network": map[string]any{"tunnel_id": tid}}})
 	if st != 200 {
 		c.t.Fatalf("vpc create: %d %v", st, env.Errors)
 	}

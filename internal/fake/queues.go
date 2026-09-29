@@ -18,14 +18,20 @@ type queue struct {
 	DeliveryDelay int
 	Retention     int
 	Seq           int64
-	// Jurisdiction is set at create only. UNVERIFIED: no recording creates a queue with a
-	// jurisdiction; the spec lists it in the create body and in the queue object.
+	// Jurisdiction is set at create only (no recording creates one). SOURCED:
+	// cloudflare/workers-sdk@485cfb3:packages/wrangler/src/queues/cli/commands/create.ts#L95
+	// (wrangler sends it in the create body) and the list fixture
+	// packages/wrangler/src/__tests__/queues/queues.test.ts#L214 (a queue object carries it).
 	Jurisdiction string
 }
 
-// queueSettings are the settings a create/update body may carry. The spec also has
-// settings.delivery_paused; it is accepted and ignored, and never returned. UNVERIFIED: no
-// recording sets it, and the recorded results omit it (0028, 0031, 0032).
+// queueSettings are the settings a create/update body may carry. settings.delivery_paused is
+// accepted and ignored, and never returned: the recorded results omit it (0028, 0031, 0032).
+// It is a real setting (SOURCED: cloudflare/workers-sdk@485cfb3:packages/wrangler/src/queues/cli/commands/pause-resume.ts#L56
+// sends it in a PATCH), but whether and when the API reads it back is UNVERIFIED: wrangler's
+// fixture returns it (packages/wrangler/src/__tests__/queues/queues.test.ts#L2703, a mock),
+// while terraform's acceptance test for it is skipped because of "API changes causing state
+// issues with delivery_paused" (cloudflare/terraform-provider-cloudflare@65783c2:internal/services/queue/resource_test.go#L75).
 type queueSettings struct {
 	DeliveryDelay          *int `json:"delivery_delay"`
 	MessageRetentionPeriod *int `json:"message_retention_period"`
@@ -45,7 +51,9 @@ func (q *queue) json() map[string]any {
 		"created_on": tsMicro(q.Created), "modified_on": tsMicro(q.Modified),
 	}
 	if q.Jurisdiction != "" {
-		m["jurisdiction"] = q.Jurisdiction // UNVERIFIED: returned only when set (0028 has none)
+		// Returned only when set: 0028 has none, and wrangler relies on the key being absent for
+		// non-jurisdictional queues. SOURCED: cloudflare/workers-sdk@485cfb3:packages/wrangler/src/queues/cli/commands/list.ts#L36
+		m["jurisdiction"] = q.Jurisdiction
 	}
 	return m
 }
@@ -110,18 +118,29 @@ func queueCreate(c *reqCtx) response {
 	return ok(q.json())
 }
 
-// validateQueueSettings enforces documented Queues limits (delivery delay ≤ 12 h, retention
-// 60 s – 14 d). Codes/messages UNVERIFIED (not yet recorded).
+// Queue settings limits: delivery delay 0 – 24 h, retention 60 s – 14 d. SOURCED:
+// cloudflare/workers-sdk@485cfb3:packages/wrangler/src/queues/constants.ts#L4-L8 (the bounds
+// wrangler enforces); DOCS: https://developers.cloudflare.com/queues/platform/limits/ ("up to
+// 14 days", delay "24 hours"). The Free plan's 24 h retention cap is not emulated.
+const (
+	queueMaxDelay        = 86400
+	queueMinRetention    = 60
+	queueMaxRetention    = 1209600
+	queueInvalidSettings = 100128 // SOURCED: …/wrangler/src/queues/constants.ts#L2 (relies: queues/utils.ts#L14 maps it to "The specified queue settings are invalid.")
+)
+
+// validateQueueSettings rejects out-of-range settings with 400/100128. The status and message
+// are UNVERIFIED (not recorded).
 func validateQueueSettings(st *queueSettings) *response {
 	if st == nil {
 		return nil
 	}
-	if d := st.DeliveryDelay; d != nil && (*d < 0 || *d > 43200) {
-		r := fail(http.StatusBadRequest, 11003, fmt.Sprintf("delivery_delay must be between 0 and 43200 seconds, got %d", *d))
+	if d := st.DeliveryDelay; d != nil && (*d < 0 || *d > queueMaxDelay) {
+		r := fail(http.StatusBadRequest, queueInvalidSettings, fmt.Sprintf("delivery_delay must be between 0 and %d seconds, got %d", queueMaxDelay, *d))
 		return &r
 	}
-	if p := st.MessageRetentionPeriod; p != nil && (*p < 60 || *p > 1209600) {
-		r := fail(http.StatusBadRequest, 11003, fmt.Sprintf("message_retention_period must be between 60 and 1209600 seconds, got %d", *p))
+	if p := st.MessageRetentionPeriod; p != nil && (*p < queueMinRetention || *p > queueMaxRetention) {
+		r := fail(http.StatusBadRequest, queueInvalidSettings, fmt.Sprintf("message_retention_period must be between %d and %d seconds, got %d", queueMinRetention, queueMaxRetention, *p))
 		return &r
 	}
 	return nil
@@ -139,12 +158,26 @@ func applyQueueSettings(q *queue, st *queueSettings) {
 	}
 }
 
+// queueList: GET …/queues[?name=…]. The name filter (repeatable, exact match) is how wrangler
+// looks a queue up by name, taking the first result. SOURCED (relies):
+// cloudflare/workers-sdk@485cfb3:packages/deploy-helpers/src/triggers/queue-consumers.ts#L101-L125.
+// That the match is exact rather than a substring search is UNVERIFIED.
 func queueList(c *reqCtx) response {
-	items := sortedBySeq(c.account.queues, func(q *queue) int64 { return q.Seq })
+	names := c.query["name"]
+	var items []*queue
+	for _, q := range sortedBySeq(c.account.queues, func(q *queue) int64 { return q.Seq }) {
+		if len(names) == 0 || containsStr(names, q.Name) {
+			items = append(items, q)
+		}
+	}
 	pageItems, page, perPage, totalPages := paginate(items, c.intQuery("page", 1), c.intQuery("per_page", 100), 100)
 	out := make([]any, 0, len(pageItems))
 	for _, q := range pageItems {
-		out = append(out, q.json()) // item shape UNVERIFIED (0148 recorded an empty list)
+		// List items carry the producer/consumer summaries like GET (0148 recorded an empty
+		// list). SOURCED (relies): wrangler's `queues list` calls producers_total_count.toString()
+		// on every item, cloudflare/workers-sdk@485cfb3:packages/wrangler/src/queues/cli/commands/list.ts#L45,
+		// typed as the GET shape QueueResponse (packages/deploy-helpers/src/triggers/queue-consumers.ts#L28-L39).
+		out = append(out, q.getJSON())
 	}
 	// 0148: per_page defaults to 100, total_pages present, errors and messages are null.
 	return okList(out, PageInfo{Count: len(out), Page: intp(page), PerPage: intp(perPage), TotalCount: intp(len(items)), TotalPages: intp(totalPages)}).withStyle(styleNullErrorsMessages)

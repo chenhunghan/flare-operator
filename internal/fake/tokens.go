@@ -14,10 +14,17 @@ import (
 //	GET /user/tokens/verify                    (user tokens)
 //	GET /accounts/{account_id}
 //
-// UNVERIFIED: no recording of these endpoints exists yet. Shapes follow the pinned spec
-// (operationIds account-api-tokens-verify-token, user-api-tokens-verify-token); status codes
-// and error codes for invalid tokens are Cloudflare's commonly documented ones (1000 "Invalid
-// API Token", 9109 "Unauthorized to access requested resource").
+// No recording of these endpoints exists yet. Evidence:
+//   - A valid token's verify result is {id, status} with the message 10000 "This API Token is
+//     valid and active". DOCS: https://developers.cloudflare.com/fundamentals/api/get-started/create-token/
+//     (a user token; that the account-owned variant matches is UNVERIFIED).
+//   - /user/tokens/verify with an account-owned token fails with 1000 "Invalid API Token".
+//     SOURCED: cloudflare/workers-sdk@485cfb3:packages/wrangler/src/user/whoami.ts#L330 (relies:
+//     wrangler tells account tokens from user tokens by exactly this code) and the fixture
+//     packages/wrangler/src/__tests__/whoami.test.ts#L128. The HTTP status (401) is UNVERIFIED.
+//   - 9109 "Unauthorized to access requested resource" when a token may not access the
+//     resource. SOURCED (fixture, GET /user): cloudflare/workers-sdk@485cfb3:packages/wrangler/src/__tests__/whoami.test.ts#L53.
+//     The HTTP status (403) is UNVERIFIED.
 //
 // Two modes:
 //   - open (no token registered, the default): every token verifies as an active token that can
@@ -96,11 +103,19 @@ func (c *reqCtx) lookupToken() *Token {
 }
 
 func invalidToken() response {
-	return fail(http.StatusUnauthorized, 1000, "Invalid API Token") // UNVERIFIED
+	return fail(http.StatusUnauthorized, 1000, "Invalid API Token") // evidence: see the comment at the top
 }
 
 func unauthorizedForResource() response {
-	return fail(http.StatusForbidden, 9109, "Unauthorized to access requested resource") // UNVERIFIED
+	return fail(http.StatusForbidden, 9109, "Unauthorized to access requested resource") // evidence: see the comment at the top
+}
+
+// tokenValid is a successful verify, with the message the docs example shows. DOCS:
+// https://developers.cloudflare.com/fundamentals/api/get-started/create-token/
+func tokenValid(result map[string]any) response {
+	r := ok(result)
+	r.messages = []any{map[string]any{"code": 10000, "message": "This API Token is valid and active", "type": nil}}
+	return r
 }
 
 func (t *Token) verifyResult(now time.Time) map[string]any {
@@ -126,7 +141,7 @@ func tokenVerifyAccount(c *reqCtx) response {
 	case t.Kind == "account" && t.AccountID != c.params["account_id"]:
 		return unauthorizedForResource()
 	}
-	return ok(t.verifyResult(c.now))
+	return tokenValid(t.verifyResult(c.now))
 }
 
 func tokenVerifyUser(c *reqCtx) response {
@@ -134,7 +149,7 @@ func tokenVerifyUser(c *reqCtx) response {
 	if t == nil || t.Kind == "account" {
 		return invalidToken()
 	}
-	return ok(t.verifyResult(c.now))
+	return tokenValid(t.verifyResult(c.now))
 }
 
 func accountGet(c *reqCtx) response {
@@ -146,15 +161,13 @@ func accountGet(c *reqCtx) response {
 	case t.Kind != "any" && t.AccountID != "" && t.AccountID != id:
 		return unauthorizedForResource()
 	}
-	// Shape per spec (accounts_account); values are placeholders. UNVERIFIED.
+	// Shape per spec (iam_account); values are placeholders. UNVERIFIED (not recorded). The spec
+	// does not let abuse_contact_email be null, so the unset field is omitted.
 	return ok(map[string]any{
 		"id":         id,
 		"name":       "flarefake account",
 		"type":       "standard",
 		"created_on": "2026-01-01T00:00:00Z",
-		"settings": map[string]any{
-			"enforce_twofactor":   false,
-			"abuse_contact_email": nil,
-		},
+		"settings":   map[string]any{"enforce_twofactor": false},
 	})
 }

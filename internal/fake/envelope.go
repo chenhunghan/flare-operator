@@ -43,6 +43,7 @@ type response struct {
 	result     any
 	resultInfo any
 	errors     []APIError
+	messages   []any // nil = []
 	style      envelopeStyle
 }
 
@@ -59,7 +60,7 @@ func fail(status, code int, msg string) response {
 func (r response) withStyle(s envelopeStyle) response { r.style = s; return r }
 
 func writeResponse(w http.ResponseWriter, resp response) {
-	if resp.status == http.StatusNoContent { // no envelope at all (tags-delete per spec; UNVERIFIED)
+	if resp.status == http.StatusNoContent { // no envelope at all (tags-delete; DOCS: https://developers.cloudflare.com/resource-tagging/how-to/manage-tags/ "returns 204 No Content")
 		w.WriteHeader(resp.status)
 		return
 	}
@@ -75,7 +76,11 @@ func writeResponse(w http.ResponseWriter, resp response) {
 	case resp.style == styleNullErrorsMessages && success:
 		env["result"], env["errors"], env["messages"] = resp.result, nil, nil
 	default:
-		env["errors"], env["messages"] = errs, []any{}
+		msgs := resp.messages
+		if msgs == nil {
+			msgs = []any{}
+		}
+		env["errors"], env["messages"] = errs, msgs
 		env["result"] = resp.result
 		if !success {
 			env["result"] = nil

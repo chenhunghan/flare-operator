@@ -20,7 +20,10 @@ type kvNamespace struct {
 func (n *kvNamespace) json() map[string]any {
 	m := map[string]any{"id": n.ID, "title": n.Title, "supports_url_encoding": true}
 	if n.Jurisdiction != "" {
-		m["jurisdiction"] = n.Jurisdiction // UNVERIFIED: not yet recorded with a jurisdiction
+		// Sent at create: SOURCED cloudflare/workers-sdk@485cfb3:packages/wrangler/src/__tests__/kv/namespace.test.ts#L186
+		// (the fixture asserts the request body). Reading it back is UNVERIFIED: no recording or
+		// source shows the API returning it.
+		m["jurisdiction"] = n.Jurisdiction
 	}
 	return m
 }
@@ -115,7 +118,10 @@ func kvGet(c *reqCtx) response {
 func kvRename(c *reqCtx) response {
 	n, found := c.account.kv[c.params["namespace_id"]]
 	if !found {
-		return fail(http.StatusNotFound, 10013, "namespace not found") // UNVERIFIED for PUT
+		// 404: SOURCED fixture cloudflare/workers-sdk@485cfb3:packages/wrangler/src/__tests__/kv/namespace.test.ts#L802.
+		// That mock answers 10009 "Unknown namespace."; the code and message here follow the
+		// recorded DELETE (0014) instead, so they are UNVERIFIED for PUT.
+		return fail(http.StatusNotFound, 10013, "namespace not found")
 	}
 	var req struct {
 		Title string `json:"title"`
