@@ -21,6 +21,7 @@ import (
 	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
 	"flare.dev/operator/internal/cfclient"
+	"flare.dev/operator/internal/controller/tunnel"
 	"flare.dev/operator/internal/fake"
 	"flare.dev/operator/internal/reconcile"
 	"flare.dev/operator/internal/testenv"
@@ -440,31 +441,63 @@ func TestNamespaceTerminatingQuietRequeue(t *testing.T) {
 	np := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: "tun-cloudflared"}}
 	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: "tun-cloudflared-token"}}
 
-	// 1. The Deployment and NetworkPolicy go first: their re-creation is refused. On error
-	// backoff (5 ms, 10 ms, ...) that would re-read the tunnel about ten times in 3 s; a quiet
-	// requeue (DependencyRetry) reads it once per delete event.
+	tunKey := client.ObjectKeyFromObject(tun)
+	// handled waits until the manager's cache shows objs gone and the Tunnel was reconciled
+	// after mark (for those delete events), with no reconcile of it still running.
+	handled := func(mark int64, objs ...client.Object) {
+		t.Helper()
+		testenv.Eventually(t, 2*time.Minute, func() (bool, string) {
+			for _, o := range objs {
+				if err := h.m.Client.Get(h.ctx(), client.ObjectKeyFromObject(o), o.DeepCopyObject().(client.Object)); !apierrors.IsNotFound(err) {
+					return false, fmt.Sprintf("the cache still shows %T %s (err %v)", o, o.GetName(), err)
+				}
+			}
+			return true, ""
+		})
+		h.m.WaitReconciled(t, tunnel.Name, tunKey, mark, 1, 2*time.Minute)
+	}
+
+	// 1. The Deployment and NetworkPolicy go first: their re-creation is refused. That must be
+	// a quiet requeue (DependencyRetry, no error) that reads the tunnel once per delete event,
+	// not a retry on error backoff (5 ms, 10 ms, ...), which would re-read it again and again.
 	m := h.mark()
+	mark := h.m.Mark()
 	for _, o := range []client.Object{dep, np} {
 		if err := h.e.Client.Delete(h.ctx(), o); err != nil {
 			t.Fatalf("delete %T: %v", o, err)
 		}
 	}
-	time.Sleep(3 * time.Second)
+	handled(mark, dep, np)
+	if n := h.m.Failures(tunnel.Name, tunKey, mark); n != 0 {
+		t.Errorf("%d Tunnel reconciles failed (error backoff) after its Deployment was removed from a terminating namespace", n)
+	}
 	j := h.since(m)
 	if n := tunnelGETs(j); n > 3 {
-		t.Errorf("tunnel read %d times in 3 s after its Deployment was removed from a terminating namespace (error backoff?):\n%s", n, testenv.Summary(j))
+		t.Errorf("tunnel read %d times after its Deployment was removed from a terminating namespace (error backoff?):\n%s", n, testenv.Summary(j))
 	}
 	if n := tokenGETs(j); n != 0 {
 		t.Errorf("GET token %d times while the token Secret still exists", n)
 	}
 	notFound(dep, np)
 
-	// 2. The token Secret goes: no Cloudflare request at all, in particular no GET …/token.
-	m = h.mark()
+	// 2. The token Secret goes: a reconcile that sees it gone makes no Cloudflare request at
+	// all, in particular no GET …/token. (One that started before the manager's cache showed
+	// the deletion still sees the Secret and may read the tunnel, as in step 1.) So: wait
+	// until the cache shows it gone and the Tunnel is not being reconciled, then poke the
+	// Tunnel; that reconcile, and any other from then on, sees the Secret gone.
+	mark = h.m.Mark()
 	if err := h.e.Client.Delete(h.ctx(), sec); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(3 * time.Second)
+	handled(mark, sec)
+	h.m.WaitReconciled(t, tunnel.Name, tunKey, h.m.Mark(), 0, 2*time.Minute) // idle
+	m = h.mark()
+	mark = h.m.Mark()
+	h.poke(tun)
+	h.m.WaitReconciled(t, tunnel.Name, tunKey, mark, 1, 2*time.Minute)
+	if n := h.m.Failures(tunnel.Name, tunKey, mark); n != 0 {
+		t.Errorf("%d Tunnel reconciles failed after its token Secret was removed from a terminating namespace", n)
+	}
 	if j := h.since(m); len(j) != 0 {
 		t.Errorf("Cloudflare requests after the token Secret was removed from a terminating namespace:\n%s", testenv.Summary(j))
 	}

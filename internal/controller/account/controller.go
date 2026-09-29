@@ -335,13 +335,18 @@ func (r *Reconciler) heldSecretNote(ctx context.Context, acct *cloudflarev1alpha
 }
 
 // noteHeldSecret appends heldSecretNote to a Ready=True message, which is rebuilt from the
-// token type each time so the note appears and disappears with the Secret's state.
+// token type each time so the note appears and disappears with the Secret's state. The
+// condition keeps its observedGeneration: only a verification stamps Ready=True for a
+// generation (a Ready=True kept through a transient verify failure after a spec change must
+// not claim the new spec was verified; reconcile.AccountReady relies on that).
 func (r *Reconciler) noteHeldSecret(ctx context.Context, acct *cloudflarev1alpha1.CloudflareAccount) {
 	c := meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionReady)
 	if c == nil || c.Status != metav1.ConditionTrue {
 		return
 	}
+	og := c.ObservedGeneration
 	r.setCond(acct, commonv1alpha1.ConditionReady, metav1.ConditionTrue, c.Reason, readyMessage(acct.Status.TokenType)+r.heldSecretNote(ctx, acct))
+	meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionReady).ObservedGeneration = og
 }
 
 func readyMessage(tokenType string) string { return "token verified (" + tokenType + " token)" }
@@ -643,7 +648,8 @@ func (r *Reconciler) verify(ctx context.Context, acct *cloudflarev1alpha1.Cloudf
 	case info.Status != "active":
 		notReady(cloudflarev1alpha1.ReasonTokenInvalid, "unexpected token status "+info.Status)
 	default:
-		t := metav1.NewTime(now)
+		// For a deleting account, strictly after its deletionTimestamp (reconcile.AccountReady).
+		t := reconcile.VerifiedAt(acct, now)
 		acct.Status.LastVerifiedTime = &t
 		acct.Status.ID = acct.Spec.AccountID
 		r.setCond(acct, commonv1alpha1.ConditionReady, metav1.ConditionTrue, commonv1alpha1.ReasonAvailable, readyMessage(info.Type))

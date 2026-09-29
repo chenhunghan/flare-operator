@@ -225,13 +225,19 @@ func (r *Reconciler) finalize(ctx context.Context, vs *workersvpcv1alpha1.VPCSer
 	}
 	var deleteExternal func(context.Context, string) error
 	shouldDelete := reconcile.ShouldDeleteExternal(vs, commonv1alpha1.DeletionDelete)
-	if name, pending := reconcile.PendingCreate(vs); pending && reconcile.ExternalID(vs) == "" && shouldDelete {
-		// No ID, but a create was announced: the manager may have died between the create and
-		// RecordCreated. Find that service and record it, so it is deleted rather than leaked.
+	if name, pending := reconcile.PendingCreate(vs); pending && shouldDelete {
+		// A create was announced and its result never recorded: the manager may have died
+		// between the create and RecordCreated. With no ID, or with the ID of a service that
+		// was found gone (a status.id-only service is recreated), find the service the record
+		// names and record it, so it is deleted rather than leaked.
 		acct, err := reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, vs, "Delete",
 			fmt.Sprintf("the VPC service %q this object may have created before a restart was not looked up and may be left in Cloudflare", name))
 		if err == nil && acct != nil {
-			_, err = reconcile.AdoptPendingCreate(ctx, r.Client, r.Recorder, vs, "VPC service", func(ctx context.Context, name string) (string, error) {
+			gone := func(ctx context.Context, id string) (bool, error) {
+				s, err := getService(ctx, acct.Client, acct.AccountID, id)
+				return s == nil && err == nil, err
+			}
+			_, err = reconcile.AdoptPendingCreateReplacing(ctx, r.Client, r.Recorder, vs, "VPC service", gone, func(ctx context.Context, name string) (string, error) {
 				s, err := findServiceByName(ctx, acct.Client, acct.AccountID, name)
 				if s == nil || err != nil {
 					return "", err

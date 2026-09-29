@@ -31,7 +31,10 @@ import (
 // The record also covers deletion: an object deleted before a restarted manager adopted its
 // lost create has no ID, and its finalizer would drop the resource silently.
 // AdoptPendingCreate lets the finalizer find it by the record's key and record it as the
-// object's own create first, so deletionPolicy Delete deletes it. Every kind that can find a
+// object's own create first, so deletionPolicy Delete deletes it. An object whose known
+// resource was found gone and recreated still carries the old ID next to the record;
+// AdoptPendingCreateReplacing checks that ID and, when it is gone, adopts the record's resource
+// in its place. Every kind that can find a
 // resource by name or client-chosen ID announces its creates this way (the generic reconciler,
 // Tunnel, VPCService, WorkerScript).
 //
@@ -91,28 +94,59 @@ var ErrAmbiguousName = errors.New("several resources have this name")
 // lookup error is returned for a retry.
 func AdoptPendingCreate(ctx context.Context, c client.Client, rec events.EventRecorder, mg ManagedObject, kind string,
 	lookup func(ctx context.Context, key string) (string, error)) (string, error) {
-	if id := ExternalID(mg); id != "" {
-		return id, nil
-	}
+	return AdoptPendingCreateReplacing(ctx, c, rec, mg, kind, nil, lookup)
+}
+
+// AdoptPendingCreateReplacing is AdoptPendingCreate for an object that may still carry the ID
+// of a resource that went away. A reconcile that finds the known resource gone (404) creates a
+// new one under a fresh create-pending record; a manager that dies before RecordCreated leaves
+// the object with the old, gone ID and that record. Deleted before a restarted manager adopts
+// the new resource, the object's finalizer would delete only the gone ID and leak the new one.
+//
+// gone reports whether the resource with mg's current external ID no longer exists (nil: the
+// ID is always taken as it is, which is AdoptPendingCreate). When mg has an external ID and a
+// create-pending record of its own and gone says the ID's resource is gone, the record's
+// resource (lookup) is recorded as mg's own create (RecordCreated) and returned in its place.
+// Otherwise mg's ID is returned unchanged: without a record, when the ID's resource exists, or
+// when the lookup finds nothing (the finalizer then finds the old one gone). A gone check
+// refused for good (a permanent 4xx) keeps the ID, whose own deletion path handles that; any
+// other gone or lookup error is returned for a retry.
+func AdoptPendingCreateReplacing(ctx context.Context, c client.Client, rec events.EventRecorder, mg ManagedObject, kind string,
+	gone func(ctx context.Context, id string) (bool, error), lookup func(ctx context.Context, key string) (string, error)) (string, error) {
+	known := ExternalID(mg)
 	key, ok := PendingCreate(mg)
 	if !ok {
-		return "", nil
+		return known, nil
+	}
+	if known != "" {
+		if gone == nil {
+			return known, nil
+		}
+		g, err := gone(ctx, known)
+		switch {
+		case err != nil && IsPermanent(err):
+			return known, nil
+		case err != nil:
+			return "", fmt.Errorf("check whether the %s %s still exists: %w", kind, known, err)
+		case !g:
+			return known, nil
+		}
 	}
 	id, err := lookup(ctx, key)
 	switch {
 	case err != nil && (IsPermanent(err) || errors.Is(err, ErrAmbiguousName)):
 		WarnExternalKept(rec, mg, "Delete", fmt.Sprintf("the %s this object may have created before a restart (create-pending %q) "+
 			"cannot be looked up and may be left in Cloudflare: %v", kind, key, err))
-		return "", nil
+		return known, nil
 	case err != nil:
 		return "", fmt.Errorf("look up the %s of an interrupted create (%q): %w", kind, key, err)
-	case id == "":
-		return "", nil
+	case id == "" || id == known:
+		return known, nil
 	}
 	if err := RecordCreated(ctx, c, mg, id); err != nil {
 		return "", fmt.Errorf("record the %s %s created before a restart: %w", kind, id, err)
 	}
-	log.FromContext(ctx).Info("found the resource of an interrupted create; it is deleted with the object", "kind", kind, "id", id)
+	log.FromContext(ctx).Info("found the resource of an interrupted create; it is deleted with the object", "kind", kind, "id", id, "replaces", known)
 	return id, nil
 }
 

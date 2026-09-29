@@ -200,3 +200,85 @@ func TestAdoptPendingCreate(t *testing.T) {
 		}
 	})
 }
+
+// TestAdoptPendingCreateReplacing: an object that still carries the ID of a resource found gone
+// (the recreate's answer was lost) has the record's resource recorded in its place; an ID whose
+// resource exists, or a record whose lookup finds nothing, keeps the ID.
+func TestAdoptPendingCreateReplacing(t *testing.T) {
+	ctx := context.Background()
+	setup := func(t *testing.T) (client.Client, *Widget) {
+		w := widget(nil, "")
+		w.UID = "uid-r"
+		kube := newKube(t, w)
+		if err := kube.Get(ctx, client.ObjectKeyFromObject(w), w); err != nil {
+			t.Fatal(err)
+		}
+		if err := reconcile.RecordCreated(ctx, kube, w, "cf-old"); err != nil {
+			t.Fatal(err)
+		}
+		if err := reconcile.MarkCreatePending(ctx, kube, w, "my-name"); err != nil {
+			t.Fatal(err)
+		}
+		return kube, w
+	}
+	gone := func(g bool, err error) func(context.Context, string) (bool, error) {
+		return func(_ context.Context, id string) (bool, error) {
+			if id != "cf-old" {
+				t.Errorf("gone(%q), want cf-old", id)
+			}
+			return g, err
+		}
+	}
+	lookup := func(id string) func(context.Context, string) (string, error) {
+		return func(context.Context, string) (string, error) { return id, nil }
+	}
+	t.Run("gone, recreate found", func(t *testing.T) {
+		kube, w := setup(t)
+		id, err := reconcile.AdoptPendingCreateReplacing(ctx, kube, nil, w, "thing", gone(true, nil), lookup("cf-new"))
+		if err != nil || id != "cf-new" {
+			t.Fatalf("= %q, %v; want cf-new", id, err)
+		}
+		var stored Widget
+		if err := kube.Get(ctx, client.ObjectKeyFromObject(w), &stored); err != nil {
+			t.Fatal(err)
+		}
+		if a := stored.Annotations; a[commonv1alpha1.AnnotationExternalID] != "cf-new" || !reconcile.HasOwnershipProof(&stored, "cf-new") {
+			t.Errorf("stored annotations %v, want the new ID and its ownership proof", a)
+		}
+		if _, ok := reconcile.PendingCreate(&stored); ok {
+			t.Error("the record was not cleared")
+		}
+	})
+	t.Run("exists", func(t *testing.T) {
+		kube, w := setup(t)
+		if id, err := reconcile.AdoptPendingCreateReplacing(ctx, kube, nil, w, "thing", gone(false, nil), lookup("cf-new")); err != nil || id != "cf-old" {
+			t.Errorf("= %q, %v; want cf-old", id, err)
+		}
+	})
+	t.Run("gone, nothing found", func(t *testing.T) {
+		kube, w := setup(t)
+		if id, err := reconcile.AdoptPendingCreateReplacing(ctx, kube, nil, w, "thing", gone(true, nil), lookup("")); err != nil || id != "cf-old" {
+			t.Errorf("= %q, %v; want cf-old", id, err)
+		}
+	})
+	t.Run("no gone check", func(t *testing.T) {
+		kube, w := setup(t)
+		if id, err := reconcile.AdoptPendingCreate(ctx, kube, nil, w, "thing", lookup("cf-new")); err != nil || id != "cf-old" {
+			t.Errorf("AdoptPendingCreate = %q, %v; want the known ID", id, err)
+		}
+	})
+	t.Run("gone check refused for good", func(t *testing.T) {
+		kube, w := setup(t)
+		gerr := &cfclient.APIError{Status: http.StatusForbidden}
+		if id, err := reconcile.AdoptPendingCreateReplacing(ctx, kube, nil, w, "thing", gone(false, gerr), lookup("cf-new")); err != nil || id != "cf-old" {
+			t.Errorf("= %q, %v; want cf-old", id, err)
+		}
+	})
+	t.Run("gone check transient", func(t *testing.T) {
+		kube, w := setup(t)
+		gerr := &cfclient.APIError{Status: http.StatusBadGateway}
+		if _, err := reconcile.AdoptPendingCreateReplacing(ctx, kube, nil, w, "thing", gone(false, gerr), lookup("cf-new")); !errors.Is(err, gerr) {
+			t.Errorf("err %v, want the gone check's error for a retry", err)
+		}
+	})
+}

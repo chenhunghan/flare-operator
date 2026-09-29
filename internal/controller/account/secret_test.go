@@ -17,6 +17,7 @@ import (
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	"flare.dev/operator/internal/cfclient"
+	"flare.dev/operator/internal/controller/account"
 	"flare.dev/operator/internal/fake"
 	"flare.dev/operator/internal/reconcile"
 	"flare.dev/operator/internal/testenv"
@@ -86,6 +87,7 @@ func TestNamespaceDeletionKeepsTokenForCleanup(t *testing.T) {
 	if err := e.Client.Delete(ctx, nsObj); err != nil {
 		t.Fatal(err)
 	}
+	beforeDeletes := m.Mark()
 	for _, o := range []client.Object{
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: secretName}},
 		&cloudflarev1alpha1.CloudflareAccount{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "acct"}},
@@ -107,7 +109,10 @@ func TestNamespaceDeletionKeepsTokenForCleanup(t *testing.T) {
 		return s != nil && s.Reason == commonv1alpha1.ReasonDependency && reconcile.AccountReady(&acct),
 			"waiting for a Ready, blocked account, have Synced " + condString(s)
 	})
-	time.Sleep(time.Second) // several blocked requeues
+	// Several blocked requeues (every 300 ms), and the token controller has handled the
+	// Secret's deletion, before checking that the Secret is still held.
+	m.WaitReconciled(t, account.Name, client.ObjectKey{Namespace: ns, Name: "acct"}, m.Mark(), 2, time.Minute)
+	m.WaitReconciled(t, account.TokenControllerName, client.ObjectKey{Namespace: ns, Name: secretName}, beforeDeletes, 1, time.Minute)
 	s, has, err := secretFinalized(t, e, ns, secretName)
 	if err != nil {
 		t.Fatalf("token Secret removed while a user still cleans up: %v", err)
@@ -162,9 +167,9 @@ func TestNamespaceDeletionKeepsTokenForCleanup(t *testing.T) {
 // Secret.
 func TestTokenSecretFinalizerFollowsReferences(t *testing.T) {
 	e := testenv.Require(t, env)
-	e.StartManager(t, testenv.ManagerOptions{})
+	m := e.StartManager(t, testenv.ManagerOptions{})
 	ns := e.Namespace(t)
-	ctx := testenv.Context(t, 2*time.Minute)
+	ctx := testenv.Context(t, 3*time.Minute)
 
 	a := e.CreateReadyAccount(t, ns, "one")
 	waitSecretFinalizer(t, e, ns, "one-token", true)
@@ -183,12 +188,15 @@ func TestTokenSecretFinalizerFollowsReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	one.Spec.TokenSecretRef.Name = "moved"
+	mark := m.Mark()
 	if err := e.Client.Update(ctx, &one); err != nil {
 		t.Fatal(err)
 	}
 	waitSecretFinalizer(t, e, ns, "moved", true)
 	e.WaitAccountCondition(t, ns, "one", metav1.ConditionTrue, commonv1alpha1.ReasonAvailable)
-	time.Sleep(500 * time.Millisecond)
+	// The token controller has decided on the old Secret after the move (the account's update
+	// event enqueues every finalized Secret of the namespace).
+	m.WaitReconciled(t, account.TokenControllerName, client.ObjectKey{Namespace: ns, Name: "one-token"}, mark, 1, time.Minute)
 	if _, has, err := secretFinalized(t, e, ns, "one-token"); err != nil || !has {
 		t.Fatalf("shared Secret released while still referenced by another account (err %v)", err)
 	}
@@ -211,10 +219,13 @@ func TestTokenSecretFinalizerFollowsReferences(t *testing.T) {
 	waitSecretFinalizer(t, e, ns, "one-token", true)
 
 	// A held Secret that is deleted stays until the account is deleted, then goes away.
+	mark = m.Mark()
 	if err := e.Client.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "one-token"}}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	// Both controllers have handled the deletion event (the Secret is watched by both).
+	m.WaitReconciled(t, account.TokenControllerName, client.ObjectKey{Namespace: ns, Name: "one-token"}, mark, 1, time.Minute)
+	m.WaitReconciled(t, account.Name, client.ObjectKey{Namespace: ns, Name: "one"}, mark, 1, time.Minute)
 	if _, _, err := secretFinalized(t, e, ns, "one-token"); err != nil {
 		t.Fatalf("held Secret deleted: %v", err)
 	}

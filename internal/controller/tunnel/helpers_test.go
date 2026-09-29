@@ -41,6 +41,7 @@ func TestMain(m *testing.M) { testenv.Main(m, &env, testenv.Options{}) }
 type harness struct {
 	t    *testing.T
 	e    *testenv.Env
+	m    *testenv.Manager
 	ns   string
 	acct *testenv.Account
 	cf   cfclient.Client
@@ -62,10 +63,12 @@ func startWith(t *testing.T, o testenv.ManagerOptions) *harness {
 				Recorder: mgr.GetEventRecorder(vpcservice.Name), APIReader: mgr.GetAPIReader()}).SetupWithManager(mgr)
 		},
 	}
-	e.StartManager(t, o)
-	h := &harness{t: t, e: e}
+	// The manager sees only this test's namespace (and kube-system, for kube-dns): objects that earlier
+	// tests left behind (envtest runs no namespace controller) are not reconciled meanwhile.
+	ns := e.Namespace(t)
+	o.Namespaces = []string{ns, "kube-system"}
+	h := &harness{t: t, e: e, m: e.StartManager(t, o), ns: ns}
 	h.ensureKubeDNS()
-	h.ns = e.Namespace(t)
 	h.acct = e.CreateReadyAccount(t, h.ns, "acct")
 	cf, err := cfclient.New(cfclient.Options{Token: h.acct.Token, BaseURL: e.BaseURL, RPS: 1000, Burst: 1000})
 	if err != nil {
@@ -258,26 +261,34 @@ func (h *harness) poke(obj client.Object) {
 	}
 }
 
-// assertNoWritesAfterReconcile pokes objs, waits until each was re-read from Cloudflare (a GET
-// whose path contains the matching readPaths entry), lets stragglers finish and asserts that
-// no write reached the fake.
+// controllerOf is the name of the controller that reconciles obj.
+func controllerOf(obj client.Object) string {
+	if _, ok := obj.(*workersvpcv1alpha1.VPCService); ok {
+		return vpcservice.Name
+	}
+	return tunnel.Name
+}
+
+// assertNoWritesAfterReconcile pokes objs, waits until each was reconciled after the poke (and
+// none is still reconciling) and re-read from Cloudflare (a GET of the matching readPaths
+// entry, relative to the account), and asserts that no write reached the fake.
 func (h *harness) assertNoWritesAfterReconcile(objs []client.Object, readPaths []string) {
 	h.t.Helper()
 	m := h.mark()
+	mark := h.m.Mark()
 	for _, o := range objs {
 		h.poke(o)
 	}
-	testenv.Eventually(h.t, 30*time.Second, func() (bool, string) {
-		j := h.since(m)
-		for _, p := range readPaths {
-			if testenv.Count(j, http.MethodGet, p) == 0 {
-				return false, "no GET " + p + " yet:\n" + testenv.Summary(j)
-			}
+	for _, o := range objs {
+		h.m.WaitReconciled(h.t, controllerOf(o), client.ObjectKeyFromObject(o), mark, 1, 2*time.Minute)
+	}
+	j := h.since(m)
+	for _, p := range readPaths {
+		if testenv.CountPath(j, http.MethodGet, "/accounts/"+h.acct.AccountID+p) == 0 {
+			h.t.Fatalf("the reconcile after the poke did not read GET %s:\n%s", p, testenv.Summary(j))
 		}
-		return true, ""
-	})
-	time.Sleep(time.Second)
-	if w := testenv.Writes(h.since(m)); len(w) != 0 {
+	}
+	if w := testenv.Writes(j); len(w) != 0 {
 		h.t.Fatalf("a reconcile without spec changes wrote to Cloudflare:\n%s", testenv.Summary(w))
 	}
 }

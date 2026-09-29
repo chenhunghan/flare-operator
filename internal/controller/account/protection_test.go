@@ -14,6 +14,7 @@ import (
 	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
+	"flare.dev/operator/internal/controller/account"
 	"flare.dev/operator/internal/reconcile"
 	"flare.dev/operator/internal/testenv"
 )
@@ -126,6 +127,12 @@ func TestAccountUsageProtection(t *testing.T) {
 		if !reconcile.AccountReady(acct) {
 			t.Errorf("a deleting account must stay Ready for its users: %+v", acct.Status.Conditions)
 		}
+		// The deletion bumped the generation, so the token was verified again: that
+		// verification is stamped after the deletion, which tells reconcile.AccountReady that
+		// its condition is no longer the one from before the deletion.
+		if v := acct.Status.LastVerifiedTime; v == nil || !v.After(acct.DeletionTimestamp.Time) {
+			t.Errorf("lastVerifiedTime %v is not after the deletion %v", v, acct.DeletionTimestamp)
+		}
 		return true, ""
 	})
 	// Users still resolve it while it waits.
@@ -148,7 +155,8 @@ func TestAccountUsageProtection(t *testing.T) {
 		t.Fatal(err)
 	}
 	verifies := testenv.Count(testenv.ForAccount(e.Journal(t), a.AccountID), "GET", "/tokens/verify")
-	time.Sleep(time.Second) // several requeues
+	// Several requeues (every 300 ms) have run.
+	m.WaitReconciled(t, account.Name, client.ObjectKey{Namespace: ns, Name: "acct"}, m.Mark(), 3, time.Minute)
 	after, err := get("acct")
 	if err != nil {
 		t.Fatalf("account deleted while in use: %v", err)

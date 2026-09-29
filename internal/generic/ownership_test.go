@@ -2,6 +2,7 @@ package generic_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"flare.dev/operator/internal/fake"
 	"flare.dev/operator/internal/generic"
 	"flare.dev/operator/internal/reconcile"
+	"flare.dev/operator/internal/testenv"
 )
 
 // TestDeleteRequiresOwnership: finalizing an object with deletionPolicy Delete deletes the
@@ -252,8 +254,20 @@ func TestObservedIsNotOwned(t *testing.T) {
 	}
 
 	h.tagReadsFail(true)
+	j0 := len(h.e.Journal(t))
 	h.delete(obj)
-	time.Sleep(3 * time.Second)
+	// The finalizer ran, found the tags unreadable and said so, and retried at least once.
+	h.waitFor(obj, "finalizer waiting for a readable tag", func() (bool, string) {
+		c := reconcile.GetCondition(obj, commonv1alpha1.ConditionReady)
+		return c != nil && c.Status == metav1.ConditionFalse && c.Reason == commonv1alpha1.ReasonDeleting &&
+			strings.Contains(c.Message, "ownership tag"), conditions(obj)
+	})
+	h.e.WaitJournal(t, j0, 2*time.Minute, func(j []fake.JournalEntry) (bool, string) {
+		n := len(testenv.Filter(testenv.ForAccount(j, h.acct.AccountID), func(e fake.JournalEntry) bool {
+			return e.Method == http.MethodGet && e.Fault && strings.Contains(e.Path, "/tags")
+		}))
+		return n >= 2, fmt.Sprintf("%d failed tag reads, waiting for a retry", n)
+	})
 	if err := h.get(obj); err != nil {
 		t.Fatalf("finalized while ownership was unknown: %v", err)
 	}

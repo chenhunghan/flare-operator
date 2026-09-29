@@ -261,8 +261,18 @@ type Resolved struct {
 // bump still counts. Without this, every user that reads the account between its deletion and
 // the account controller's next status write (a cache easily lags that long) got "not Ready
 // (not verified yet)" and backed off, although a deleting account stays Ready for its users.
-// A spec change made before or after the deletion bumps the generation again, which still
-// requires a fresh verification.
+//
+// The allowance holds only for a Ready condition verified before the deletion: its
+// status.lastVerifiedTime (the account controller sets it with every Ready=True it writes) is
+// not after metadata.deletionTimestamp. A spec change made before the deletion bumps the
+// generation twice (the condition is two behind). One made during the deletion bumps it once
+// more after the deletion bump: a condition verified before the deletion is then two behind,
+// and one verified during the deletion (at the deletion generation, one behind) is refused by
+// the time check, because the account controller stamps a verification of a deleting account
+// strictly after its deletionTimestamp (whatever its own clock says; see VerifiedAt). Either
+// way a fresh verification is required. (An operator clock running ahead of the API server's
+// can only make a verification from just before the deletion look later, so the user retries
+// after AccountRetryInterval; it never lets a stale condition through.)
 func AccountReady(acct *cloudflarev1alpha1.CloudflareAccount) bool {
 	c := meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionReady)
 	if c == nil || c.Status != metav1.ConditionTrue {
@@ -271,7 +281,21 @@ func AccountReady(acct *cloudflarev1alpha1.CloudflareAccount) bool {
 	if c.ObservedGeneration == acct.Generation {
 		return true
 	}
-	return !acct.DeletionTimestamp.IsZero() && c.ObservedGeneration > 0 && c.ObservedGeneration == acct.Generation-1
+	del, verified := acct.DeletionTimestamp, acct.Status.LastVerifiedTime
+	return !del.IsZero() && c.ObservedGeneration > 0 && c.ObservedGeneration == acct.Generation-1 &&
+		verified != nil && !verified.Time.After(del.Time)
+}
+
+// VerifiedAt is the status.lastVerifiedTime to record for a successful verification of acct at
+// now: now, except that for a deleting account it is strictly after deletionTimestamp at the
+// second precision timestamps are stored with (deletionTimestamp plus one second when now is
+// not later), so AccountReady can tell a verification made during the deletion from one made
+// before it even when the clocks of the operator and the API server disagree.
+func VerifiedAt(acct *cloudflarev1alpha1.CloudflareAccount, now time.Time) metav1.Time {
+	if del := acct.DeletionTimestamp; !del.IsZero() && !now.Truncate(time.Second).After(del.Time) {
+		return metav1.NewTime(del.Truncate(time.Second).Add(time.Second))
+	}
+	return metav1.NewTime(now)
 }
 
 // AccountLabel is the label Resolve puts on every managed object: the name of the

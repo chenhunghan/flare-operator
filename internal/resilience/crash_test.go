@@ -10,6 +10,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,6 +53,8 @@ type crashCase struct {
 	// it created the resource; without an owner tag the pin is what lets it delete it
 	// (reconcile.MayDeleteExternal).
 	pinOnly bool
+	// kind is the generated kind of a generic case ("" for the hand-written controllers).
+	kind string
 }
 
 type crashCtx struct {
@@ -204,8 +207,26 @@ func crashFirst(t *testing.T, c crashCase) *crashRun {
 	})
 	m1.Stop(t)
 
-	listPath, nameField, idField, name := c.resource(cx)
-	find := func() []string {
+	find := finder(t, c, cx)
+	// The crash left a Cloudflare resource the object does not know.
+	ids := find()
+	if len(ids) != 1 {
+		_, _, _, name := c.resource(cx)
+		t.Fatalf("after the crash: %d resources named %q (%v), want 1", len(ids), name, ids)
+	}
+	if err := e.Client.Get(testenv.Context(t, 10*time.Second), client.ObjectKeyFromObject(o), o); err != nil {
+		t.Fatal(err)
+	}
+	if got := o.GetAnnotations()[commonv1alpha1.AnnotationExternalID]; got != "" {
+		t.Fatalf("the crash should have lost the ID, but the external-id annotation is %q", got)
+	}
+	return &crashRun{e: e, cx: cx, o: o, tagger: tagger, ids: ids, find: find}
+}
+
+// finder lists the live resources with c's name.
+func finder(t *testing.T, c crashCase, cx *crashCtx) func() []string {
+	return func() []string {
+		listPath, nameField, idField, name := c.resource(cx)
 		var ids []string
 		items, err := cfclient.ListAllInto[map[string]any](testenv.Context(t, 20*time.Second), cx.cf, cfclient.Request{Path: listPath})
 		if err != nil {
@@ -219,18 +240,125 @@ func crashFirst(t *testing.T, c crashCase) *crashRun {
 		}
 		return ids
 	}
-	// The crash left a Cloudflare resource the object does not know.
+}
+
+// TestCrashRecreateThenDeleteBeforeRestart: a generic object's resource X is deleted out of
+// band, so the next reconcile recreates it (a new create-pending record, then the create), and
+// the manager dies before RecordCreated. The object still carries X (external-id annotation,
+// status.id) next to the record. It is deleted (deletionPolicy Delete) while no manager runs,
+// and a fresh manager finalizes it: the finalizer must see that X is gone, find the new
+// resource through the record and delete it, not delete only the gone X and leak the new one.
+func TestCrashRecreateThenDeleteBeforeRestart(t *testing.T) {
+	for _, c := range crashCases() {
+		if c.kind == "" {
+			// Tunnel and VPCService report a vanished pinned resource as NotFound instead of
+			// recreating it, and a WorkerScript's ID is its script name, which the recreate
+			// keeps: they cannot reach this state through a recreate.
+			continue
+		}
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			runRecreateCrash(t, c)
+		})
+	}
+}
+
+func runRecreateCrash(t *testing.T, c crashCase) {
+	e := testenv.Require(t, env)
+	ns := e.Namespace(t)
+	tagger := c.tagger
+	if tagger == nil {
+		tagger = reconcile.NoopTagger{}
+	}
+	opts := func(setup func(ctrl.Manager, controller.Deps) error) testenv.ManagerOptions {
+		return testenv.ManagerOptions{Tagger: tagger, Namespaces: []string{ns, "kube-system"},
+			Setup: []func(ctrl.Manager, controller.Deps) error{setup}}
+	}
+	plain := func(mgr ctrl.Manager, d controller.Deps) error { return c.setup(mgr.GetClient())(mgr, d) }
+
+	// 1. A normal manager creates the resource X and records it.
+	m0 := e.StartManager(t, opts(plain))
+	acct := e.CreateAccount(t, ns, "acct", testenv.AccountOptions{RateLimit: c.rateLimit})
+	acct.CloudflareAccount = e.WaitAccountCondition(t, ns, "acct", metav1.ConditionTrue, commonv1alpha1.ReasonAvailable)
+	cx := &crashCtx{e: e, ns: ns, acct: acct, cf: apiClient(t, e, acct), name: "flare-spike-" + testenv.RandomHex(4), vars: map[string]string{}}
+	o := c.object(t, cx)
+	o.SetNamespace(ns)
+	o.SetName("obj")
+	if err := e.Client.Create(testenv.Context(t, 10*time.Second), o); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	waitReadySynced(t, e, o, 60*time.Second)
+	old := reconcile.ExternalID(o)
+	if old == "" || o.GetAnnotations()[commonv1alpha1.AnnotationExternalID] != old {
+		t.Fatalf("no recorded ID after the create: %v", o.GetAnnotations())
+	}
+	m0.Stop(t)
+
+	// 2. X goes away out of band.
+	en := entryByKind(c.kind)
+	item := strings.NewReplacer("{account_id}", acct.AccountID, "{id}", old).Replace(en.ItemPath)
+	if _, err := cx.cf.Do(testenv.Context(t, 10*time.Second), cfclient.Request{Method: http.MethodDelete, Path: item}); err != nil {
+		t.Fatalf("delete %s out of band: %v", item, err)
+	}
+	find := finder(t, c, cx)
+	if ids := find(); len(ids) != 0 {
+		t.Fatalf("after the out-of-band delete: resources %v, want none", ids)
+	}
+
+	// 3. A manager recreates it and dies before the new ID reaches the API server.
+	var cc *crashClient
+	m1 := e.StartManager(t, opts(func(mgr ctrl.Manager, d controller.Deps) error {
+		cc = newCrashClient(mgr.GetClient(), "obj")
+		return c.setup(cc)(mgr, d)
+	}))
+	// Wake the object up (its poll interval is an hour).
+	poke(t, e, o)
+	waitCrash(t, cc, 60*time.Second, func() string {
+		_ = e.Client.Get(testenv.Context(t, 5*time.Second), client.ObjectKeyFromObject(o), o)
+		return condString(o) + "\n" + testenv.Summary(accountJournal(t, e, acct.AccountID))
+	})
+	m1.Stop(t)
 	ids := find()
 	if len(ids) != 1 {
-		t.Fatalf("after the crash: %d resources named %q (%v), want 1", len(ids), name, ids)
+		t.Fatalf("after the crash: resources %v, want exactly the recreated one", ids)
 	}
 	if err := e.Client.Get(testenv.Context(t, 10*time.Second), client.ObjectKeyFromObject(o), o); err != nil {
 		t.Fatal(err)
 	}
-	if got := o.GetAnnotations()[commonv1alpha1.AnnotationExternalID]; got != "" {
-		t.Fatalf("the crash should have lost the ID, but the external-id annotation is %q", got)
+	if got := o.GetAnnotations()[commonv1alpha1.AnnotationExternalID]; got != old {
+		t.Fatalf("the crash should have kept the old ID %s, but the external-id annotation is %q", old, got)
 	}
-	return &crashRun{e: e, cx: cx, o: o, tagger: tagger, ids: ids, find: find}
+	if _, ok := reconcile.PendingCreate(o); !ok {
+		t.Fatalf("no create-pending record of the recreate: %v", o.GetAnnotations())
+	}
+
+	// 4. The object is deleted while no manager runs; a fresh manager finalizes it.
+	if err := e.Client.Delete(testenv.Context(t, 10*time.Second), o); err != nil {
+		t.Fatal(err)
+	}
+	e.StartManager(t, opts(plain))
+	testenv.Eventually(t, 90*time.Second, func() (bool, string) {
+		err := e.Client.Get(testenv.Context(t, 10*time.Second), client.ObjectKeyFromObject(o), o)
+		if apierrors.IsNotFound(err) {
+			return true, ""
+		}
+		return false, fmt.Sprintf("%v %s", err, condString(o))
+	})
+	if left := find(); len(left) != 0 {
+		t.Errorf("LEAK: the object (deletionPolicy Delete) is gone but Cloudflare still has %v (the recreate of %s)", left, old)
+	}
+	if n := c.creates(cx, accountJournal(t, e, acct.AccountID)); n != 2 {
+		t.Errorf("%d creates, want 2 (the first and the recreate)", n)
+	}
+}
+
+// poke changes an annotation of o, which triggers a reconcile.
+func poke(t *testing.T, e *testenv.Env, o reconcile.ManagedObject) {
+	t.Helper()
+	patch := fmt.Sprintf(`{"metadata":{"annotations":{"test.flare.dev/poke":%q}}}`, time.Now().Format(time.RFC3339Nano))
+	if err := e.Client.Patch(testenv.Context(t, 10*time.Second), o, client.RawPatch(types.MergePatchType, []byte(patch))); err != nil {
+		t.Fatalf("poke: %v", err)
+	}
 }
 
 // restart starts a fresh manager for c (without the crash point).
@@ -286,6 +414,7 @@ func tagSuffix(tagging bool) string {
 func genericCrashCase(kind string, tagging bool) crashCase {
 	return crashCase{
 		name:    kind + "/" + tagSuffix(tagging),
+		kind:    kind,
 		tagger:  taggerFor(tagging),
 		pinOnly: !tagging || entryByKind(kind).TagResourceType == "",
 		setup: func(c client.Client) func(ctrl.Manager, controller.Deps) error {

@@ -675,13 +675,19 @@ func (r *Reconciler) finalize(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (c
 			fmt.Sprintf("waiting for %d VPCService(s) that reference this Tunnel to be deleted: %s", len(names), strings.Join(names, ", ")))
 		return ctrl.Result{RequeueAfter: DependencyRetry}, false, nil
 	}
-	if name := pendingName(t); name != "" && reconcile.ExternalID(t) == "" && reconcile.ShouldDeleteExternal(t, commonv1alpha1.DeletionDelete) {
-		// No ID, but a create was announced: the manager may have died between the create and
-		// RecordCreated. Find that tunnel and record it, so it is deleted rather than leaked.
+	if name := pendingName(t); name != "" && reconcile.ShouldDeleteExternal(t, commonv1alpha1.DeletionDelete) {
+		// A create was announced and its result never recorded: the manager may have died
+		// between the create and RecordCreated. With no ID, or with the ID of a tunnel that was
+		// found gone (a status.id-only tunnel is looked up again by name and recreated), find
+		// the tunnel the record names and record it, so it is deleted rather than leaked.
 		acct, err := reconcile.FinalizeAccount(ctx, r.Accounts, r.apiReader(), r.Recorder, t, "Delete",
 			fmt.Sprintf("the tunnel %q this object may have created before a restart was not looked up and may be left in Cloudflare", name))
 		if err == nil && acct != nil {
-			_, err = reconcile.AdoptPendingCreate(ctx, r.Client, r.Recorder, t, "tunnel", func(ctx context.Context, name string) (string, error) {
+			gone := func(ctx context.Context, id string) (bool, error) {
+				tun, err := getTunnel(ctx, acct.Client, acct.AccountID, id)
+				return tun == nil && err == nil, err
+			}
+			_, err = reconcile.AdoptPendingCreateReplacing(ctx, r.Client, r.Recorder, t, "tunnel", gone, func(ctx context.Context, name string) (string, error) {
 				tun, err := findTunnelByName(ctx, acct.Client, acct.AccountID, name)
 				if tun == nil || err != nil {
 					return "", err

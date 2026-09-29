@@ -12,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
@@ -25,17 +26,37 @@ func verifies(t *testing.T, e *testenv.Env, accountID string) int {
 	return testenv.Count(testenv.ForAccount(e.Journal(t), accountID), "GET", "/tokens/verify")
 }
 
+// settleSecret is a sync barrier for the account controller: it touches the Secret (a label
+// only, an event that must not re-verify either) and waits until each account was reconciled
+// after that. Events of the Secret are handed to the controller in order, so the events before
+// the touch were handled by then.
+func settleSecret(t *testing.T, e *testenv.Env, m *testenv.Manager, ns, secret string, accounts ...string) {
+	t.Helper()
+	ctx := testenv.Context(t, 30*time.Second)
+	mark := m.Mark()
+	patch := fmt.Sprintf(`{"metadata":{"labels":{"test.flare.dev/barrier":%q}}}`, testenv.RandomHex(4))
+	if err := e.Client.Patch(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: secret}},
+		client.RawPatch(types.MergePatchType, []byte(patch))); err != nil {
+		t.Fatalf("touch Secret %s: %v", secret, err)
+	}
+	for _, a := range accounts {
+		m.WaitReconciled(t, account.Name, client.ObjectKey{Namespace: ns, Name: a}, mark, 1, time.Minute)
+	}
+}
+
 // The account controller's own finalizer patch of the token Secret (and any other Secret event
 // that changes neither the spec nor the token) must not verify the token again.
 func TestSecretEventsDoNotReverify(t *testing.T) {
 	e := testenv.Require(t, env)
-	e.StartManager(t, testenv.ManagerOptions{})
+	m := e.StartManager(t, testenv.ManagerOptions{})
 	ns := e.Namespace(t)
-	ctx := testenv.Context(t, time.Minute)
+	ctx := testenv.Context(t, 3*time.Minute)
 
 	a := e.CreateReadyAccount(t, ns, "quiet")
 	waitSecretFinalizer(t, e, ns, a.Spec.TokenSecretRef.Name, true)
-	time.Sleep(time.Second) // let the Secret event of the finalizer patch be handled
+	// The Secret event of the finalizer patch has been handled once the account was reconciled
+	// for a later event of the same Secret.
+	settleSecret(t, e, m, ns, a.Spec.TokenSecretRef.Name, "quiet")
 	if n := verifies(t, e, a.AccountID); n != 1 {
 		t.Fatalf("%d token verifications for one new account, want 1", n)
 	}
@@ -47,10 +68,11 @@ func TestSecretEventsDoNotReverify(t *testing.T) {
 	}
 	base := s.DeepCopy()
 	s.Labels = map[string]string{"touched": "yes"}
+	mark := m.Mark()
 	if err := e.Client.Patch(ctx, &s, client.MergeFrom(base)); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(time.Second)
+	m.WaitReconciled(t, account.Name, client.ObjectKey{Namespace: ns, Name: "quiet"}, mark, 1, time.Minute)
 	if n := verifies(t, e, a.AccountID); n != 1 {
 		t.Errorf("%d token verifications after a label change of the Secret, want 1", n)
 	}
@@ -59,7 +81,7 @@ func TestSecretEventsDoNotReverify(t *testing.T) {
 	e.CreateAccount(t, ns, "twin", testenv.AccountOptions{AccountID: a.AccountID, Token: a.Token, SecretName: a.Spec.TokenSecretRef.Name,
 		NoSecret: true, NoRegister: true})
 	e.WaitAccountCondition(t, ns, "twin", metav1.ConditionTrue, commonv1alpha1.ReasonAvailable)
-	time.Sleep(time.Second)
+	settleSecret(t, e, m, ns, a.Spec.TokenSecretRef.Name, "quiet", "twin")
 	if n := verifies(t, e, a.AccountID); n != 2 {
 		t.Errorf("%d token verifications for two accounts, want 2", n)
 	}
@@ -111,7 +133,7 @@ func TestSecretSyncFailureReported(t *testing.T) {
 	e := testenv.Require(t, env)
 	e.StartManager(t, testenv.ManagerOptions{})
 	ns := e.Namespace(t)
-	ctx := testenv.Context(t, 2*time.Minute)
+	ctx := testenv.Context(t, 8*time.Minute)
 
 	name := "deny-secret-finalizers-" + ns
 	policy := &admissionregistrationv1.ValidatingAdmissionPolicy{
@@ -144,27 +166,35 @@ func TestSecretSyncFailureReported(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = e.Client.Delete(testenv.Context(t, 10*time.Second), o) })
 	}
-	// Wait until the policy is enforced (it is loaded asynchronously).
+	// Wait until the policy is enforced: it is loaded asynchronously, which takes long on a
+	// loaded machine. A probe Secret gets a new finalizer on every attempt, so each attempt is a
+	// finalizer change whatever the previous attempt left (a fixed add-then-remove pair could
+	// get its removal refused once enforcement starts in between, and then never change the
+	// finalizers again).
 	probe := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "probe"}}
 	if err := e.Client.Create(ctx, probe); err != nil {
 		t.Fatal(err)
 	}
-	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
-		base := probe.DeepCopy()
-		probe.Finalizers = []string{"test.flare.dev/probe"}
-		err := e.Client.Patch(ctx, probe, client.MergeFrom(base))
+	// changeProbe tries a finalizer change of the probe: nil when admitted.
+	changeProbe := func(finalizers []string) error {
+		var cur corev1.Secret
+		if err := e.Client.Get(ctx, client.ObjectKeyFromObject(probe), &cur); err != nil {
+			return err
+		}
+		base := cur.DeepCopy()
+		cur.Finalizers = finalizers
+		return e.Client.Patch(ctx, &cur, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
+	}
+	testenv.Eventually(t, 2*time.Minute, func() (bool, string) {
+		err := changeProbe([]string{"test.flare.dev/probe-" + testenv.RandomHex(4)})
 		if err == nil {
-			base = probe.DeepCopy()
-			probe.Finalizers = nil
-			_ = e.Client.Patch(ctx, probe, client.MergeFrom(base))
 			return false, "policy not enforced yet"
 		}
-		probe.Finalizers = nil
 		return strings.Contains(err.Error(), "frozen"), err.Error()
 	})
 
 	e.CreateAccount(t, ns, "stuck", testenv.AccountOptions{})
-	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
+	testenv.Eventually(t, 90*time.Second, func() (bool, string) {
 		var acct cloudflarev1alpha1.CloudflareAccount
 		if err := e.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: "stuck"}, &acct); err != nil {
 			return false, err.Error()
@@ -179,9 +209,24 @@ func TestSecretSyncFailureReported(t *testing.T) {
 	if err := e.Client.Delete(ctx, binding); err != nil {
 		t.Fatal(err)
 	}
+	// Wait until the policy is no longer enforced (also asynchronous), and drop the probe's
+	// finalizer on the way.
+	testenv.Eventually(t, 2*time.Minute, func() (bool, string) {
+		if err := changeProbe(nil); err != nil {
+			return false, "policy still enforced: " + err.Error()
+		}
+		return true, ""
+	})
+	// The failed Secret updates put the account on error backoff, which grows to tens of seconds
+	// while the policy was enforced; a touch of the Secret (a watched event) retries it now.
+	touch := fmt.Sprintf(`{"metadata":{"labels":{"test.flare.dev/touch":%q}}}`, testenv.RandomHex(4))
+	if err := e.Client.Patch(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "stuck-token"}},
+		client.RawPatch(types.MergePatchType, []byte(touch))); err != nil {
+		t.Fatal(err)
+	}
 	waitSecretFinalizer(t, e, ns, "stuck-token", true)
 	e.WaitAccountCondition(t, ns, "stuck", metav1.ConditionTrue, commonv1alpha1.ReasonAvailable)
-	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
+	testenv.Eventually(t, 90*time.Second, func() (bool, string) {
 		var acct cloudflarev1alpha1.CloudflareAccount
 		if err := e.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: "stuck"}, &acct); err != nil {
 			return false, err.Error()
@@ -197,7 +242,7 @@ func TestSecretSyncFailureReported(t *testing.T) {
 func TestStatusWriteFailureRetried(t *testing.T) {
 	e := testenv.Require(t, env)
 	ns := e.Namespace(t)
-	ctx := testenv.Context(t, 2*time.Minute)
+	ctx := testenv.Context(t, 8*time.Minute)
 
 	name := "deny-account-status-" + ns
 	policy := &admissionregistrationv1.ValidatingAdmissionPolicy{
@@ -228,16 +273,20 @@ func TestStatusWriteFailureRetried(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = e.Client.Delete(testenv.Context(t, 10*time.Second), o) })
 	}
-	// Wait until the policy is enforced (it is loaded asynchronously), before any controller runs.
+	// Wait until the policy is enforced (it is loaded asynchronously, which takes long on a
+	// loaded machine), before any controller runs.
 	probe := e.CreateAccount(t, ns, "probe", testenv.AccountOptions{NoRegister: true, NoSecret: true})
-	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
+	patchProbe := func() error {
 		var got cloudflarev1alpha1.CloudflareAccount
 		if err := e.Client.Get(ctx, client.ObjectKeyFromObject(probe.CloudflareAccount), &got); err != nil {
-			return false, err.Error()
+			return err
 		}
 		base := got.DeepCopy()
 		got.Status.TokenStatus = "probe-" + testenv.RandomHex(4)
-		err := e.Client.Status().Patch(ctx, &got, client.MergeFrom(base))
+		return e.Client.Status().Patch(ctx, &got, client.MergeFrom(base))
+	}
+	testenv.Eventually(t, 2*time.Minute, func() (bool, string) {
+		err := patchProbe()
 		if err == nil {
 			return false, "policy not enforced yet"
 		}
@@ -246,14 +295,29 @@ func TestStatusWriteFailureRetried(t *testing.T) {
 
 	e.StartManager(t, testenv.ManagerOptions{}) // default VerifyInterval (10 min)
 	a := e.CreateAccount(t, ns, "unwritten", testenv.AccountOptions{})
-	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
+	testenv.Eventually(t, 60*time.Second, func() (bool, string) {
 		n := verifies(t, e, a.AccountID)
 		return n >= 1, fmt.Sprintf("%d verifies", n)
 	})
 	if err := e.Client.Delete(ctx, binding); err != nil {
 		t.Fatal(err)
 	}
-	testenv.Eventually(t, 45*time.Second, func() (bool, string) {
+	// Wait until status writes are admitted again (also asynchronous). The refused writes put
+	// the account on error backoff, which grows while the policy lingers; a touch of its token
+	// Secret (a watched event that changes neither spec nor token) retries it now. That retry
+	// must verify again and write Ready: the failed write must not count as done.
+	testenv.Eventually(t, 2*time.Minute, func() (bool, string) {
+		if err := patchProbe(); err != nil {
+			return false, "policy still enforced: " + err.Error()
+		}
+		return true, ""
+	})
+	touch := fmt.Sprintf(`{"metadata":{"labels":{"test.flare.dev/touch":%q}}}`, testenv.RandomHex(4))
+	if err := e.Client.Patch(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: a.Spec.TokenSecretRef.Name}},
+		client.RawPatch(types.MergePatchType, []byte(touch))); err != nil {
+		t.Fatal(err)
+	}
+	testenv.Eventually(t, 90*time.Second, func() (bool, string) {
 		var acct cloudflarev1alpha1.CloudflareAccount
 		if err := e.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: "unwritten"}, &acct); err != nil {
 			return false, err.Error()

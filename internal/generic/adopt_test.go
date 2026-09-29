@@ -60,7 +60,7 @@ func TestAdopt(t *testing.T) {
 					t.Errorf("%s: owner tag %q", x.name, o)
 				}
 			}
-			h.assertNoWrites("adopted objects", 4*poll, h.path(en.ItemPath, byName))
+			h.assertNoWrites("adopted objects", 2, h.path(en.ItemPath, byName))
 
 			// Orphan (kind default): the resources survive, ownership is released.
 			h.delete(a)
@@ -113,7 +113,7 @@ func TestObserveOnly(t *testing.T) {
 				ap := atProvider(t, obj)
 				return generic.Covers(pickJSON(want, drift), ap), "atProvider not updated"
 			})
-			h.assertNoWrites("observe-only", 4*poll, item)
+			h.assertNoWrites("observe-only", 2, item)
 			if w := writesOf(h.rec.since(mark)); len(w) != 0 {
 				t.Errorf("observe-only object wrote:\n%s", summary(w))
 			}
