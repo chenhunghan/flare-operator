@@ -201,6 +201,18 @@ func pathValue(m map[string]any, p string) (any, bool) {
 }
 
 // nestedPaths returns the paths strictly below the top-level field f, relative to f.
+// writeOnlyUnder returns the write-only paths whose top-level field is one of fields.
+func writeOnlyUnder(writeOnly, fields []string) []string {
+	var out []string
+	for _, p := range writeOnly {
+		top, _, _ := strings.Cut(p, ".")
+		if has(fields, top) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func nestedPaths(paths []string, f string) []string {
 	var out []string
 	for _, p := range paths {

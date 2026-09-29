@@ -109,14 +109,15 @@ func (ResourceTagger) Get(ctx context.Context, cf cfclient.Client, accountID str
 	return res.Tags, true, nil
 }
 
-// Owner returns the resource's owner tag ("" when it has none or was never tagged). It never
-// writes.
-func (r ResourceTagger) Owner(ctx context.Context, cf cfclient.Client, accountID string, t TagTarget) (string, error) {
-	tags, _, err := r.Get(ctx, cf, accountID, t)
+// Owner returns the resource's owner tag ("" when it has none). tagged=false means the tags
+// endpoint answered 500: the resource was never tagged, or the read failed transiently: the two
+// cannot be told apart, so callers must not treat it as proof of absence. It never writes.
+func (r ResourceTagger) Owner(ctx context.Context, cf cfclient.Client, accountID string, t TagTarget) (owner string, tagged bool, err error) {
+	tags, tagged, err := r.Get(ctx, cf, accountID, t)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return tags[r.key()], nil
+	return tags[r.key()], tagged, nil
 }
 
 func tagsPath(accountID string) string { return "/accounts/" + accountID + "/tags" }
