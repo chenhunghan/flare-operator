@@ -33,6 +33,9 @@ type Request struct {
 	Body        any
 	RawBody     []byte
 	ContentType string
+	// Header adds per-request headers (e.g. If-Match). Authorization,
+	// User-Agent and Content-Type are owned by the client and not overridden.
+	Header http.Header
 }
 
 // Response carries the decoded envelope of a successful call.

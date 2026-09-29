@@ -6,7 +6,7 @@ package generic
 
 // Descriptor is emitted by cmd/flaregen and consumed by the generic reconciler.
 // Paths are relative to the API base URL and use the placeholders
-// {account_id}, {zone_id} and {id}.
+// {account_id}, {zone_id} and {id}. DELETE never sends a body.
 type Descriptor struct {
 	Group, Version, Kind string
 
@@ -24,6 +24,12 @@ type Descriptor struct {
 
 	Singleton bool   // no create/delete; the object configures a fixed settings resource at ItemPath
 	ListOrder string // informational
+
+	// CreateFields / UpdateFields are the top-level forProvider JSON fields
+	// accepted by the create and update request bodies. A field that is set in
+	// forProvider, is in UpdateFields but not in CreateFields, is applied by an
+	// update immediately after create (e.g. Queue settings).
+	CreateFields, UpdateFields []string
 
 	// DefaultDeletionPolicy applies when spec.deletionPolicy is empty:
 	// "Orphan" for data-bearing kinds, else "Delete".
