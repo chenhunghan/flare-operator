@@ -29,6 +29,9 @@ const (
 	APIDir         = "api"
 	CRDDir         = "config/crd/bases"
 	DescriptorFile = "internal/generic/descriptors/zz_generated.go"
+	// RBACFile carries the kubebuilder RBAC markers of the generic controllers
+	// (make manifests collects them into config/rbac).
+	RBACFile = "internal/generic/kinds/zz_generated.rbac.go"
 )
 
 // SelectResource finds the resource a generator.yaml entry names.
@@ -142,6 +145,11 @@ func Generate(doc *openapi3.T, cfg *Config, opts Options) (*Output, error) {
 		return nil, err
 	}
 	out.Files[DescriptorFile] = desc
+	rbac, err := emitRBAC(out.Kinds)
+	if err != nil {
+		return nil, err
+	}
+	out.Files[RBACFile] = rbac
 	return out, nil
 }
 
@@ -193,6 +201,7 @@ func existingGenerated(root string) ([]string, error) {
 		filepath.Join(root, APIDir, "*", "*", "*.go"),
 		filepath.Join(root, CRDDir, "*.yaml"),
 		filepath.Join(root, filepath.FromSlash(DescriptorFile)),
+		filepath.Join(root, filepath.FromSlash(RBACFile)),
 	}
 	for _, p := range patterns {
 		matches, err := filepath.Glob(p)

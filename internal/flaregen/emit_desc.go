@@ -85,3 +85,27 @@ func emitDescriptors(module string, kinds []*KindModel) ([]byte, error) {
 	b.WriteString("}\n")
 	return formatGo(b.Bytes())
 }
+
+// emitRBAC renders internal/generic/kinds/zz_generated.rbac.go: the RBAC markers the
+// generic controllers of the generated kinds need.
+func emitRBAC(kinds []*KindModel) ([]byte, error) {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "// %s\n\npackage kinds\n\n", GeneratedHeader)
+	b.WriteString("// RBAC of the generic controllers, one block per generated kind.\n//\n")
+	sorted := append([]*KindModel(nil), kinds...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Group != sorted[j].Group {
+			return sorted[i].Group < sorted[j].Group
+		}
+		return sorted[i].Kind < sorted[j].Kind
+	})
+	for _, m := range sorted {
+		fmt.Fprintf(&b, "// +kubebuilder:rbac:groups=%s,resources=%s,verbs=get;list;watch;update;patch\n", m.Group, m.Plural)
+		fmt.Fprintf(&b, "// +kubebuilder:rbac:groups=%s,resources=%s/status,verbs=get;update;patch\n", m.Group, m.Plural)
+		fmt.Fprintf(&b, "// +kubebuilder:rbac:groups=%s,resources=%s/finalizers,verbs=update\n", m.Group, m.Plural)
+	}
+	b.WriteString("// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch\n")
+	b.WriteString("// +kubebuilder:rbac:groups=\"\",resources=secrets,verbs=get;list;watch\n")
+	b.WriteString("\n// generatedRBAC documents that the free-floating markers above are generated\n// (controller-gen collects them from ./internal/generic/kinds).\nconst generatedRBAC = true\n")
+	return formatGo(b.Bytes())
+}

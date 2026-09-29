@@ -49,3 +49,75 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - d1.cloudflare.flare.dev
+  resources:
+  - d1databases
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - d1.cloudflare.flare.dev
+  resources:
+  - d1databases/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - d1.cloudflare.flare.dev
+  resources:
+  - d1databases/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kv.cloudflare.flare.dev
+  resources:
+  - kvnamespaces
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kv.cloudflare.flare.dev
+  resources:
+  - kvnamespaces/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kv.cloudflare.flare.dev
+  resources:
+  - kvnamespaces/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - queues.cloudflare.flare.dev
+  resources:
+  - queues
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - queues.cloudflare.flare.dev
+  resources:
+  - queues/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - queues.cloudflare.flare.dev
+  resources:
+  - queues/status
+  verbs:
+  - get
+  - patch
+  - update

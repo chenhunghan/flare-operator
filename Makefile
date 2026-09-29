@@ -45,7 +45,7 @@ generate: controller-gen ## deepcopy methods for api/...
 	$(CONTROLLER_GEN) object paths="./api/..."
 
 manifests: controller-gen ## CRDs into config/crd/bases, RBAC into config/rbac
-	$(CONTROLLER_GEN) rbac:roleName=flare-operator-manager crd paths="./api/..." paths="./internal/controller/..." \
+	$(CONTROLLER_GEN) rbac:roleName=flare-operator-manager crd paths="./api/..." paths="./internal/controller/..." paths="./internal/generic/kinds/..." \
 		output:crd:artifacts:config=config/crd/bases output:rbac:artifacts:config=config/rbac
 
 envtest: setup-envtest ## fetch envtest assets (kube-apiserver, etcd) into ./bin/k8s
