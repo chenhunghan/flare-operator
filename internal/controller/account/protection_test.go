@@ -51,6 +51,8 @@ func TestAccountUsageProtection(t *testing.T) {
 
 	// A managed object resolves the account through the shared helper, which labels it.
 	kv := kvUsing(ns, "data", "acct")
+	// It has a Cloudflare resource (pinned ID), so it may keep using a deleting account.
+	kv.Annotations = map[string]string{commonv1alpha1.AnnotationExternalID: "kv-data-id"}
 	if err := e.Client.Create(ctx, kv); err != nil {
 		t.Fatal(err)
 	}
@@ -106,9 +108,32 @@ func TestAccountUsageProtection(t *testing.T) {
 	if _, err := m.Deps.Accounts.Resolve(ctx, kv); err != nil {
 		t.Fatalf("resolve during account deletion: %v", err)
 	}
+	// A new object (no Cloudflare resource yet) must not start using a deleting account, and
+	// it does not hold the account up.
+	late := kvUsing(ns, "late", "acct")
+	if err := e.Client.Create(ctx, late); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Deps.Accounts.Resolve(ctx, late); !reconcile.IsAccountNotReady(err) || !strings.Contains(err.Error(), "being deleted") {
+		t.Fatalf("new object resolved a deleting account: %v", err)
+	}
+	// Blocked steady state: requeues re-list users but neither re-verify with Cloudflare nor
+	// write status.
+	before, err := get("acct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifies := testenv.Count(testenv.ForAccount(e.Journal(t), a.AccountID), "GET", "/tokens/verify")
 	time.Sleep(time.Second) // several requeues
-	if _, err := get("acct"); err != nil {
+	after, err := get("acct")
+	if err != nil {
 		t.Fatalf("account deleted while in use: %v", err)
+	}
+	if after.ResourceVersion != before.ResourceVersion {
+		t.Errorf("blocked deletion wrote the account: rv %s -> %s", before.ResourceVersion, after.ResourceVersion)
+	}
+	if n := testenv.Count(testenv.ForAccount(e.Journal(t), a.AccountID), "GET", "/tokens/verify"); n != verifies {
+		t.Errorf("blocked deletion re-verified the token %d times in 1s", n-verifies)
 	}
 
 	// The last user goes away → the account goes away.

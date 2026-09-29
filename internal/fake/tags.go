@@ -39,6 +39,22 @@ var tagResourceTypes = map[string]bool{
 	"worker": true, "worker_version": true,
 }
 
+// tagListTypes are the values the tags-list ?type= filter accepts: the pinned spec's
+// resource-tagging_resource_type, i.e. tagResourceTypes plus the zone-level types. Zone-level
+// resources cannot be stored through the account-level tags-set, so filtering on one of them
+// matches nothing here. UNVERIFIED (no recording).
+var tagListTypes = func() map[string]bool {
+	m := map[string]bool{
+		"access_application_policy": true, "api_gateway_operation": true, "custom_certificate": true,
+		"custom_hostname": true, "dns_record": true, "healthcheck": true, "load_balancer": true,
+		"managed_client_certificate": true, "worker_route": true, "zone": true, "zone_ruleset": true,
+	}
+	for t := range tagResourceTypes {
+		m[t] = true
+	}
+	return m
+}()
+
 type tagRecord struct {
 	Type, ID, WorkerID string
 	Tags               map[string]string
@@ -226,7 +242,7 @@ func tagsList(c *reqCtx) response {
 	q := c.query
 	types := map[string]bool{}
 	for _, t := range q["type"] {
-		if !tagResourceTypes[t] {
+		if !tagListTypes[t] {
 			return badTagRequest("invalid type " + t)
 		}
 		types[t] = true

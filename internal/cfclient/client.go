@@ -265,9 +265,11 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 			}
 			continue
 		}
-		out, apiErr := decode(resp)
+		out, isEnvelope, apiErr := decode(resp)
 		if apiErr == nil {
-			if c.cache != nil && method == http.MethodGet && len(req.Header) == 0 && isJSONArray(out.Result) {
+			// Only v4 envelopes whose result is an array are list results; a raw payload (e.g. a
+			// KV value that happens to be a JSON array) is never cached.
+			if c.cache != nil && method == http.MethodGet && len(req.Header) == 0 && isEnvelope && isJSONArray(out.Result) {
 				c.cache.put(cacheKey, req.Path, out)
 			}
 			return out, nil
@@ -374,9 +376,10 @@ func (c *client) send(ctx context.Context, method, u string, body []byte, conten
 	return resp, nil
 }
 
-// decode reads the v4 envelope. The Ratelimit/Ratelimit-Policy headers are deliberately ignored:
+// decode reads the v4 envelope; isEnvelope reports whether the 2xx body was one (false for raw
+// payloads handed back as Result). The Ratelimit/Ratelimit-Policy headers are deliberately ignored:
 // the real API does not track usage in them (recordings 0001, 0161; see internal/fake).
-func decode(resp *http.Response) (*Response, *APIError) {
+func decode(resp *http.Response) (_ *Response, isEnvelope bool, _ *APIError) {
 	defer resp.Body.Close()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	status := resp.StatusCode
@@ -392,31 +395,31 @@ func decode(resp *http.Response) (*Response, *APIError) {
 		if ok2xx {
 			status = http.StatusBadGateway
 		}
-		return nil, fail([]ErrorDetail{{Message: "flare-operator: reading response body: " + readErr.Error()}})
+		return nil, false, fail([]ErrorDetail{{Message: "flare-operator: reading response body: " + readErr.Error()}})
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		if ok2xx { // e.g. 204 No Content (DELETE /accounts/{id}/tags)
-			return &Response{Status: status, Header: resp.Header.Clone()}, nil
+			return &Response{Status: status, Header: resp.Header.Clone()}, false, nil
 		}
-		return nil, fail(nil)
+		return nil, false, fail(nil)
 	}
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
 		if ok2xx {
 			// Not an envelope (e.g. a raw download). Hand the body to the caller as Result.
-			return &Response{Status: status, Result: json.RawMessage(raw), Header: resp.Header.Clone()}, nil
+			return &Response{Status: status, Result: json.RawMessage(raw), Header: resp.Header.Clone()}, false, nil
 		}
-		return nil, fail([]ErrorDetail{{Message: "non-JSON response: " + Sanitize(string(raw), maxBodySnippet)}})
+		return nil, false, fail([]ErrorDetail{{Message: "non-JSON response: " + Sanitize(string(raw), maxBodySnippet)}})
 	}
 	if ok2xx && env.Success == nil {
 		// A JSON document that is not a v4 envelope (no "success" field), e.g. a KV value whose
 		// content is a JSON object: it is the payload itself.
-		return &Response{Status: status, Result: json.RawMessage(raw), Header: resp.Header.Clone()}, nil
+		return &Response{Status: status, Result: json.RawMessage(raw), Header: resp.Header.Clone()}, false, nil
 	}
 	if !ok2xx || (env.Success != nil && !*env.Success) {
-		return nil, fail(sanitizeDetails(env.Errors))
+		return nil, false, fail(sanitizeDetails(env.Errors))
 	}
-	return &Response{Status: status, Result: env.Result, ResultInfo: env.ResultInfo, Header: resp.Header.Clone()}, nil
+	return &Response{Status: status, Result: env.Result, ResultInfo: env.ResultInfo, Header: resp.Header.Clone()}, true, nil
 }
 
 // Limits for server-supplied text copied into errors (which end up in status conditions): a

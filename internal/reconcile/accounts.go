@@ -182,6 +182,9 @@ func (a *Accounts) ClientFor(ctx context.Context, acct *cloudflarev1alpha1.Cloud
 	if err != nil {
 		// A namespace deletion removes the token Secret at once while the account waits for its
 		// managed objects (finalizer); keep serving them the cached client so they can clean up.
+		// The cache is in-process only: after an operator restart a deleting account whose Secret
+		// is gone cannot serve its users, and its deletion stays blocked until the Secret is
+		// restored or the users are removed by hand (see DeletingAccountHint).
 		if IsAccountNotReady(err) && !acct.DeletionTimestamp.IsZero() {
 			a.mu.Lock()
 			cc, ok := a.clients[nn]
@@ -205,6 +208,21 @@ func (a *Accounts) ClientFor(ctx context.Context, acct *cloudflarev1alpha1.Cloud
 	}
 	a.clients[nn] = cachedClient{key: key, client: c}
 	return c, nil
+}
+
+// DeletingAccountHint explains, for an account that is being deleted and cannot build a client
+// (reason: an AccountError reason), how the deadlock between the account's usage finalizer and
+// its managed objects' cleanup is broken. It returns "" when acct is not being deleted or
+// the reason is not about the token Secret.
+func DeletingAccountHint(acct *cloudflarev1alpha1.CloudflareAccount, reason string) string {
+	if acct.DeletionTimestamp.IsZero() ||
+		(reason != cloudflarev1alpha1.ReasonSecretNotFound && reason != cloudflarev1alpha1.ReasonSecretKeyMissing) {
+		return ""
+	}
+	return fmt.Sprintf("; the account is being deleted but its token Secret %q is unusable, so the managed objects "+
+		"that still use it cannot clean up in Cloudflare and the deletion stays blocked: restore the Secret, "+
+		"or delete those objects and remove their finalizers by hand (their Cloudflare resources are then orphaned)",
+		acct.Spec.TokenSecretRef.Name)
 }
 
 // Forget drops the cached client of a deleted account.
@@ -267,15 +285,23 @@ func (a *Accounts) ensureAccountLabel(ctx context.Context, mg commonv1alpha1.Man
 	cp, _ := obj.DeepCopyObject().(client.Object)
 	base, _ := cp.DeepCopyObject().(client.Object)
 	setLabel(cp)
-	if err := a.writer.Patch(ctx, cp, client.MergeFrom(base)); err != nil {
+	// Optimistic lock: mg may be a stale cache copy. Taking the fresh resourceVersion of a blind
+	// patch onto it would defeat the optimistic lock of every later patchMeta in this reconcile
+	// (PersistExternalID, finalizers), e.g. overwrite an external-ID annotation persisted by an
+	// earlier reconcile and orphan that Cloudflare resource. A Conflict is returned for requeue.
+	if err := a.writer.Patch(ctx, cp, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
 		if apierrors.IsNotFound(err) {
 			setLabel(mg)
 			return nil
 		}
 		return fmt.Errorf("label %s/%s with %s: %w", mg.GetNamespace(), mg.GetName(), AccountLabel, err)
 	}
-	mg.SetLabels(cp.GetLabels())
+	// mg was current (the lock held), so the server's metadata is mg's plus the label.
 	mg.SetResourceVersion(cp.GetResourceVersion())
+	mg.SetLabels(cp.GetLabels())
+	mg.SetAnnotations(cp.GetAnnotations())
+	mg.SetFinalizers(cp.GetFinalizers())
+	mg.SetGeneration(cp.GetGeneration())
 	return nil
 }
 
@@ -283,9 +309,16 @@ func (a *Accounts) ensureAccountLabel(ctx context.Context, mg commonv1alpha1.Man
 // account is missing or not Ready it returns an *AccountError with reason AccountNotReady
 // (use MarkAccountNotReady and requeue); API-server errors are returned unchanged.
 //
-// Before looking the account up it labels mg with AccountLabel=<accountRef.name> (see
-// AccountLabel); every managed kind must resolve its account through Resolve so that the
-// account cannot be deleted while mg still needs it.
+// It labels mg with AccountLabel=<accountRef.name> (see AccountLabel) before using the account;
+// every managed kind must resolve its account through Resolve so that the account cannot be
+// deleted while mg still needs it. The label is set even when the account does not exist.
+//
+// A deleting account only serves objects that already have (or pin) a Cloudflare resource
+// (ExternalID) or are being deleted themselves, so they can observe, update or clean it up. A
+// new object must not create a resource under an account that is about to go away: it gets
+// AccountNotReady and, if it is not labelled yet, no label (it does not hold the account up).
+// This narrows, but cannot close, the window between the account controller's last usage
+// listing and its finalizer removal (the cache may not show the deletionTimestamp yet).
 func (a *Accounts) Resolve(ctx context.Context, mg commonv1alpha1.Managed) (*Resolved, error) {
 	name := mg.GetResourceSpec().AccountRef.Name
 	notReady := func(format string, args ...any) error {
@@ -294,15 +327,19 @@ func (a *Accounts) Resolve(ctx context.Context, mg commonv1alpha1.Managed) (*Res
 	if name == "" {
 		return nil, notReady("spec.accountRef.name is empty")
 	}
+	var acct cloudflarev1alpha1.CloudflareAccount
+	getErr := a.kube.Get(ctx, types.NamespacedName{Namespace: mg.GetNamespace(), Name: name}, &acct)
+	if getErr == nil && !acct.DeletionTimestamp.IsZero() && mg.GetDeletionTimestamp().IsZero() && ExternalID(mg) == "" {
+		return nil, notReady("CloudflareAccount %s/%s is being deleted; not creating new resources under it", acct.Namespace, acct.Name)
+	}
 	if err := a.ensureAccountLabel(ctx, mg, name); err != nil {
 		return nil, err
 	}
-	var acct cloudflarev1alpha1.CloudflareAccount
-	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: mg.GetNamespace(), Name: name}, &acct); err != nil {
-		if apierrors.IsNotFound(err) {
+	if getErr != nil {
+		if apierrors.IsNotFound(getErr) {
 			return nil, notReady("CloudflareAccount %s/%s not found", mg.GetNamespace(), name)
 		}
-		return nil, err
+		return nil, getErr
 	}
 	if !AccountReady(&acct) {
 		msg := "not verified yet"
@@ -318,7 +355,7 @@ func (a *Accounts) Resolve(ctx context.Context, mg commonv1alpha1.Managed) (*Res
 	if err != nil {
 		var ae *AccountError
 		if errors.As(err, &ae) {
-			return nil, notReady("CloudflareAccount %s/%s: %s", acct.Namespace, acct.Name, ae.Message)
+			return nil, notReady("CloudflareAccount %s/%s: %s%s", acct.Namespace, acct.Name, ae.Message, DeletingAccountHint(&acct, ae.Reason))
 		}
 		return nil, err
 	}

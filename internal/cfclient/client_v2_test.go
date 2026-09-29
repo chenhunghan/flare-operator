@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -96,6 +97,39 @@ func TestNonEnvelopeJSONIsResult(t *testing.T) {
 	resp, err := newTestClient(t, srv.URL, nil).Do(context.Background(), Request{Path: "/x"})
 	if err != nil || string(resp.Result) != `{"id":"x"}` {
 		t.Errorf("envelope: %q %v", resp.Result, err)
+	}
+}
+
+// A raw payload that is a JSON array (e.g. a KV value) is not a list result: it must not be
+// served from the list cache.
+func TestNonEnvelopeArrayNotCached(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if r.URL.Path == "/client/v4/list" {
+			writeEnv(w, 200, `{"success":true,"errors":[],"result":[{"id":"a"}]}`)
+			return
+		}
+		writeEnv(w, 200, `[1,2]`)
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv.URL, func(o *Options) { o.ListTTL = time.Minute })
+	for range 3 {
+		if _, err := c.Do(context.Background(), Request{Path: "/accounts/a/storage/kv/namespaces/n/values/k"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if hits != 3 {
+		t.Errorf("raw JSON array: %d server hits for 3 GETs, want 3 (not cached)", hits)
+	}
+	hits = 0
+	for range 3 {
+		if _, err := c.Do(context.Background(), Request{Path: "/list"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if hits != 1 {
+		t.Errorf("envelope list: %d server hits for 3 GETs, want 1 (cached)", hits)
 	}
 }
 

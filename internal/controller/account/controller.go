@@ -6,7 +6,13 @@
 // deleted, the controller keeps verifying it (so managed objects can still use it to clean up
 // in Cloudflare) and keeps the finalizer, with Synced=False reason DependencyNotReady, while any
 // object of an API group ending in ".cloudflare.flare.dev" in the same namespace carries the
-// label cloudflare.flare.dev/account=<name> (set by reconcile.Accounts.Resolve).
+// label cloudflare.flare.dev/account=<name> (set by reconcile.Accounts.Resolve). While blocked it
+// re-lists users every DependencyRequeue but re-verifies with Cloudflare only on the normal
+// schedule and writes status only on change. Known limit: the client kept for a deleting account
+// whose token Secret is gone lives in process memory only; after an operator restart such an
+// account is Ready=False (SecretNotFound), its users cannot clean up, and the deletion stays
+// blocked until the Secret is restored or the users are removed by hand (the condition messages
+// say so; see reconcile.DeletingAccountHint).
 package account
 
 import (
@@ -16,9 +22,11 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -85,6 +93,16 @@ type Reconciler struct {
 	// to clients built from the manager's config in SetupWithManager.
 	Discovery discovery.DiscoveryInterface
 	Metadata  metadata.Interface
+
+	mu         sync.Mutex
+	nextVerify map[types.NamespacedName]verifySchedule // when a blocked deletion re-verifies
+}
+
+// verifySchedule records when an account's verification is next due (from the last verify's
+// requeue policy) and for which generation it was computed.
+type verifySchedule struct {
+	generation int64
+	due        time.Time
 }
 
 // +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch;update;patch
@@ -176,6 +194,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.Get(ctx, req.NamespacedName, &acct); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.Accounts.Forget(req.NamespacedName)
+			r.clearSchedule(req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -195,6 +214,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 	base := acct.DeepCopy()
 	res, verr := r.verify(ctx, &acct)
+	r.schedule(&acct, res, verr)
 	acct.Status.ObservedGeneration = acct.Generation
 	if err := r.Status().Patch(ctx, &acct, client.MergeFrom(base)); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -207,10 +227,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 // reconcileDelete keeps the account (verified, so its users can still clean up) until no
 // managed object uses it, then removes the finalizer.
+//
+// While the deletion is blocked it re-checks the users every DependencyRequeue, but it
+// re-verifies the token with Cloudflare only when a verification is due (the normal
+// VerifyInterval / token-expiry schedule, a spec change, or a local problem such as a missing
+// Secret that may have been fixed), and it writes status only when the status changed.
 func (r *Reconciler) reconcileDelete(ctx context.Context, acct *cloudflarev1alpha1.CloudflareAccount) (ctrl.Result, error) {
 	nn := types.NamespacedName{Namespace: acct.Namespace, Name: acct.Name}
 	if !controllerutil.ContainsFinalizer(acct, cloudflarev1alpha1.AccountInUseFinalizer) {
 		r.Accounts.Forget(nn)
+		r.clearSchedule(nn)
 		return ctrl.Result{}, nil
 	}
 	users, more, uerr := r.usersOf(ctx, acct)
@@ -221,11 +247,21 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, acct *cloudflarev1alph
 			return ctrl.Result{}, err
 		}
 		r.Accounts.Forget(nn)
+		r.clearSchedule(nn)
 		return ctrl.Result{}, nil
 	}
 
 	base := acct.DeepCopy()
-	res, verr := r.verify(ctx, acct)
+	var (
+		res  ctrl.Result
+		verr error
+	)
+	if due, wait := r.verifyDue(ctx, acct); due {
+		res, verr = r.verify(ctx, acct)
+		r.schedule(acct, res, verr)
+	} else {
+		res.RequeueAfter = wait
+	}
 	acct.Status.ObservedGeneration = acct.Generation
 	if uerr != nil {
 		r.setCond(acct, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, commonv1alpha1.ReasonReconcileError,
@@ -237,13 +273,18 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, acct *cloudflarev1alph
 			msg = fmt.Sprintf("deletion blocked: more than %d managed objects in namespace %s still use this account (label %s=%s), e.g. %s",
 				len(users), acct.Namespace, reconcile.AccountLabel, reconcile.AccountLabelValue(acct.Name), strings.Join(users, ", "))
 		}
+		if c := meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionReady); c != nil && c.Status != metav1.ConditionTrue {
+			msg += reconcile.DeletingAccountHint(acct, c.Reason)
+		}
 		r.setCond(acct, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, commonv1alpha1.ReasonDependency, msg)
 	}
-	if err := r.Status().Patch(ctx, acct, client.MergeFrom(base)); err != nil {
-		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, nil
+	if !equality.Semantic.DeepEqual(base.Status, acct.Status) {
+		if err := r.Status().Patch(ctx, acct, client.MergeFrom(base)); err != nil {
+			if apierrors.IsNotFound(err) {
+				return ctrl.Result{}, nil
+			}
+			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, err
 	}
 	if uerr != nil {
 		return ctrl.Result{}, uerr
@@ -252,6 +293,55 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, acct *cloudflarev1alph
 		return ctrl.Result{}, verr
 	}
 	return ctrl.Result{RequeueAfter: min(res.RequeueAfter, r.dependencyRequeue())}, nil
+}
+
+// localReasons are Ready=False reasons found without calling Cloudflare; they may be fixed at
+// any time (the Secret is restored, ...), so an account showing one is always re-verified.
+var localReasons = map[string]bool{
+	cloudflarev1alpha1.ReasonSecretNotFound: true, cloudflarev1alpha1.ReasonSecretKeyMissing: true,
+	cloudflarev1alpha1.ReasonBaseURLNotAllowed: true, cloudflarev1alpha1.ReasonClientError: true,
+}
+
+// verifyDue reports whether a blocked deletion must re-verify acct now; if not, wait is how
+// long until it must.
+func (r *Reconciler) verifyDue(ctx context.Context, acct *cloudflarev1alpha1.CloudflareAccount) (due bool, wait time.Duration) {
+	if _, err := r.Accounts.ClientFor(ctx, acct); err != nil {
+		return true, 0 // verify stops at ClientFor too: no Cloudflare call, just the reason
+	}
+	c := meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionReady)
+	if c == nil || c.ObservedGeneration != acct.Generation || acct.Status.ObservedGeneration != acct.Generation || localReasons[c.Reason] {
+		return true, 0
+	}
+	r.mu.Lock()
+	sch, ok := r.nextVerify[types.NamespacedName{Namespace: acct.Namespace, Name: acct.Name}]
+	r.mu.Unlock()
+	if !ok || sch.generation != acct.Generation {
+		return true, 0 // e.g. after a restart: verify once, then follow its schedule
+	}
+	wait = sch.due.Sub(r.now())
+	return wait <= 0, wait
+}
+
+// schedule records when acct is next due for verification after a verify that returned res
+// and err (an error: retry with the controller's backoff, so it is due at once).
+func (r *Reconciler) schedule(acct *cloudflarev1alpha1.CloudflareAccount, res ctrl.Result, err error) {
+	nn := types.NamespacedName{Namespace: acct.Namespace, Name: acct.Name}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err != nil || res.RequeueAfter <= 0 {
+		delete(r.nextVerify, nn)
+		return
+	}
+	if r.nextVerify == nil {
+		r.nextVerify = map[types.NamespacedName]verifySchedule{}
+	}
+	r.nextVerify[nn] = verifySchedule{generation: acct.Generation, due: r.now().Add(res.RequeueAfter)}
+}
+
+func (r *Reconciler) clearSchedule(nn types.NamespacedName) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.nextVerify, nn)
 }
 
 // usersOf lists (metadata only) the objects of every *.cloudflare.flare.dev kind in acct's
@@ -329,7 +419,7 @@ func (r *Reconciler) verify(ctx context.Context, acct *cloudflarev1alpha1.Cloudf
 		var ae *reconcile.AccountError
 		if errors.As(err, &ae) {
 			clearToken(acct)
-			notReady(ae.Reason, ae.Message)
+			notReady(ae.Reason, ae.Message+reconcile.DeletingAccountHint(acct, ae.Reason))
 			return ctrl.Result{RequeueAfter: r.interval()}, nil
 		}
 		return transient(err)

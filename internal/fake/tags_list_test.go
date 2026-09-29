@@ -57,6 +57,7 @@ func TestTagsList(t *testing.T) {
 		"?tag=env!=prod":                         "n2,q1",
 		"?tag=team=a&tag=env":                    "n1",
 		"?type=queue&id=n1":                      "",
+		"?type=zone&type=dns_record":             "", // spec-valid zone-level types
 	} {
 		got := ""
 		for i, id := range ids(q) {
