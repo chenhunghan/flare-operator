@@ -20,20 +20,24 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.accountID
-      name: Account
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: READY
       type: string
-    - jsonPath: .status.conditions[?(@.type=="Ready")].status
-      name: Ready
+    - jsonPath: .status.conditions[?(@.type=='Synced')].status
+      name: SYNCED
       type: string
-    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
-      name: Reason
+    - description: The verified Cloudflare account ID
+      jsonPath: .status.id
+      name: EXTERNAL-ID
       type: string
-    - jsonPath: .status.tokenStatus
-      name: Token
+    - jsonPath: .status.atProvider.status
+      name: TOKEN
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].reason
+      name: REASON
       type: string
     - jsonPath: .metadata.creationTimestamp
-      name: Age
+      name: AGE
       type: date
     name: v1alpha1
     schema:
@@ -41,6 +45,9 @@ spec:
         description: |-
           CloudflareAccount holds the credentials for one Cloudflare account. Managed resources in the
           same namespace refer to it through spec.accountRef.
+
+          CloudflareAccount is in the cloudflare category (kubectl get cloudflare) but not in managed:
+          like a Crossplane ProviderConfig it holds credentials and manages no Cloudflare resource.
         properties:
           apiVersion:
             description: |-
@@ -124,6 +131,26 @@ spec:
             description: CloudflareAccountStatus reports the result of the last token
               verification.
             properties:
+              atProvider:
+                description: AtProvider is the token as last returned by the verify
+                  endpoint.
+                properties:
+                  expires_on:
+                    description: ExpiresOn is the token's expiry, when it has one.
+                    format: date-time
+                    type: string
+                  id:
+                    description: ID of the token.
+                    type: string
+                  not_before:
+                    description: NotBefore is the time before which the token is not
+                      valid, when it has one.
+                    format: date-time
+                    type: string
+                  status:
+                    description: 'Status of the token: active, disabled or expired.'
+                    type: string
+                type: object
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -183,6 +210,11 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              id:
+                description: |-
+                  ID is the Cloudflare account ID the token was last verified against (spec.accountID while
+                  the account is Ready; empty when verification failed).
+                type: string
               lastVerifiedTime:
                 description: LastVerifiedTime is when the token was last verified
                   successfully.
@@ -192,15 +224,23 @@ spec:
                 format: int64
                 type: integer
               tokenExpiresOn:
-                description: TokenExpiresOn is the token's expiry, when it has one.
+                description: |-
+                  TokenExpiresOn is the token's expiry, when it has one.
+
+                  Deprecated: use atProvider.expires_on. Removed in v1beta1 (docs/api-versioning.md).
                 format: date-time
                 type: string
               tokenID:
-                description: TokenID is the verified token's identifier.
+                description: |-
+                  TokenID is the verified token's identifier.
+
+                  Deprecated: use atProvider.id. Removed in v1beta1 (docs/api-versioning.md).
                 type: string
               tokenStatus:
-                description: 'TokenStatus is the token status reported by Cloudflare:
-                  active, disabled or expired.'
+                description: |-
+                  TokenStatus is the token status reported by Cloudflare: active, disabled or expired.
+
+                  Deprecated: use atProvider.status. Removed in v1beta1 (docs/api-versioning.md).
                 type: string
               tokenType:
                 description: TokenType is "account" (account-owned token) or "user".

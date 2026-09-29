@@ -12,10 +12,13 @@ spec:
   names:
     categories:
     - cloudflare
+    - managed
     - widgets
     kind: Widget
     listKind: WidgetList
     plural: widgets
+    shortNames:
+    - cfwidget
     singular: widget
   scope: Namespaced
   versions:
@@ -29,6 +32,14 @@ spec:
     - jsonPath: .status.id
       name: EXTERNAL-ID
       type: string
+    - description: the widget kind
+      jsonPath: .status.atProvider.kind
+      name: KIND
+      type: string
+    - jsonPath: .status.atProvider.created_on
+      name: CREATED
+      priority: 1
+      type: date
     - jsonPath: .metadata.creationTimestamp
       name: AGE
       type: date
@@ -195,6 +206,12 @@ spec:
               rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
                 == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
                 || (has(self.forProvider) && has(self.forProvider.name))'
+            - fieldPath: .accountRef.name
+              message: accountRef.name must name a CloudflareAccount in this namespace
+                (1-253 characters)
+              reason: FieldValueInvalid
+              rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
+                253
           status:
             description: WidgetStatus defines the observed state of a Widget.
             properties:
@@ -331,6 +348,15 @@ spec:
         required:
         - spec
         type: object
+        x-kubernetes-validations:
+        - fieldPath: .spec.forProvider.region
+          message: 'forProvider.region is immutable once the resource exists (status.id
+            is set): recreate the object to change it'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.region)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.region) ||
+            self.spec.forProvider.region == oldSelf.spec.forProvider.region'
     served: true
     storage: true
     subresources:

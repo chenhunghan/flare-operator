@@ -12,10 +12,13 @@ spec:
   names:
     categories:
     - cloudflare
+    - managed
     - vectorize
     kind: VectorizeIndex
     listKind: VectorizeIndexList
     plural: vectorizeindexes
+    shortNames:
+    - cfvec
     singular: vectorizeindex
   scope: Namespaced
   versions:
@@ -28,6 +31,12 @@ spec:
       type: string
     - jsonPath: .status.id
       name: EXTERNAL-ID
+      type: string
+    - jsonPath: .status.atProvider.config.dimensions
+      name: DIMENSIONS
+      type: integer
+    - jsonPath: .status.atProvider.config.metric
+      name: METRIC
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: AGE
@@ -147,6 +156,12 @@ spec:
               rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
                 == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
                 || (has(self.forProvider) && has(self.forProvider.name))'
+            - fieldPath: .accountRef.name
+              message: accountRef.name must name a CloudflareAccount in this namespace
+                (1-253 characters)
+              reason: FieldValueInvalid
+              rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
+                253
           status:
             description: VectorizeIndexStatus defines the observed state of a VectorizeIndex.
             properties:
@@ -244,6 +259,37 @@ spec:
         required:
         - spec
         type: object
+        x-kubernetes-validations:
+        - fieldPath: .spec.forProvider.config
+          message: 'forProvider.config is immutable once the resource exists (status.id
+            is set): recreate the object to change it'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.config)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.config) ||
+            self.spec.forProvider.config == oldSelf.spec.forProvider.config'
+        - fieldPath: .spec.forProvider.description
+          message: 'forProvider.description is immutable once the resource exists
+            (status.id is set): recreate the object to change it, or set it to the
+            value Cloudflare reports (status.atProvider.description)'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.description)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.description)
+            || self.spec.forProvider.description == oldSelf.spec.forProvider.description
+            || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.description)
+            && oldSelf.status.atProvider.description == self.spec.forProvider.description)'
+        - fieldPath: .spec.forProvider.name
+          message: 'forProvider.name is immutable once the resource exists (status.id
+            is set): recreate the object to change it, or set it to the value Cloudflare
+            reports (status.atProvider.name)'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.name)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.name) ||
+            self.spec.forProvider.name == oldSelf.spec.forProvider.name || (has(oldSelf.status.atProvider)
+            && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name
+            == self.spec.forProvider.name)'
     served: true
     storage: true
     subresources:

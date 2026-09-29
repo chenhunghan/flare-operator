@@ -10,10 +10,14 @@ spec:
   names:
     categories:
     - cloudflare
+    - managed
     - tunnels
     kind: Tunnel
     listKind: TunnelList
     plural: tunnels
+    shortNames:
+    - cftunnel
+    - cftun
     singular: tunnel
   scope: Namespaced
   versions:
@@ -280,6 +284,13 @@ spec:
             required:
             - accountRef
             type: object
+            x-kubernetes-validations:
+            - fieldPath: .accountRef.name
+              message: accountRef.name must name a CloudflareAccount in this namespace
+                (1-253 characters)
+              reason: FieldValueInvalid
+              rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
+                253
           status:
             description: TunnelStatus defines the observed state of a Tunnel.
             properties:
@@ -430,6 +441,17 @@ spec:
         x-kubernetes-validations:
         - message: metadata.name must be at most 63 characters
           rule: self.metadata.name.size() <= 63
+        - fieldPath: .spec.forProvider.name
+          message: 'forProvider.name is immutable once the tunnel exists (status.id
+            is set): renaming is not supported; recreate the object, or set it to
+            the name Cloudflare reports (status.atProvider.name)'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.name)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.name) ||
+            self.spec.forProvider.name == oldSelf.spec.forProvider.name || (has(oldSelf.status.atProvider)
+            && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name
+            == self.spec.forProvider.name)'
     served: true
     storage: true
     subresources:

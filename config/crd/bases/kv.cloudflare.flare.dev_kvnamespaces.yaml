@@ -12,10 +12,13 @@ spec:
   names:
     categories:
     - cloudflare
+    - managed
     - kv
     kind: KVNamespace
     listKind: KVNamespaceList
     plural: kvnamespaces
+    shortNames:
+    - cfkv
     singular: kvnamespace
   scope: Namespaced
   versions:
@@ -28,6 +31,9 @@ spec:
       type: string
     - jsonPath: .status.id
       name: EXTERNAL-ID
+      type: string
+    - jsonPath: .status.atProvider.title
+      name: TITLE
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: AGE
@@ -119,6 +125,12 @@ spec:
               rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
                 == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
                 || (has(self.forProvider) && has(self.forProvider.title))'
+            - fieldPath: .accountRef.name
+              message: accountRef.name must name a CloudflareAccount in this namespace
+                (1-253 characters)
+              reason: FieldValueInvalid
+              rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
+                253
           status:
             description: KVNamespaceStatus defines the observed state of a KVNamespace.
             properties:
@@ -208,6 +220,18 @@ spec:
         required:
         - spec
         type: object
+        x-kubernetes-validations:
+        - fieldPath: .spec.forProvider.jurisdiction
+          message: 'forProvider.jurisdiction is immutable once the resource exists
+            (status.id is set): recreate the object to change it, or set it to the
+            value Cloudflare reports (status.atProvider.jurisdiction)'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.jurisdiction)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.jurisdiction)
+            || self.spec.forProvider.jurisdiction == oldSelf.spec.forProvider.jurisdiction
+            || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.jurisdiction)
+            && oldSelf.status.atProvider.jurisdiction == self.spec.forProvider.jurisdiction)'
     served: true
     storage: true
     subresources:

@@ -176,6 +176,7 @@ type WidgetTreeObservation struct {
 // WidgetSpec defines the desired state of a Widget.
 // +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.kind))",message="forProvider.kind is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
 // +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.name))",message="forProvider.name is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
+// +kubebuilder:validation:XValidation:rule="size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253",message="accountRef.name must name a CloudflareAccount in this namespace (1-253 characters)"
 type WidgetSpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
 	// ForProvider holds the Cloudflare API fields, named exactly as in the API.
@@ -199,10 +200,13 @@ type WidgetStatus struct {
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,categories={cloudflare,widgets}
+// +kubebuilder:resource:scope=Namespaced,shortName=cfwidget,categories={cloudflare,managed,widgets}
+// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.region) || !has(self.spec.forProvider) || !has(self.spec.forProvider.region) || self.spec.forProvider.region == oldSelf.spec.forProvider.region",message="forProvider.region is immutable once the resource exists (status.id is set): recreate the object to change it"
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
 // +kubebuilder:printcolumn:name="EXTERNAL-ID",type="string",JSONPath=".status.id"
+// +kubebuilder:printcolumn:name="KIND",type="string",JSONPath=".status.atProvider.kind",description="the widget kind"
+// +kubebuilder:printcolumn:name="CREATED",type="date",JSONPath=".status.atProvider.created_on",priority=1
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
 type Widget struct {
 	metav1.TypeMeta   `json:",inline"`

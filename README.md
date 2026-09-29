@@ -29,7 +29,10 @@ placeholder until the repository has a permanent home.
 | `WorkerScript` | `workers.cloudflare.flare.dev/v1alpha1` | hand-written (Workers scripts: modules, bindings, workers.dev) | `Delete` |
 
 Every kind is namespaced and belongs to the `cloudflare` category, so `kubectl get cloudflare`
-lists all of them. The generated kinds are tested against the `flarefake` emulator and against
+lists all of them (`kubectl get managed` lists the managed kinds, without `CloudflareAccount`).
+Short names start with `cf` (`cfkv`, `cfqueue`, `cfd1`, `cftunnel`, `cfvpc`, `cfworker`, ...);
+[docs/api-reference.md](docs/api-reference.md) lists them with every field, validation rule and
+condition reason, and [docs/api-versioning.md](docs/api-versioning.md) the path to `v1beta1`. The generated kinds are tested against the `flarefake` emulator and against
 recordings of the real API. The chart has not yet been exercised end to end on a real cluster.
 Open issues and unverified assumptions are tracked in [docs/STATUS.md](docs/STATUS.md).
 
@@ -82,8 +85,8 @@ kubectl -n demo get cfaccount main      # READY True, TOKEN active
 
 The account controller verifies the token. It tries `GET /accounts/{id}/tokens/verify` first for
 account-owned tokens, then falls back to `GET /user/tokens/verify` plus `GET /accounts/{id}` for
-user tokens. It reports the result in `status` (`tokenStatus`, `tokenType`, `tokenExpiresOn`)
-and in the `Ready` condition. Failure reasons include `SecretNotFound`, `TokenInvalid`,
+user tokens. It reports the result in `status` (`id`, the verified account ID; `atProvider`, the token's
+`id`, `status` and `expires_on`; `tokenType`) and in the `Ready` condition. Failure reasons include `SecretNotFound`, `TokenInvalid`,
 `TokenExpired`, `AccountMismatch` and `BaseURLNotAllowed`.
 
 ### 3. Create your first KVNamespace

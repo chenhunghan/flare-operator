@@ -3,6 +3,7 @@ package flaregen
 import (
 	"fmt"
 	"os"
+	"regexp"
 
 	"sigs.k8s.io/yaml"
 )
@@ -28,6 +29,13 @@ type KindConfig struct {
 	Group string `json:"group,omitempty"` // product; default: first fern segment without "_"
 	// Plural is the CRD resource name (default: lower-case Kind, pluralised).
 	Plural string `json:"plural,omitempty"`
+	// ShortNames are kubectl short names of the kind. They must not collide with the short
+	// names or resource names of core Kubernetes or common CRDs (flare-operator uses the
+	// "cf" prefix); docs/api-reference.md lists them.
+	ShortNames []string `json:"shortNames,omitempty"`
+	// PrintColumns are kind-specific kubectl columns, shown after READY, SYNCED and
+	// EXTERNAL-ID and before AGE. JSONPath must name a field of the CRD schema.
+	PrintColumns []PrintColumn `json:"printColumns,omitempty"`
 
 	IDField      string `json:"idField,omitempty"`
 	NameField    string `json:"nameField,omitempty"`    // "-" disables adoption by name
@@ -59,6 +67,23 @@ type KindConfig struct {
 	// Why documents the overrides (recording numbers, UNVERIFIED notes). Not emitted.
 	Why map[string]string `json:"why,omitempty"`
 }
+
+// PrintColumn is one additional kubectl printer column.
+type PrintColumn struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"` // string | integer | number | boolean | date
+	JSONPath string `json:"jsonPath"`
+	// Priority 0 shows the column in plain `kubectl get`; 1 only with -o wide.
+	Priority    int32  `json:"priority,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+var (
+	shortNameRe   = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
+	columnNameRe  = regexp.MustCompile(`^[A-Z][A-Z0-9-]*$`)
+	columnPathRe  = regexp.MustCompile(`^(\.[a-zA-Z_][a-zA-Z0-9_]*)+$`)
+	columnTypeSet = map[string]bool{"string": true, "integer": true, "number": true, "boolean": true, "date": true}
+)
 
 // FieldOverride corrects the spec where recordings show different behavior.
 type FieldOverride struct {
@@ -107,6 +132,23 @@ func ParseConfig(b []byte) (*Config, error) {
 		case "", "generic":
 		default:
 			return nil, fmt.Errorf("generator config: %s: emulate %q (want \"generic\" or nothing)", k.FernGroup, k.Emulate)
+		}
+		for _, sn := range k.ShortNames {
+			if !shortNameRe.MatchString(sn) {
+				return nil, fmt.Errorf("generator config: %s: shortName %q must match %s", k.FernGroup, sn, shortNameRe)
+			}
+		}
+		for _, pc := range k.PrintColumns {
+			switch {
+			case !columnNameRe.MatchString(pc.Name):
+				return nil, fmt.Errorf("generator config: %s: printColumns name %q must match %s", k.FernGroup, pc.Name, columnNameRe)
+			case !columnTypeSet[pc.Type]:
+				return nil, fmt.Errorf("generator config: %s: printColumns %s: type %q", k.FernGroup, pc.Name, pc.Type)
+			case !columnPathRe.MatchString(pc.JSONPath):
+				return nil, fmt.Errorf("generator config: %s: printColumns %s: jsonPath %q must be a plain dotted path such as .status.atProvider.name", k.FernGroup, pc.Name, pc.JSONPath)
+			case pc.Priority < 0 || pc.Priority > 1:
+				return nil, fmt.Errorf("generator config: %s: printColumns %s: priority %d (want 0 or 1)", k.FernGroup, pc.Name, pc.Priority)
+			}
 		}
 		for p, o := range k.Fields {
 			switch o.Type {

@@ -81,6 +81,7 @@ type VPCServiceTLSSettings struct {
 //
 // +kubebuilder:validation:XValidation:rule="self.type == 'tcp' || (!has(self.tcp_port) && !has(self.app_protocol))",message="tcp_port and app_protocol are only valid for type tcp"
 // +kubebuilder:validation:XValidation:rule="self.type == 'http' || (!has(self.http_port) && !has(self.https_port))",message="http_port and https_port are only valid for type http"
+// +kubebuilder:validation:XValidation:rule="!has(self.tunnelRef) || size(self.tunnelRef.name) > 0",message="tunnelRef.name must not be empty",fieldPath=".tunnelRef.name",reason="FieldValueInvalid"
 // +kubebuilder:validation:XValidation:rule="has(self.tunnelRef) != ((has(self.host.network) && has(self.host.network.tunnel_id)) || (has(self.host.resolver_network) && has(self.host.resolver_network.tunnel_id)))",message="set exactly one of tunnelRef or the host's network/resolver_network tunnel_id"
 type VPCServiceParameters struct {
 	// Name of the service, unique in the account. Defaults to metadata.name. An existing
@@ -181,6 +182,7 @@ type VPCServiceObservation struct {
 
 // VPCServiceSpec defines the desired state of a VPCService.
 //
+// +kubebuilder:validation:XValidation:rule="size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253",message="accountRef.name must name a CloudflareAccount in this namespace (1-253 characters)",fieldPath=".accountRef.name",reason="FieldValueInvalid"
 // +kubebuilder:validation:XValidation:rule="has(self.forProvider) || (has(self.managementPolicies) && self.managementPolicies == ['Observe'])",message="forProvider is required unless managementPolicies is [Observe]"
 type VPCServiceSpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
@@ -210,10 +212,11 @@ type VPCServiceStatus struct {
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,categories={cloudflare,workersvpc}
+// +kubebuilder:resource:scope=Namespaced,shortName=cfvpcsvc;cfvpc,categories={cloudflare,managed,workersvpc}
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
 // +kubebuilder:printcolumn:name="EXTERNAL-ID",type="string",JSONPath=".status.id"
+// +kubebuilder:printcolumn:name="TYPE",type="string",JSONPath=".status.atProvider.type"
 // +kubebuilder:printcolumn:name="TUNNEL",type="string",JSONPath=".spec.forProvider.tunnelRef.name"
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
 type VPCService struct {

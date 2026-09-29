@@ -90,20 +90,51 @@ const (
 	AccountTokenFinalizer = "cloudflare.flare.dev/account-token"
 )
 
+// CloudflareAccountObservation is the API token as last returned by
+// GET /accounts/{account_id}/tokens/verify (account-owned tokens) or GET /user/tokens/verify
+// (user tokens).
+type CloudflareAccountObservation struct {
+	// ID of the token.
+	// +optional
+	ID string `json:"id,omitempty"`
+	// Status of the token: active, disabled or expired.
+	// +optional
+	Status string `json:"status,omitempty"`
+	// ExpiresOn is the token's expiry, when it has one.
+	// +optional
+	ExpiresOn *metav1.Time `json:"expires_on,omitempty"`
+	// NotBefore is the time before which the token is not valid, when it has one.
+	// +optional
+	NotBefore *metav1.Time `json:"not_before,omitempty"`
+}
+
 // CloudflareAccountStatus reports the result of the last token verification.
 type CloudflareAccountStatus struct {
+	// ID is the Cloudflare account ID the token was last verified against (spec.accountID while
+	// the account is Ready; empty when verification failed).
+	// +optional
+	ID string `json:"id,omitempty"`
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// AtProvider is the token as last returned by the verify endpoint.
+	// +optional
+	AtProvider CloudflareAccountObservation `json:"atProvider,omitempty"`
 	// TokenID is the verified token's identifier.
+	//
+	// Deprecated: use atProvider.id. Removed in v1beta1 (docs/api-versioning.md).
 	// +optional
 	TokenID string `json:"tokenID,omitempty"`
 	// TokenStatus is the token status reported by Cloudflare: active, disabled or expired.
+	//
+	// Deprecated: use atProvider.status. Removed in v1beta1 (docs/api-versioning.md).
 	// +optional
 	TokenStatus string `json:"tokenStatus,omitempty"`
 	// TokenType is "account" (account-owned token) or "user".
 	// +optional
 	TokenType string `json:"tokenType,omitempty"`
 	// TokenExpiresOn is the token's expiry, when it has one.
+	//
+	// Deprecated: use atProvider.expires_on. Removed in v1beta1 (docs/api-versioning.md).
 	// +optional
 	TokenExpiresOn *metav1.Time `json:"tokenExpiresOn,omitempty"`
 	// LastVerifiedTime is when the token was last verified successfully.
@@ -120,12 +151,16 @@ type CloudflareAccountStatus struct {
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// CloudflareAccount is in the cloudflare category (kubectl get cloudflare) but not in managed:
+// like a Crossplane ProviderConfig it holds credentials and manages no Cloudflare resource.
+//
 // +kubebuilder:resource:scope=Namespaced,shortName=cfaccount;cfacct,categories=cloudflare
-// +kubebuilder:printcolumn:name="Account",type=string,JSONPath=`.spec.accountID`
-// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
-// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].reason`
-// +kubebuilder:printcolumn:name="Token",type=string,JSONPath=`.status.tokenStatus`
-// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
+// +kubebuilder:printcolumn:name="EXTERNAL-ID",type="string",JSONPath=".status.id",description="The verified Cloudflare account ID"
+// +kubebuilder:printcolumn:name="TOKEN",type="string",JSONPath=".status.atProvider.status"
+// +kubebuilder:printcolumn:name="REASON",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].reason"
+// +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
 type CloudflareAccount struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

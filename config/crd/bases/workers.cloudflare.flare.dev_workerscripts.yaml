@@ -10,10 +10,14 @@ spec:
   names:
     categories:
     - cloudflare
+    - managed
     - workers
     kind: WorkerScript
     listKind: WorkerScriptList
     plural: workerscripts
+    shortNames:
+    - cfworker
+    - cfscript
     singular: workerscript
   scope: Namespaced
   versions:
@@ -24,15 +28,15 @@ spec:
     - jsonPath: .status.conditions[?(@.type=='Synced')].status
       name: SYNCED
       type: string
-    - jsonPath: .status.id
-      name: SCRIPT
-      type: string
-    - jsonPath: .status.atProvider.version_id
-      name: VERSION
-      priority: 1
+    - description: The Cloudflare script name
+      jsonPath: .status.id
+      name: EXTERNAL-ID
       type: string
     - jsonPath: .status.atProvider.url
       name: URL
+      type: string
+    - jsonPath: .status.atProvider.version_id
+      name: VERSION
       priority: 1
       type: string
     - jsonPath: .metadata.creationTimestamp
@@ -217,6 +221,14 @@ spec:
                       - type
                       type: object
                       x-kubernetes-validations:
+                      - message: a kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef
+                          or serviceRef needs a non-empty name
+                        rule: (!has(self.kvNamespaceRef) || size(self.kvNamespaceRef.name)
+                          > 0) && (!has(self.queueRef) || size(self.queueRef.name)
+                          > 0) && (!has(self.d1DatabaseRef) || size(self.d1DatabaseRef.name)
+                          > 0) && (!has(self.vpcServiceRef) || size(self.vpcServiceRef.name)
+                          > 0) && (!has(self.serviceRef) || size(self.serviceRef.name)
+                          > 0)
                       - message: text is required for (and only valid with) type plain_text
                         rule: 'self.type == ''plain_text'' ? has(self.text) : !has(self.text)'
                       - message: secretKeyRef is required for (and only valid with)
@@ -420,6 +432,12 @@ spec:
             - accountRef
             type: object
             x-kubernetes-validations:
+            - fieldPath: .accountRef.name
+              message: accountRef.name must name a CloudflareAccount in this namespace
+                (1-253 characters)
+              reason: FieldValueInvalid
+              rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
+                253
             - message: forProvider is required unless managementPolicies exclude Create
                 and Update (e.g. ["Observe"])
               rule: has(self.forProvider) || (has(self.managementPolicies) && size(self.managementPolicies)

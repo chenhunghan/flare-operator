@@ -8,7 +8,8 @@
 //  2. idempotency: re-reconciles of an in-sync object make zero Cloudflare writes;
 //  3. a change of one mutable field (an UpdateField) → exactly one write, UpdateMethod on the
 //     item (skipped when the kind has no update operation);
-//  4. a change of an Immutable field → Synced=False/Immutable and zero writes;
+//  4. a change of an Immutable field → rejected by the API server when a CEL rule covers it,
+//     and, applied past the rule, Synced=False/Immutable and zero writes;
 //  5. external delete → recreated (same ID when the client chooses it, else a new one);
 //  6. an Observe-only object adopting the resource → Ready, zero writes, and its deletion
 //     leaves the resource;
@@ -216,12 +217,12 @@ func (k *kindTest) run() {
 	// 4. Immutable change.
 	if imm, what, ok := k.immutableFP(cur, name); ok {
 		t.Logf("immutable change %s: %s", what, mustJSON(imm))
-		k.setForProvider(obj, imm)
+		k.setImmutable(obj, imm)
 		k.waitFor(obj, "Synced=False/Immutable", func() (bool, string) {
 			return condIs(obj, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, commonv1alpha1.ReasonImmutable), "not Immutable"
 		})
 		k.assertNoWrites("immutable change", 4*k.o.Poll, item)
-		k.setForProvider(obj, cur)
+		k.setImmutable(obj, cur)
 		k.waitSynced(obj, "immutable change reverted")
 	} else {
 		t.Logf("no immutable step: %s", what)
@@ -424,6 +425,54 @@ func (k *kindTest) setForProvider(obj reconcile.ManagedObject, fp map[string]any
 	if err != nil {
 		k.t.Fatalf("update forProvider: %v", err)
 	}
+}
+
+// setImmutable applies a forProvider that changes Immutable fields. The API server rejects an
+// in-place change of a top-level immutable field once status.id is set (the CRD's CEL
+// transition rules), so the change is made in two updates the rules allow, each only removing or
+// adding fields: managementPolicies [Observe] with an empty forProvider (no create-required
+// rule applies), then fp with the original policies. The controller's own immutable check
+// (Synced=False, reason Immutable) then sees the change.
+func (k *kindTest) setImmutable(obj reconcile.ManagedObject, fp map[string]any) {
+	k.t.Helper()
+	if err := k.tryForProvider(obj, fp, nil); err == nil {
+		k.t.Logf("immutable change accepted by the API server (no CEL rule covers it)")
+		return
+	} else if !apierrors.IsInvalid(err) || !strings.Contains(err.Error(), "immutable") {
+		k.t.Fatalf("immutable change: want the API server's immutable error, got %v", err)
+	}
+	pols := append([]commonv1alpha1.ManagementAction(nil), obj.GetResourceSpec().ManagementPolicies...)
+	if err := k.tryForProvider(obj, map[string]any{}, []commonv1alpha1.ManagementAction{commonv1alpha1.ManageObserve}); err != nil {
+		k.t.Fatalf("immutable change, step 1 (Observe, empty forProvider): %v", err)
+	}
+	if pols == nil {
+		pols = []commonv1alpha1.ManagementAction{}
+	}
+	if err := k.tryForProvider(obj, fp, pols); err != nil {
+		k.t.Fatalf("immutable change, step 2 (forProvider, original policies): %v", err)
+	}
+}
+
+// tryForProvider replaces forProvider (and managementPolicies when pols is not nil; an empty
+// pols clears them) and returns the update error.
+func (k *kindTest) tryForProvider(obj reconcile.ManagedObject, fp map[string]any, pols []commonv1alpha1.ManagementAction) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := k.get(obj); err != nil {
+			return err
+		}
+		v := reflect.ValueOf(obj).Elem().FieldByName("Spec").FieldByName("ForProvider")
+		v.Set(reflect.Zero(v.Type()))
+		if err := json.Unmarshal([]byte(mustJSON(fp)), v.Addr().Interface()); err != nil {
+			return err
+		}
+		if pols != nil {
+			obj.GetResourceSpec().ManagementPolicies = nil
+			if len(pols) > 0 {
+				obj.GetResourceSpec().ManagementPolicies = pols
+			}
+		}
+		return k.e.Client.Update(testenv.Context(k.t, 30*time.Second), obj)
+	})
 }
 
 func (k *kindTest) waitFor(obj reconcile.ManagedObject, what string, cond func() (bool, string)) {

@@ -2,6 +2,10 @@
 kinds:
   - fernGroup: widgets.gadgets
     kind: Widget
+    shortNames: [cfwidget]
+    printColumns:
+      - {name: KIND, type: string, jsonPath: .status.atProvider.kind, description: the widget kind}
+      - {name: CREATED, type: date, jsonPath: .status.atProvider.created_on, priority: 1}
     listOrder: informational
     emulate: generic
   - fernGroup: widget_tools.settings

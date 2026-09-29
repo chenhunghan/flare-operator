@@ -31,6 +31,8 @@ type WidgetSettingsObservation struct {
 }
 
 // WidgetSettingsSpec defines the desired state of a WidgetSettings.
+// +kubebuilder:validation:XValidation:rule="size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253",message="accountRef.name must name a CloudflareAccount in this namespace (1-253 characters)"
+// +kubebuilder:validation:XValidation:rule="has(self.zoneRef.id) != has(self.zoneRef.name)",message="zoneRef needs exactly one of id or name"
 type WidgetSettingsSpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
 	// ForProvider holds the Cloudflare API fields, named exactly as in the API.
@@ -52,7 +54,7 @@ type WidgetSettingsStatus struct {
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,categories={cloudflare,widgettools}
+// +kubebuilder:resource:scope=Namespaced,categories={cloudflare,managed,widgettools}
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
 // +kubebuilder:printcolumn:name="EXTERNAL-ID",type="string",JSONPath=".status.id"

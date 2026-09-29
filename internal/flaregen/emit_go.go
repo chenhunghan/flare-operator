@@ -297,6 +297,9 @@ func emitTypesFile(module string, k *kindGo, structs []*goStruct) ([]byte, error
 			fmt.Fprintf(&b, "// +kubebuilder:validation:XValidation:rule=%q,message=%q\n", r.Rule, r.Message)
 		}
 	}
+	for _, r := range specRules(m) {
+		fmt.Fprintf(&b, "// +kubebuilder:validation:XValidation:rule=%q,message=%q\n", r.Rule, r.Message)
+	}
 	fmt.Fprintf(&b, "type %sSpec struct {\n\tcommonv1alpha1.ResourceSpec `json:\",inline\"`\n", m.Kind)
 	b.WriteString("\t// ForProvider holds the Cloudflare API fields, named exactly as in the API.\n")
 	fmt.Fprintf(&b, "\tForProvider %s `json:\"forProvider\"`\n}\n\n", k.params.Name)
@@ -320,9 +323,23 @@ func emitTypesFile(module string, k *kindGo, structs []*goStruct) ([]byte, error
 		fmt.Fprintf(&b, "// Write-only fields: %s.\n", strings.Join(d.WriteOnly, ", "))
 	}
 	b.WriteString("//\n// +kubebuilder:object:root=true\n// +kubebuilder:subresource:status\n")
-	fmt.Fprintf(&b, "// +kubebuilder:resource:scope=Namespaced,categories={cloudflare,%s}\n", m.Product)
-	for _, c := range printerColumns() {
-		fmt.Fprintf(&b, "// +kubebuilder:printcolumn:name=%q,type=%q,JSONPath=%q\n", c.Name, c.Type, c.JSONPath)
+	res := "// +kubebuilder:resource:scope=Namespaced"
+	if len(m.ShortNames) > 0 {
+		res += ",shortName=" + strings.Join(m.ShortNames, ";")
+	}
+	fmt.Fprintf(&b, "%s,categories={%s}\n", res, strings.Join(categories(m), ","))
+	for _, r := range immutableRules(m) {
+		fmt.Fprintf(&b, "// +kubebuilder:validation:XValidation:rule=%q,message=%q\n", r.Rule, r.Message)
+	}
+	for _, c := range printerColumns(m) {
+		fmt.Fprintf(&b, "// +kubebuilder:printcolumn:name=%q,type=%q,JSONPath=%q", c.Name, c.Type, c.JSONPath)
+		if c.Priority != 0 {
+			fmt.Fprintf(&b, ",priority=%d", c.Priority)
+		}
+		if c.Description != "" {
+			fmt.Fprintf(&b, ",description=%q", c.Description)
+		}
+		b.WriteString("\n")
 	}
 	fmt.Fprintf(&b, "type %s struct {\n\tmetav1.TypeMeta   `json:\",inline\"`\n\tmetav1.ObjectMeta `json:\"metadata,omitempty\"`\n\n", m.Kind)
 	fmt.Fprintf(&b, "\tSpec   %sSpec   `json:\"spec\"`\n\t// +optional\n\tStatus %sStatus `json:\"status,omitempty\"`\n}\n\n", m.Kind, m.Kind)

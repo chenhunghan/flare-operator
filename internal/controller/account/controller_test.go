@@ -44,6 +44,10 @@ func TestAccountReady(t *testing.T) {
 	if st.ObservedGeneration != a.Generation || st.LastVerifiedTime == nil {
 		t.Errorf("observedGeneration/lastVerified %+v", st)
 	}
+	// status.id and status.atProvider follow the convention of every kind.
+	if st.ID != a.AccountID || st.AtProvider.ID != st.TokenID || st.AtProvider.Status != "active" {
+		t.Errorf("status.id %q, atProvider %+v (account %s, token %s)", st.ID, st.AtProvider, a.AccountID, st.TokenID)
+	}
 	if c := meta.FindStatusCondition(st.Conditions, commonv1alpha1.ConditionSynced); c == nil || c.Status != metav1.ConditionTrue {
 		t.Errorf("Synced %+v", c)
 	}
@@ -77,6 +81,12 @@ func TestAccountNotReady(t *testing.T) {
 			if tc.reason != cloudflarev1alpha1.ReasonTokenDisabled && tc.reason != cloudflarev1alpha1.ReasonTokenExpired && acct.Status.TokenStatus != "" {
 				t.Errorf("token status should be cleared, got %q", acct.Status.TokenStatus)
 			}
+			if acct.Status.ID != "" {
+				t.Errorf("status.id %q on a not-Ready account", acct.Status.ID)
+			}
+			if (tc.reason == cloudflarev1alpha1.ReasonTokenDisabled || tc.reason == cloudflarev1alpha1.ReasonTokenExpired) != (acct.Status.AtProvider.Status != "") {
+				t.Errorf("atProvider %+v for reason %s", acct.Status.AtProvider, tc.reason)
+			}
 		})
 	}
 }
@@ -94,6 +104,9 @@ func TestUserTokenAndExpiry(t *testing.T) {
 	}
 	if acct.Status.TokenExpiresOn == nil || !acct.Status.TokenExpiresOn.Time.Equal(exp) {
 		t.Errorf("expiry %v want %v", acct.Status.TokenExpiresOn, exp)
+	}
+	if acct.Status.AtProvider.ExpiresOn == nil || !acct.Status.AtProvider.ExpiresOn.Time.Equal(exp) {
+		t.Errorf("atProvider.expires_on %v want %v", acct.Status.AtProvider.ExpiresOn, exp)
 	}
 }
 

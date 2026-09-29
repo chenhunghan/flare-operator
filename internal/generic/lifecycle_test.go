@@ -165,13 +165,14 @@ func TestLifecycle(t *testing.T) {
 				t.Errorf("after drift correction the resource is %v", got)
 			}
 
-			// Immutable change: Synced=False/Immutable and no write at all.
-			h.setForProvider(obj, kc.fp(kc.immutable, name))
+			// Immutable change: Synced=False/Immutable and no write at all (made past the CRD's
+			// CEL immutability rules, which reject an in-place change at once).
+			h.setImmutable(obj, kc.fp(kc.immutable, name))
 			h.waitFor(obj, "Immutable", func() (bool, string) {
 				return condIs(obj, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, commonv1alpha1.ReasonImmutable), "not Immutable"
 			})
 			h.assertNoWrites("immutable change", 4*poll, item)
-			h.setForProvider(obj, kc.fp(kc.update, name))
+			h.setImmutable(obj, kc.fp(kc.update, name))
 			h.waitSynced(obj, en)
 
 			// External delete → recreated (new ID, annotation follows).
