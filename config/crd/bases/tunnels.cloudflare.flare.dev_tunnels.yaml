@@ -47,6 +47,8 @@ spec:
           (account scope). Default deletion policy: Delete. Deleting the Cloudflare tunnel is a soft
           delete (deleted_at is set, GET still answers 200); it is refused (400/1022) while cloudflared
           is connected, so the controller first scales the connector to zero.
+
+          The name is limited to 63 characters because it is a label value on the owned objects.
         properties:
           apiVersion:
             description: |-
@@ -257,10 +259,12 @@ spec:
                       external backends). Set them to the cluster's pod and service CIDRs so those rules do not
                       open in-cluster destinations.
                     items:
+                      maxLength: 18
                       type: string
                       x-kubernetes-validations:
                       - message: must be an IPv4 CIDR
                         rule: isCIDR(self) && cidr(self).ip().family() == 4
+                    maxItems: 32
                     type: array
                 type: object
               zoneRef:
@@ -415,6 +419,9 @@ spec:
         required:
         - spec
         type: object
+        x-kubernetes-validations:
+        - message: metadata.name must be at most 63 characters
+          rule: self.metadata.name.size() <= 63
     served: true
     storage: true
     subresources:

@@ -64,6 +64,8 @@ type TunnelNetworkPolicy struct {
 	// external backends). Set them to the cluster's pod and service CIDRs so those rules do not
 	// open in-cluster destinations.
 	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MaxLength=18
 	// +kubebuilder:validation:items:XValidation:rule="isCIDR(self) && cidr(self).ip().family() == 4",message="must be an IPv4 CIDR"
 	ExcludeCIDRs []string `json:"excludeCIDRs,omitempty"`
 	// AllowHTTPS also allows egress on TCP 443 to 0.0.0.0/0. Not needed: cloudflared's
@@ -164,9 +166,12 @@ type TunnelStatus struct {
 // delete (deleted_at is set, GET still answers 200); it is refused (400/1022) while cloudflared
 // is connected, so the controller first scales the connector to zero.
 //
+// The name is limited to 63 characters because it is a label value on the owned objects.
+//
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,categories={cloudflare,tunnels}
+// +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 63",message="metadata.name must be at most 63 characters"
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
 // +kubebuilder:printcolumn:name="EXTERNAL-ID",type="string",JSONPath=".status.id"

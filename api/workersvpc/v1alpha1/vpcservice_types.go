@@ -24,6 +24,8 @@ type VPCServiceResolverNetwork struct {
 	// ClusterIP of the cluster DNS Service (kube-system/kube-dns), discovered at runtime; the
 	// spike showed cloudflared would otherwise use its pod's /etc/resolv.conf (§2.1).
 	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:items:MaxLength=45
 	// +kubebuilder:validation:items:XValidation:rule="isIP(self)",message="must be an IP address"
 	ResolverIPs []string `json:"resolver_ips,omitempty"`
 }
@@ -45,10 +47,12 @@ type VPCServiceHost struct {
 	Hostname *string `json:"hostname,omitempty"`
 	// IPv4 address of the backend.
 	// +optional
+	// +kubebuilder:validation:MaxLength=15
 	// +kubebuilder:validation:XValidation:rule="isIP(self) && ip(self).family() == 4",message="must be an IPv4 address"
 	IPv4 *string `json:"ipv4,omitempty"`
 	// IPv6 address of the backend.
 	// +optional
+	// +kubebuilder:validation:MaxLength=45
 	// +kubebuilder:validation:XValidation:rule="isIP(self) && ip(self).family() == 6",message="must be an IPv6 address"
 	IPv6 *string `json:"ipv6,omitempty"`
 	// Network of an IP host.
