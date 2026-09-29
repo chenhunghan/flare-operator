@@ -171,7 +171,8 @@ type DeleteDecision struct {
 //
 // exists (optional) reports whether the resource still exists. It is consulted only when
 // ownership is not proven, so an already-deleted resource yields Gone instead of a spurious
-// "kept" warning or an endless retry.
+// "kept" warning or an endless retry. A permanent (4xx, not 404) error from exists counts as
+// "still exists": the resource is kept with the warning rather than retried forever.
 //
 // A non-nil error is a transient failure of the tag read (or of exists) with no other proof:
 // retry. A permanent refusal of the tag read (a 4xx such as 403 when the token lacks Resource
@@ -185,10 +186,17 @@ func MayDeleteExternal(ctx context.Context, tagger Tagger, cf cfclient.Client, a
 			return false, nil
 		}
 		ok, err := exists(ctx)
-		if err != nil && !cfclient.IsNotFound(err) {
-			return false, fmt.Errorf("check whether %s %s still exists: %w", target.Type, id, err)
+		switch {
+		case err == nil:
+			return !ok, nil
+		case cfclient.IsNotFound(err):
+			return true, nil
+		case IsPermanent(err):
+			// The check only spares a warning: a read that will keep failing (403, ...) must not
+			// turn a keep verdict into an endless retry, so the resource is taken to exist.
+			return false, nil
 		}
-		return err != nil || !ok, nil
+		return false, fmt.Errorf("check whether %s %s still exists: %w", target.Type, id, err)
 	}
 	keep := func(why string) (DeleteDecision, error) {
 		g, err := gone()

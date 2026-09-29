@@ -78,6 +78,9 @@ func TestMayDeleteExternal(t *testing.T) {
 		{"tags 404, recorded", stubTagger{err: notFound}, obj{record: true}, nil, del, false},
 		{"tags 403, no record: keep, no retry", stubTagger{err: forbidden}, obj{pin: true, statusID: true}, nil, keep, false},
 		{"tags 403, recorded", stubTagger{err: forbidden}, obj{record: true}, nil, del, false},
+		{"tags 403, no record, exists check 403: keep, no retry", stubTagger{err: forbidden}, obj{pin: true}, exists(false, forbidden), keep, false},
+		{"untagged, no record, exists check 403: keep", stubTagger{tagged: true}, obj{pin: true}, exists(false, forbidden), keep, false},
+		{"read fails, no record, exists check 403: retry", stubTagger{err: errRead}, obj{pin: true}, exists(false, forbidden), retry, false},
 		{"tagging off, pinned", reconcile.NoopTagger{}, obj{pin: true}, nil, del, false},
 		{"tagging off, recorded", reconcile.NoopTagger{}, obj{record: true}, nil, del, false},
 		{"tagging off, legacy", reconcile.NoopTagger{}, obj{legacy: true}, nil, keep, false}, // legacy needs the pin; the pin alone suffices

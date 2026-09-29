@@ -10,9 +10,14 @@
 //     pins it and records the proof). With tagging disabled nothing can prove that a
 //     same-named tunnel is ours, so it is not adopted by name: Ready/Synced=False, reason
 //     NameConflict, no connectors (as VPCService); pin it to adopt it. A tunnel known only
-//     through status.id (an untagged adoption by an older build) is treated the same way.
+//     through status.id (an untagged adoption by an older build) is treated the same way, and
+//     the connector Deployment and token Secret such a build made are deleted.
 //     Otherwise one is created and the ownership record is written at once
-//     (reconcile.RecordCreated, which a concurrent change of the object cannot make fail). An
+//     (reconcile.RecordCreated, which a concurrent change of the object cannot make fail).
+//     Known gap (as for VPCService): with tagging disabled, should that write fail for another
+//     reason (API server unavailable), the new tunnel's ID may reach status.id without the
+//     record, and the next sync reports the object's own tunnel as NameConflict; set the
+//     external-id annotation to adopt it. An
 //     older build's created-by-uid annotation is honoured and migrated. An observe-only object
 //     that finds a tunnel by name keeps its ID only in status.atProvider. A pinned tunnel that
 //     is gone (404, or soft-deleted: GET answers 200 with deleted_at) is reported as
@@ -54,6 +59,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -361,6 +367,11 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 				t.TunnelName(), tun.ID, commonv1alpha1.AnnotationExternalID)
 			t.Status.ID = ""
 			t.Status.AtProvider = tunnelsv1alpha1.TunnelObservation{}
+			// An older build may have run connectors on it (an untagged adoption through
+			// status.id): stop them and drop that tunnel's token.
+			if err := r.stopConnector(ctx, t); err != nil {
+				return syncErr(fmt.Errorf("stop the connector of an unproven tunnel: %w", err))
+			}
 			reconcile.SetReady(t, metav1.ConditionFalse, reconcile.ReasonNameConflict, msg)
 			reconcile.SetSynced(t, metav1.ConditionFalse, reconcile.ReasonNameConflict, msg)
 			return ctrl.Result{RequeueAfter: DependencyRetry}, nil
@@ -537,6 +548,31 @@ func (r *Reconciler) ensureDeployment(ctx context.Context, t *tunnelsv1alpha1.Tu
 		return controllerutil.SetControllerReference(t, dep, r.Scheme())
 	})
 	return dep, err
+}
+
+// stopConnector deletes t's cloudflared Deployment and token Secret (only those t controls)
+// and clears status.connector: t runs no connector on a tunnel it cannot prove it owns.
+func (r *Reconciler) stopConnector(ctx context.Context, t *tunnelsv1alpha1.Tunnel) error {
+	for _, o := range []client.Object{
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: t.Namespace, Name: DeploymentName(t)}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: t.Namespace, Name: TokenSecretName(t)}},
+	} {
+		if err := r.Get(ctx, client.ObjectKeyFromObject(o), o); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		if !metav1.IsControlledBy(o, t) || !o.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+		if err := r.Delete(ctx, o, client.Preconditions{UID: ptr.To(o.GetUID())},
+			client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	t.Status.Connector = tunnelsv1alpha1.ConnectorStatus{}
+	return nil
 }
 
 // ensureNetworkPolicy keeps (or, when disabled, removes) the egress NetworkPolicy.

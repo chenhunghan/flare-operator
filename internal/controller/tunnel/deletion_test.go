@@ -253,7 +253,31 @@ func TestTunnelUntaggedNoAdoptionByName(t *testing.T) {
 			t.Errorf("fetched the token of an unproven tunnel: %s %s", e.Method, e.Path)
 		}
 	}
-	// An older build's untagged adoption left the ID in status.id only: still no proof.
+	// An older build's untagged adoption left the ID in status.id only, and ran connectors on
+	// it: still no proof, so its connector Deployment and token Secret are removed.
+	ctrlRef := []metav1.OwnerReference{*metav1.NewControllerRef(tun, tunnelsv1alpha1.GroupVersion.WithKind("Tunnel"))}
+	labels := map[string]string{"app": "legacy-cloudflared"}
+	legacy := []client.Object{
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: "foreign-cloudflared", OwnerReferences: ctrlRef},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: labels},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: labels},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "cloudflared", Image: "cloudflare/cloudflared"}}},
+				},
+			},
+		},
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: "foreign-cloudflared-token", OwnerReferences: ctrlRef},
+			Data:       map[string][]byte{"token": []byte("legacy-token")},
+		},
+	}
+	for _, o := range legacy {
+		if err := h.e.Client.Create(h.ctx(), o); err != nil {
+			t.Fatal(err)
+		}
+	}
 	base := tun.DeepCopy()
 	tun.Status.ID = id
 	if err := h.e.Client.Status().Patch(h.ctx(), tun, client.MergeFrom(base)); err != nil {
@@ -261,6 +285,7 @@ func TestTunnelUntaggedNoAdoptionByName(t *testing.T) {
 	}
 	h.poke(tun)
 	h.waitTunnel("foreign", conflict)
+	h.waitAllGone(30*time.Second, legacy...)
 	noConnector()
 
 	h.newTunnel("made", nil)

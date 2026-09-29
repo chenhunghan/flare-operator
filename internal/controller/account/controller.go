@@ -82,6 +82,12 @@ const DefaultDependencyRequeue = 10 * time.Second
 // looks again.
 const cacheRetry = time.Second
 
+// cacheSettle bounds how long a cache that does not show the last verify's Ready condition is
+// taken to be merely behind. After that the status is taken to have changed some other way (a
+// lost write, an edit by someone else), and the account is verified and its status written
+// again, instead of waiting for the next scheduled verify.
+const cacheSettle = 5 * time.Second
+
 // ManagedGroupSuffix selects the API groups whose objects can use an account.
 const ManagedGroupSuffix = ".cloudflare.flare.dev"
 
@@ -126,6 +132,8 @@ type verifySchedule struct {
 	generation int64
 	tokenKey   string
 	due        time.Time
+	// at is when the verify ran (cacheSettle counts from it).
+	at time.Time
 	// readyStatus and readyReason are the Ready condition the verify set; a cached account
 	// that shows another one has not caught up with that status write yet.
 	readyStatus metav1.ConditionStatus
@@ -255,11 +263,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// controller's own finalizer patch of the Secret, another account's) must not call
 	// Cloudflare again.
 	due, wait := r.verifyDue(ctx, &acct)
+	behind, settled := r.cacheBehind(&acct)
 	switch {
-	case due:
+	case due || settled:
+		// settled: not due, but the cache still does not show the last verify's status well
+		// after that write; verify and write the status again rather than wait for the schedule.
 		res, verr = r.verify(ctx, &acct)
 		r.schedule(ctx, &acct, res, verr)
-	case r.cacheBehind(&acct):
+	case behind:
 		// The cache has not caught up with the last verify's status write: a status patch built
 		// from it could overwrite newer conditions. Look again shortly.
 		if serr != nil {
@@ -274,6 +285,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	r.markSecretSync(&acct, serr)
 	if !equality.Semantic.DeepEqual(base.Status, acct.Status) {
 		if err := r.Status().Patch(ctx, &acct, client.MergeFrom(base)); err != nil {
+			// The verify's result was not written: the retry must verify (and write) again,
+			// not take the schedule as done.
+			r.clearSchedule(req.NamespacedName)
 			if apierrors.IsNotFound(err) {
 				return ctrl.Result{}, nil
 			}
@@ -366,7 +380,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, acct *cloudflarev1alph
 		res  ctrl.Result
 		verr error
 	)
-	if due, wait := r.verifyDue(ctx, acct); due || r.cacheBehind(acct) {
+	if due, wait := r.verifyDue(ctx, acct); due || behindOnly(r.cacheBehind(acct)) {
 		res, verr = r.verify(ctx, acct)
 		r.schedule(ctx, acct, res, verr)
 	} else {
@@ -401,6 +415,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, acct *cloudflarev1alph
 	}
 	if !equality.Semantic.DeepEqual(base.Status, acct.Status) {
 		if err := r.Status().Patch(ctx, acct, client.MergeFrom(base)); err != nil {
+			r.clearSchedule(nn) // not written: verify again on the retry
 			if apierrors.IsNotFound(err) {
 				return ctrl.Result{}, nil
 			}
@@ -452,12 +467,17 @@ func (r *Reconciler) scheduleOf(acct *cloudflarev1alpha1.CloudflareAccount) (ver
 
 // cacheBehind reports whether acct (normally read from the cache) does not show the status the
 // last verify wrote yet: a status patch computed from it could overwrite newer conditions.
-func (r *Reconciler) cacheBehind(acct *cloudflarev1alpha1.CloudflareAccount) bool {
+// settled reports a mismatch that is no longer taken for cache lag: there is no schedule, or
+// the verify ran more than cacheSettle ago.
+func (r *Reconciler) cacheBehind(acct *cloudflarev1alpha1.CloudflareAccount) (behind, settled bool) {
 	sch, ok := r.scheduleOf(acct)
 	c := meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionReady)
-	return !ok || c == nil || c.ObservedGeneration != acct.Generation || acct.Status.ObservedGeneration != acct.Generation ||
+	behind = !ok || c == nil || c.ObservedGeneration != acct.Generation || acct.Status.ObservedGeneration != acct.Generation ||
 		c.Status != sch.readyStatus || c.Reason != sch.readyReason
+	return behind, behind && (!ok || r.now().Sub(sch.at) > cacheSettle)
 }
+
+func behindOnly(behind, _ bool) bool { return behind }
 
 // tokenKey fingerprints the token acct's Secret holds now ("" when it cannot be read).
 func (r *Reconciler) tokenKey(ctx context.Context, acct *cloudflarev1alpha1.CloudflareAccount) string {
@@ -474,7 +494,8 @@ func (r *Reconciler) tokenKey(ctx context.Context, acct *cloudflarev1alpha1.Clou
 func (r *Reconciler) schedule(ctx context.Context, acct *cloudflarev1alpha1.CloudflareAccount, res ctrl.Result, err error) {
 	nn := types.NamespacedName{Namespace: acct.Namespace, Name: acct.Name}
 	key := r.tokenKey(ctx, acct)
-	sch := verifySchedule{generation: acct.Generation, tokenKey: key, due: r.now().Add(res.RequeueAfter)}
+	now := r.now()
+	sch := verifySchedule{generation: acct.Generation, tokenKey: key, due: now.Add(res.RequeueAfter), at: now}
 	if c := meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionReady); c != nil {
 		sch.readyStatus, sch.readyReason = c.Status, c.Reason
 	}

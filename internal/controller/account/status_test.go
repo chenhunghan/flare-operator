@@ -1,6 +1,7 @@
 package account_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -185,5 +186,78 @@ func TestSecretSyncFailureReported(t *testing.T) {
 		}
 		s := meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionSynced)
 		return s != nil && s.Status == metav1.ConditionTrue, "Synced " + condString(s)
+	})
+}
+
+// A status write that fails after a verify changed Ready must not leave the account waiting for
+// the next scheduled verify (VerifyInterval, 10 min here): once the API server accepts status
+// writes again, the account becomes Ready. An admission policy refuses the status writes at first.
+func TestStatusWriteFailureRetried(t *testing.T) {
+	e := testenv.Require(t, env)
+	ns := e.Namespace(t)
+	ctx := testenv.Context(t, 2*time.Minute)
+
+	name := "deny-account-status-" + ns
+	policy := &admissionregistrationv1.ValidatingAdmissionPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: admissionregistrationv1.ValidatingAdmissionPolicySpec{
+			MatchConstraints: &admissionregistrationv1.MatchResources{ResourceRules: []admissionregistrationv1.NamedRuleWithOperations{{
+				RuleWithOperations: admissionregistrationv1.RuleWithOperations{
+					Operations: []admissionregistrationv1.OperationType{admissionregistrationv1.Update},
+					Rule: admissionregistrationv1.Rule{APIGroups: []string{cloudflarev1alpha1.GroupVersion.Group},
+						APIVersions: []string{"*"}, Resources: []string{"cloudflareaccounts/status"}},
+				},
+			}}},
+			Validations: []admissionregistrationv1.Validation{{Expression: "false", Message: "test policy: account status is frozen"}},
+		},
+	}
+	binding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: admissionregistrationv1.ValidatingAdmissionPolicyBindingSpec{
+			PolicyName:        name,
+			ValidationActions: []admissionregistrationv1.ValidationAction{admissionregistrationv1.Deny},
+			MatchResources: &admissionregistrationv1.MatchResources{NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"kubernetes.io/metadata.name": ns}}},
+		},
+	}
+	for _, o := range []client.Object{policy, binding} {
+		if err := e.Client.Create(ctx, o); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = e.Client.Delete(testenv.Context(t, 10*time.Second), o) })
+	}
+	// Wait until the policy is enforced (it is loaded asynchronously), before any controller runs.
+	probe := e.CreateAccount(t, ns, "probe", testenv.AccountOptions{NoRegister: true, NoSecret: true})
+	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
+		var got cloudflarev1alpha1.CloudflareAccount
+		if err := e.Client.Get(ctx, client.ObjectKeyFromObject(probe.CloudflareAccount), &got); err != nil {
+			return false, err.Error()
+		}
+		base := got.DeepCopy()
+		got.Status.TokenStatus = "probe-" + testenv.RandomHex(4)
+		err := e.Client.Status().Patch(ctx, &got, client.MergeFrom(base))
+		if err == nil {
+			return false, "policy not enforced yet"
+		}
+		return strings.Contains(err.Error(), "frozen"), err.Error()
+	})
+
+	e.StartManager(t, testenv.ManagerOptions{}) // default VerifyInterval (10 min)
+	a := e.CreateAccount(t, ns, "unwritten", testenv.AccountOptions{})
+	testenv.Eventually(t, 30*time.Second, func() (bool, string) {
+		n := verifies(t, e, a.AccountID)
+		return n >= 1, fmt.Sprintf("%d verifies", n)
+	})
+	if err := e.Client.Delete(ctx, binding); err != nil {
+		t.Fatal(err)
+	}
+	testenv.Eventually(t, 45*time.Second, func() (bool, string) {
+		var acct cloudflarev1alpha1.CloudflareAccount
+		if err := e.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: "unwritten"}, &acct); err != nil {
+			return false, err.Error()
+		}
+		r := meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionReady)
+		return r != nil && r.Status == metav1.ConditionTrue,
+			fmt.Sprintf("Ready %s after %d verifies", condString(r), verifies(t, e, a.AccountID))
 	})
 }
