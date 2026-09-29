@@ -10,7 +10,9 @@
 //     tunnel that is gone (404, or soft-deleted: GET answers 200 with deleted_at) is reported as
 //     ExternalNotFound and never silently recreated.
 //   - Ready = the Cloudflare tunnel exists AND the cloudflared Deployment has a ready replica
-//     (or zero replicas are wanted). Observe-only Tunnels only read the tunnel (no connector).
+//     (or zero replicas are wanted). A Tunnel whose managementPolicies allow no write (Observe,
+//     alone or with LateInitialize) only reads the tunnel: no ownership tag is checked or set,
+//     so no token Secret, connector Deployment or NetworkPolicy is created.
 //   - Deletion waits (Ready=False, reason DependencyNotReady) while any VPCService references
 //     the Tunnel, because Cloudflare lets a referenced tunnel be deleted (0099). With the Delete
 //     policy it then scales cloudflared to zero, waits until the pods are gone and the tunnel
@@ -38,6 +40,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,7 +78,8 @@ func init() {
 		Name:        Name,
 		AddToScheme: AddToScheme,
 		Setup: func(mgr ctrl.Manager, d controller.Deps) error {
-			return (&Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Tagger: d.Tagger, ClusterName: d.ClusterName}).SetupWithManager(mgr)
+			return (&Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Tagger: d.Tagger, ClusterName: d.ClusterName,
+				Recorder: mgr.GetEventRecorder(Name)}).SetupWithManager(mgr)
 		},
 	})
 }
@@ -100,7 +104,13 @@ type Reconciler struct {
 	ResyncInterval time.Duration
 	// DrainInterval is the poll interval while deleting (default DefaultDrainInterval).
 	DrainInterval time.Duration
+	// Recorder records Events on Tunnels (optional; nil records none).
+	Recorder events.EventRecorder
 }
+
+// EventReasonTunnelKept is the reason of the Warning Event recorded when a Tunnel with the
+// Delete policy is deleted but its Cloudflare tunnel is kept because another owner holds it.
+const EventReasonTunnelKept = "ForeignOwnerTunnelKept"
 
 // +kubebuilder:rbac:groups=tunnels.cloudflare.flare.dev,resources=tunnels,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=tunnels.cloudflare.flare.dev,resources=tunnels/status,verbs=get;update;patch
@@ -111,6 +121,7 @@ type Reconciler struct {
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 func (r *Reconciler) resync() time.Duration {
 	if r.ResyncInterval > 0 {
@@ -338,12 +349,15 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 	t.Status.ID = tun.ID
 	t.Status.AtProvider = tun.observation()
 
-	if pol.ObserveOnly() {
+	// Without a write action (Observe alone, or with LateInitialize) the tunnel is never
+	// tagged, so its ownership is unverified: running connectors on it could join a tunnel
+	// another cluster owns and take a share of its traffic. Only observe it.
+	if !pol.CanWrite() {
 		reconcile.MarkAvailable(t)
 		reconcile.MarkSynced(t)
 		return ctrl.Result{RequeueAfter: r.resync()}, nil
 	}
-	if pol.CanWrite() && !tagged {
+	if !tagged {
 		if err := r.tagger().EnsureOwner(ctx, cf, accountID, reconcile.TagTarget{Type: tagResourceType, ID: tun.ID}, r.owner(t)); err != nil {
 			return r.ownershipError(t, err)
 		}
@@ -607,6 +621,10 @@ func (r *Reconciler) deleteExternal(ctx context.Context, t *tunnelsv1alpha1.Tunn
 		var conflict *reconcile.OwnershipConflictError
 		if errors.As(err, &conflict) {
 			log.FromContext(ctx).Info("not deleting a tunnel owned by someone else", "tunnel", id, "owner", conflict.Owner)
+			if r.Recorder != nil {
+				r.Recorder.Eventf(t, nil, corev1.EventTypeWarning, EventReasonTunnelKept, "Delete",
+					"deletionPolicy is Delete, but tunnel %s is owned by %s; it was kept in Cloudflare (released as with Orphan)", id, conflict.Owner)
+			}
 			return true, ctrl.Result{}, nil
 		}
 		reconcile.MarkDeleting(t, err.Error())

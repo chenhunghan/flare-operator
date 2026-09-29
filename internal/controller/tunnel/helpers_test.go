@@ -51,7 +51,7 @@ func start(t *testing.T) *harness {
 	e.StartManager(t, testenv.ManagerOptions{Setup: []func(ctrl.Manager, controller.Deps) error{
 		func(mgr ctrl.Manager, d controller.Deps) error {
 			return (&tunnel.Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Tagger: d.Tagger, ClusterName: d.ClusterName,
-				DrainInterval: 200 * time.Millisecond}).SetupWithManager(mgr)
+				DrainInterval: 200 * time.Millisecond, Recorder: mgr.GetEventRecorder(tunnel.Name)}).SetupWithManager(mgr)
 		},
 		func(mgr ctrl.Manager, d controller.Deps) error {
 			return (&vpcservice.Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts}).SetupWithManager(mgr)

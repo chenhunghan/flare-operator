@@ -314,6 +314,59 @@ func TestVPCServiceObserveOnlyAndOrphan(t *testing.T) {
 	}
 }
 
+// TestVPCServiceObservedByNameNotAdopted: an observe-only object that finds a service by
+// name keeps the ID only in status.atProvider, so switching it to management reports
+// NameConflict instead of managing (and on deletion deleting) the other object's service.
+func TestVPCServiceObservedByNameNotAdopted(t *testing.T) {
+	h := start(t)
+	id, _ := h.apiCreateTunnel("raw")
+	resp, err := h.cf.Do(h.ctx(), cfclient.Request{Method: http.MethodPost, Path: "/accounts/" + h.acct.AccountID + "/connectivity/directory/services",
+		Body: map[string]any{"name": "theirs", "type": "tcp", "tcp_port": 5432, "host": map[string]any{"ipv4": "10.0.0.5", "network": map[string]string{"tunnel_id": id}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created struct {
+		ServiceID string `json:"service_id"`
+	}
+	if err := json.Unmarshal(resp.Result, &created); err != nil {
+		t.Fatal(err)
+	}
+	m := h.mark()
+	h.newVPC("theirs", &workersvpcv1alpha1.VPCServiceParameters{Type: "tcp", TCPPort: i32(5432),
+		Host: workersvpcv1alpha1.VPCServiceHost{IPv4: str("10.0.0.5"), Network: &workersvpcv1alpha1.VPCServiceNetwork{TunnelID: str(id)}}},
+		func(vs *workersvpcv1alpha1.VPCService) {
+			vs.Spec.ManagementPolicies = []commonv1alpha1.ManagementAction{commonv1alpha1.ManageObserve}
+			vs.Spec.DeletionPolicy = commonv1alpha1.DeletionDelete
+		})
+	vs := h.waitVPC("theirs", func(v *workersvpcv1alpha1.VPCService) bool {
+		return vpcReady(v) && v.Status.AtProvider.ServiceID == created.ServiceID
+	})
+	if vs.Status.ID != "" || vs.Annotations[commonv1alpha1.AnnotationExternalID] != "" {
+		t.Errorf("name lookup recorded as the external ID: status.id %q annotation %q", vs.Status.ID, vs.Annotations[commonv1alpha1.AnnotationExternalID])
+	}
+
+	h.updateVPC("theirs", func(vs *workersvpcv1alpha1.VPCService) {
+		vs.Spec.ManagementPolicies = []commonv1alpha1.ManagementAction{commonv1alpha1.ManageAll}
+	})
+	vs = h.waitVPC("theirs", func(v *workersvpcv1alpha1.VPCService) bool {
+		return hasCond(v.Status.Conditions, v.Generation, "Synced", metav1.ConditionFalse, vpcservice.ReasonNameConflict)
+	})
+	if vs.Status.ID != "" {
+		t.Errorf("switching to management adopted the service by name: status.id %q", vs.Status.ID)
+	}
+	if err := h.e.Client.Delete(h.ctx(), vs); err != nil {
+		t.Fatal(err)
+	}
+	h.waitGone(vs)
+	if w := testenv.Writes(h.since(m)); len(w) != 0 {
+		t.Errorf("an object that never owned the service wrote:\n%s", testenv.Summary(w))
+	}
+	var still map[string]any
+	if err := h.apiGet("/connectivity/directory/services/"+created.ServiceID, &still); err != nil {
+		t.Errorf("service deleted by an object that only observed it: %v", err)
+	}
+}
+
 // TestVPCServiceNameConflict: two objects with the same service name never share (and so
 // never delete each other's) service.
 func TestVPCServiceNameConflict(t *testing.T) {

@@ -8,7 +8,9 @@
 //   - Adoption: the external-id annotation pins a service. VPC services carry no ownership
 //     tag (Resource Tagging has no resource_type for them), so a managing object never adopts
 //     a same-named service: it reports Synced=False, reason NameConflict. Only observe-only
-//     objects look a service up by name. Known gap: if the create succeeds but persisting the
+//     objects look a service up by name, and they keep the ID they find only in
+//     status.atProvider (not in the annotation or status.id), so switching such an object to
+//     management still hits the NameConflict check. Known gap: if the create succeeds but persisting the
 //     new ID fails (API server unavailable), the next reconcile reports NameConflict for the
 //     object's own service and the annotation must be set by hand.
 //   - The desired body is compared with the observed service; only a difference sends a PUT,
@@ -343,11 +345,13 @@ func (r *Reconciler) sync(ctx context.Context, vs *workersvpcv1alpha1.VPCService
 			if cur == nil {
 				return notFound(fmt.Sprintf("no VPC service named %q", vs.ServiceName()))
 			}
-			if err := reconcile.PersistExternalID(ctx, r.Client, vs, cur.ServiceID); err != nil {
-				return ctrl.Result{}, err
-			}
+			// A name match is only observed: its ID goes to status.atProvider, never to the
+			// external-id annotation or status.id. Either would make ExternalID return it, and
+			// switching the object to management would then manage (and on deletion delete) a
+			// service that another object created, bypassing the NameConflict check.
+		} else {
+			vs.Status.ID = cur.ServiceID
 		}
-		vs.Status.ID = cur.ServiceID
 		vs.Status.AtProvider = cur.observation()
 		reconcile.MarkAvailable(vs)
 		reconcile.MarkSynced(vs)

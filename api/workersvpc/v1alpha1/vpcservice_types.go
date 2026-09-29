@@ -88,7 +88,8 @@ type VPCServiceParameters struct {
 	// ownership tag, so two objects could otherwise manage, and delete, one service): the
 	// object reports Synced=False, reason NameConflict. To adopt it, set the
 	// cloudflare.flare.dev/external-id annotation to its service_id. Observe-only objects do
-	// look services up by name.
+	// look services up by name; the ID found that way is reported only in
+	// status.atProvider.service_id, so it never counts as an adoption.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=255

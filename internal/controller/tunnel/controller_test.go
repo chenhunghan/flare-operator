@@ -11,6 +11,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,6 +19,7 @@ import (
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
 	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
 	"flare.dev/operator/internal/cfclient"
+	"flare.dev/operator/internal/controller/tunnel"
 	"flare.dev/operator/internal/testenv"
 )
 
@@ -321,6 +323,56 @@ func TestTunnelForeignOwnerNotDeleted(t *testing.T) {
 	}
 	if got := h.cfTunnel(id); got.DeletedAt != nil {
 		t.Error("deleted a tunnel owned by another cluster")
+	}
+	if got := h.ownerTag(id); got != "other-cluster/ns/x" {
+		t.Errorf("foreign owner tag changed to %q", got)
+	}
+	// The kept tunnel is reported as a Warning Event on the (now deleted) Tunnel.
+	testenv.Eventually(t, 30e9, func() (bool, string) {
+		var evs eventsv1.EventList
+		if err := h.e.Client.List(h.ctx(), &evs, client.InNamespace(h.ns)); err != nil {
+			return false, err.Error()
+		}
+		for _, e := range evs.Items {
+			if e.Regarding.Name == "pin" && e.Reason == tunnel.EventReasonTunnelKept && e.Type == corev1.EventTypeWarning &&
+				strings.Contains(e.Note, id) && strings.Contains(e.Note, "other-cluster/ns/x") {
+				return true, ""
+			}
+		}
+		return false, fmt.Sprintf("no %s Event among %d events", tunnel.EventReasonTunnelKept, len(evs.Items))
+	})
+}
+
+// TestTunnelLateInitializeOnlyForeign: managementPolicies without a write action (here
+// Observe+LateInitialize) never check or set the ownership tag, so they must not run a
+// connector: a same-named tunnel owned by another cluster is only observed.
+func TestTunnelLateInitializeOnlyForeign(t *testing.T) {
+	h := start(t)
+	id, _ := h.apiCreateTunnel("foreign-li")
+	if _, err := h.cf.Do(h.ctx(), cfclient.Request{Method: http.MethodPut, Path: "/accounts/" + h.acct.AccountID + "/tags",
+		Body: map[string]any{"resource_type": "cloudflared_tunnel", "resource_id": id, "tags": map[string]string{"flare.dev/owner": "other-cluster/ns/x"}}}); err != nil {
+		t.Fatal(err)
+	}
+	m := h.mark()
+	h.newTunnel("foreign-li", func(tun *tunnelsv1alpha1.Tunnel) {
+		tun.Spec.ManagementPolicies = []commonv1alpha1.ManagementAction{commonv1alpha1.ManageObserve, commonv1alpha1.ManageLateInitialize}
+	})
+	tun := h.waitTunnel("foreign-li", func(t *tunnelsv1alpha1.Tunnel) bool { return tunnelReady(t) && t.Status.ID == id })
+	for _, o := range []client.Object{&appsv1.Deployment{}, &corev1.Secret{}, &networkingv1.NetworkPolicy{}} {
+		name := "foreign-li-cloudflared"
+		if _, ok := o.(*corev1.Secret); ok {
+			name = tunnel.TokenSecretName(tun)
+		}
+		if err := h.e.Client.Get(h.ctx(), client.ObjectKey{Namespace: h.ns, Name: name}, o); err == nil {
+			t.Errorf("%T %s created for a tunnel owned by other-cluster/ns/x", o, name)
+		}
+	}
+	if n := testenv.Count(h.since(m), http.MethodGet, "/token"); n != 0 {
+		t.Errorf("token of a foreign tunnel fetched (%d)", n)
+	}
+	h.assertNoWritesAfterReconcile([]client.Object{tun}, []string{"/cfd_tunnel/" + id})
+	if w := testenv.Writes(h.since(m)); len(w) != 0 {
+		t.Fatalf("Observe+LateInitialize wrote:\n%s", testenv.Summary(w))
 	}
 	if got := h.ownerTag(id); got != "other-cluster/ns/x" {
 		t.Errorf("foreign owner tag changed to %q", got)
