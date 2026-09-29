@@ -147,7 +147,7 @@ type verifySchedule struct {
 // Usage protection lists every kind of the *.cloudflare.flare.dev groups (metadata only). RBAC
 // cannot match a group suffix, so each group is listed here; a group missing from this list is
 // skipped (logged) because the operator could not manage its objects either.
-// +kubebuilder:rbac:groups=kv.cloudflare.flare.dev;queues.cloudflare.flare.dev;d1.cloudflare.flare.dev;tunnels.cloudflare.flare.dev;workersvpc.cloudflare.flare.dev,resources=*,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kv.cloudflare.flare.dev;queues.cloudflare.flare.dev;d1.cloudflare.flare.dev;tunnels.cloudflare.flare.dev;workersvpc.cloudflare.flare.dev;workers.cloudflare.flare.dev;vectorize.cloudflare.flare.dev;secretsstore.cloudflare.flare.dev;aigateway.cloudflare.flare.dev,resources=*,verbs=get;list;watch
 
 // SetupWithManager registers the controller. It watches CloudflareAccounts (spec changes only,
 // so its own status writes do not loop) and the Secrets they reference. It also registers the

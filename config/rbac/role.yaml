@@ -58,6 +58,22 @@ rules:
   - patch
   - update
 - apiGroups:
+  - aigateway.cloudflare.flare.dev
+  - d1.cloudflare.flare.dev
+  - kv.cloudflare.flare.dev
+  - queues.cloudflare.flare.dev
+  - secretsstore.cloudflare.flare.dev
+  - tunnels.cloudflare.flare.dev
+  - vectorize.cloudflare.flare.dev
+  - workers.cloudflare.flare.dev
+  - workersvpc.cloudflare.flare.dev
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - apps
   resources:
   - deployments
@@ -123,18 +139,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - d1.cloudflare.flare.dev
-  - kv.cloudflare.flare.dev
-  - queues.cloudflare.flare.dev
-  - tunnels.cloudflare.flare.dev
-  - workersvpc.cloudflare.flare.dev
-  resources:
-  - '*'
-  verbs:
-  - get
-  - list
-  - watch
 - apiGroups:
   - kv.cloudflare.flare.dev
   resources:
