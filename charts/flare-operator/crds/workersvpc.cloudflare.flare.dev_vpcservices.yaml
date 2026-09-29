@@ -1,0 +1,433 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: vpcservices.workersvpc.cloudflare.flare.dev
+spec:
+  group: workersvpc.cloudflare.flare.dev
+  names:
+    categories:
+    - cloudflare
+    - workersvpc
+    kind: VPCService
+    listKind: VPCServiceList
+    plural: vpcservices
+    singular: vpcservice
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: READY
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Synced')].status
+      name: SYNCED
+      type: string
+    - jsonPath: .status.id
+      name: EXTERNAL-ID
+      type: string
+    - jsonPath: .spec.forProvider.tunnelRef.name
+      name: TUNNEL
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: AGE
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          VPCService is a Workers VPC connectivity service (x-fern-sdk-group-name
+          "workers-vpc.services").
+
+          Created at /accounts/{account_id}/connectivity/directory/services, managed at
+          …/services/{id} (account scope). Default deletion policy: Delete. Updates are full-replace
+          PUTs (never partial).
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: VPCServiceSpec defines the desired state of a VPCService.
+            properties:
+              accountRef:
+                description: AccountRef names the CloudflareAccount (same namespace)
+                  to use.
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              deletionPolicy:
+                description: DeletionPolicy defaults per kind (Orphan for data-bearing
+                  kinds).
+                enum:
+                - Delete
+                - Orphan
+                type: string
+              forProvider:
+                description: |-
+                  ForProvider holds the Cloudflare API fields, named exactly as in the API. It may be
+                  omitted for an observe-only object that adopts a service by external-id annotation.
+                properties:
+                  app_protocol:
+                    description: AppProtocol of a tcp service.
+                    enum:
+                    - postgresql
+                    - mysql
+                    type: string
+                  host:
+                    description: Host is the backend.
+                    properties:
+                      hostname:
+                        description: |-
+                          Fully qualified, lower-case domain name of the backend. cloudflared never applies DNS
+                          search domains, so short names such as "svc" or "svc.ns" fail with dns_error (spike §2.1);
+                          use e.g. "svc.ns.svc.cluster.local". The API lower-cases hostnames (0066).
+                        maxLength: 253
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?\.)+[a-z0-9]([-a-z0-9]*[a-z0-9])?\.?$
+                        type: string
+                        x-kubernetes-validations:
+                        - message: 'must be fully qualified: search domains never
+                            apply (use <service>.<namespace>.svc.<cluster-domain>)'
+                          rule: '!self.matches(''\\.svc\\.?$'') && !self.matches(''\\.svc\\.cluster\\.?$'')'
+                      ipv4:
+                        description: IPv4 address of the backend.
+                        maxLength: 15
+                        type: string
+                        x-kubernetes-validations:
+                        - message: must be an IPv4 address
+                          rule: isIP(self) && ip(self).family() == 4
+                      ipv6:
+                        description: IPv6 address of the backend.
+                        maxLength: 45
+                        type: string
+                        x-kubernetes-validations:
+                        - message: must be an IPv6 address
+                          rule: isIP(self) && ip(self).family() == 6
+                      network:
+                        description: Network of an IP host.
+                        properties:
+                          tunnel_id:
+                            description: |-
+                              UUID of the tunnel that reaches the host. Leave unset when forProvider.tunnelRef is set
+                              (the controller fills it in from the Tunnel's status.id). A raw tunnel_id is not linked
+                              to a Tunnel object even when it equals one's ID: that Tunnel's egress NetworkPolicy does
+                              not allow this backend and its deletion does not wait for this service. Use tunnelRef
+                              for tunnels managed in this cluster.
+                            type: string
+                        type: object
+                      resolver_network:
+                        description: ResolverNetwork of a hostname host.
+                        properties:
+                          resolver_ips:
+                            description: |-
+                              DNS servers cloudflared queries for the hostname. When unset the controller sends the
+                              ClusterIP of the cluster DNS Service (kube-system/kube-dns), discovered at runtime; the
+                              spike showed cloudflared would otherwise use its pod's /etc/resolv.conf (§2.1).
+                            items:
+                              maxLength: 45
+                              type: string
+                              x-kubernetes-validations:
+                              - message: must be an IP address
+                                rule: isIP(self)
+                            maxItems: 8
+                            type: array
+                          tunnel_id:
+                            description: |-
+                              UUID of the tunnel whose cloudflared resolves and reaches the host. Leave unset when
+                              forProvider.tunnelRef is set. As for network.tunnel_id, a raw ID is not linked to a
+                              Tunnel object (no NetworkPolicy egress, no deletion ordering); prefer tunnelRef.
+                            type: string
+                        type: object
+                    type: object
+                    x-kubernetes-validations:
+                    - message: set either hostname or ipv4/ipv6
+                      rule: has(self.hostname) != (has(self.ipv4) || has(self.ipv6))
+                    - message: resolver_network is only valid with hostname
+                      rule: '!has(self.resolver_network) || has(self.hostname)'
+                    - message: network is only valid with ipv4/ipv6
+                      rule: '!has(self.network) || !has(self.hostname)'
+                  http_port:
+                    description: HTTPPort of an http service.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  https_port:
+                    description: HTTPSPort of an http service.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  name:
+                    description: |-
+                      Name of the service, unique in the account. Defaults to metadata.name. An existing
+                      service of the same name is never adopted by a managing object (VPC services carry no
+                      ownership tag, so two objects could otherwise manage, and delete, one service): the
+                      object reports Synced=False, reason NameConflict. To adopt it, set the
+                      cloudflare.flare.dev/external-id annotation to its service_id. Observe-only objects do
+                      look services up by name; the ID found that way is reported only in
+                      status.atProvider.service_id, so it never counts as an adoption.
+                    maxLength: 255
+                    minLength: 1
+                    type: string
+                  tcp_port:
+                    description: TCPPort of a tcp service.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  tls_settings:
+                    description: TLSSettings for the connection to the origin; echoed
+                      by the API only when set (0193).
+                    properties:
+                      cert_verification_mode:
+                        description: |-
+                          TLS certificate verification mode: verify_full (default: verify chain and hostname),
+                          verify_ca (chain only) or disabled.
+                        enum:
+                        - verify_full
+                        - verify_ca
+                        - disabled
+                        type: string
+                    required:
+                    - cert_verification_mode
+                    type: object
+                  tunnelRef:
+                    description: |-
+                      TunnelRef names a Tunnel (same namespace) whose status.id becomes the host's tunnel_id.
+                      The Tunnel cannot finish deleting while this VPCService exists (Cloudflare does not
+                      check the dependency itself, spike §3).
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  type:
+                    description: Type of the service.
+                    enum:
+                    - http
+                    - tcp
+                    type: string
+                required:
+                - host
+                - type
+                type: object
+                x-kubernetes-validations:
+                - message: tcp_port and app_protocol are only valid for type tcp
+                  rule: self.type == 'tcp' || (!has(self.tcp_port) && !has(self.app_protocol))
+                - message: http_port and https_port are only valid for type http
+                  rule: self.type == 'http' || (!has(self.http_port) && !has(self.https_port))
+                - message: set exactly one of tunnelRef or the host's network/resolver_network
+                    tunnel_id
+                  rule: has(self.tunnelRef) != ((has(self.host.network) && has(self.host.network.tunnel_id))
+                    || (has(self.host.resolver_network) && has(self.host.resolver_network.tunnel_id)))
+              managementPolicies:
+                description: ManagementPolicies default to ["*"]. ["Observe"] makes
+                  the object read-only.
+                items:
+                  description: ManagementAction is one Crossplane-style management
+                    policy.
+                  enum:
+                  - Observe
+                  - Create
+                  - Update
+                  - Delete
+                  - LateInitialize
+                  - '*'
+                  type: string
+                type: array
+              zoneRef:
+                description: ZoneRef is required for zone-scoped kinds and ignored
+                  otherwise.
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                type: object
+            required:
+            - accountRef
+            type: object
+            x-kubernetes-validations:
+            - message: forProvider is required unless managementPolicies is [Observe]
+              rule: has(self.forProvider) || (has(self.managementPolicies) && self.managementPolicies
+                == ['Observe'])
+          status:
+            description: VPCServiceStatus defines the observed state of a VPCService.
+            properties:
+              atProvider:
+                description: AtProvider is the service as last read from the Cloudflare
+                  API.
+                properties:
+                  app_protocol:
+                    type: string
+                  created_at:
+                    description: Reset by every PUT (full replace, 0066).
+                    type: string
+                  host:
+                    description: VPCServiceHostObservation is the host as returned
+                      by the API.
+                    properties:
+                      hostname:
+                        type: string
+                      ipv4:
+                        type: string
+                      ipv6:
+                        type: string
+                      network:
+                        description: VPCServiceNetworkObservation is host.network
+                          / host.resolver_network as returned by the API.
+                        properties:
+                          resolver_ips:
+                            items:
+                              type: string
+                            type: array
+                          tunnel_id:
+                            type: string
+                        type: object
+                      resolver_network:
+                        description: VPCServiceNetworkObservation is host.network
+                          / host.resolver_network as returned by the API.
+                        properties:
+                          resolver_ips:
+                            items:
+                              type: string
+                            type: array
+                          tunnel_id:
+                            type: string
+                        type: object
+                    type: object
+                  http_port:
+                    format: int32
+                    type: integer
+                  https_port:
+                    format: int32
+                    type: integer
+                  name:
+                    type: string
+                  service_id:
+                    description: UUIDv7 of the service.
+                    type: string
+                  tcp_port:
+                    format: int32
+                    type: integer
+                  tls_settings:
+                    description: VPCServiceTLSSettings are the TLS settings for the
+                      connection to the origin.
+                    properties:
+                      cert_verification_mode:
+                        description: |-
+                          TLS certificate verification mode: verify_full (default: verify chain and hostname),
+                          verify_ca (chain only) or disabled.
+                        enum:
+                        - verify_full
+                        - verify_ca
+                        - disabled
+                        type: string
+                    required:
+                    - cert_verification_mode
+                    type: object
+                  type:
+                    type: string
+                  updated_at:
+                    type: string
+                type: object
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              id:
+                description: ID is the Cloudflare ID of the external resource.
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              tunnelID:
+                description: TunnelID is the tunnel_id last sent to Cloudflare (resolved
+                  from tunnelRef).
+                type: string
+              writeOnlyHash:
+                description: WriteOnlyHash is a hash of write-only forProvider fields
+                  last applied.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

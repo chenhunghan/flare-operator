@@ -1,0 +1,436 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: tunnels.tunnels.cloudflare.flare.dev
+spec:
+  group: tunnels.cloudflare.flare.dev
+  names:
+    categories:
+    - cloudflare
+    - tunnels
+    kind: Tunnel
+    listKind: TunnelList
+    plural: tunnels
+    singular: tunnel
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: READY
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Synced')].status
+      name: SYNCED
+      type: string
+    - jsonPath: .status.id
+      name: EXTERNAL-ID
+      type: string
+    - jsonPath: .status.atProvider.status
+      name: STATUS
+      type: string
+    - jsonPath: .status.connector.readyReplicas
+      name: CONNECTORS
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: AGE
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Tunnel is a remotely managed Cloudflare Tunnel (x-fern-sdk-group-name "tunnels") with its
+          cloudflared connector.
+
+          Created at /accounts/{account_id}/cfd_tunnel, managed at /accounts/{account_id}/cfd_tunnel/{id}
+          (account scope). Default deletion policy: Delete. Deleting the Cloudflare tunnel is a soft
+          delete (deleted_at is set, GET still answers 200); it is refused (400/1022) while cloudflared
+          is connected, so the controller first scales the connector to zero.
+
+          The name is limited to 63 characters because it is a label value on the owned objects.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: TunnelSpec defines the desired state of a Tunnel.
+            properties:
+              accountRef:
+                description: AccountRef names the CloudflareAccount (same namespace)
+                  to use.
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              connector:
+                description: |-
+                  Connector configures the cloudflared Deployment. It is not managed when
+                  managementPolicies is ["Observe"].
+                properties:
+                  image:
+                    description: Image of cloudflared. Defaults to DefaultCloudflaredImage.
+                    type: string
+                  imagePullPolicy:
+                    description: ImagePullPolicy of the cloudflared container.
+                    type: string
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: NodeSelector of the cloudflared pods.
+                    type: object
+                  replicas:
+                    description: Replicas of cloudflared (each opens 4 connections
+                      to the edge). Defaults to 2.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  resources:
+                    description: |-
+                      Resources of the cloudflared container. Defaults to requests cpu=10m, memory=32Mi and a
+                      memory limit of 256Mi (the spike measured 4–11m CPU and about 19Mi).
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This field depends on the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                  tolerations:
+                    description: Tolerations of the cloudflared pods.
+                    items:
+                      description: |-
+                        The pod this Toleration is attached to tolerates any taint that matches
+                        the triple <key,value,effect> using the matching operator <operator>.
+                      properties:
+                        effect:
+                          description: |-
+                            Effect indicates the taint effect to match. Empty means match all taint effects.
+                            When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                          type: string
+                        key:
+                          description: |-
+                            Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                            If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                          type: string
+                        operator:
+                          description: |-
+                            Operator represents a key's relationship to the value.
+                            Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
+                            Exists is equivalent to wildcard for value, so that a pod can
+                            tolerate all taints of a particular category.
+                            Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
+                          type: string
+                        tolerationSeconds:
+                          description: |-
+                            TolerationSeconds represents the period of time the toleration (which must be
+                            of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                            it is not set, which means tolerate the taint forever (do not evict). Zero and
+                            negative values will be treated as 0 (evict immediately) by the system.
+                          format: int64
+                          type: integer
+                        value:
+                          description: |-
+                            Value is the taint value the toleration matches to.
+                            If the operator is Exists, the value should be empty, otherwise just a regular string.
+                          type: string
+                      type: object
+                    type: array
+                type: object
+              deletionPolicy:
+                description: DeletionPolicy defaults per kind (Orphan for data-bearing
+                  kinds).
+                enum:
+                - Delete
+                - Orphan
+                type: string
+              forProvider:
+                description: ForProvider holds the Cloudflare API fields, named exactly
+                  as in the API.
+                properties:
+                  name:
+                    description: |-
+                      A user-friendly name for the tunnel. Defaults to metadata.name. It is used to adopt an
+                      existing (not deleted) tunnel of the same name when no external-id annotation is set.
+                      Renaming is not supported yet: a change is reported as Synced=False, reason Immutable.
+                    maxLength: 255
+                    minLength: 1
+                    type: string
+                type: object
+              managementPolicies:
+                description: ManagementPolicies default to ["*"]. ["Observe"] makes
+                  the object read-only.
+                items:
+                  description: ManagementAction is one Crossplane-style management
+                    policy.
+                  enum:
+                  - Observe
+                  - Create
+                  - Update
+                  - Delete
+                  - LateInitialize
+                  - '*'
+                  type: string
+                type: array
+              networkPolicy:
+                description: NetworkPolicy configures the generated egress NetworkPolicy
+                  of the cloudflared pods.
+                properties:
+                  allowHTTPS:
+                    description: |-
+                      AllowHTTPS also allows egress on TCP 443 to 0.0.0.0/0. Not needed: cloudflared's
+                      api.cloudflare.com pre-check fails softly and the tunnel uses port 7844 (spike §2.1).
+                    type: boolean
+                  disabled:
+                    description: |-
+                      Disabled turns off the generated NetworkPolicy. Without it cloudflared can reach every
+                      address the pod can reach: tunnel ingress rules and warp-routing do not limit Workers VPC
+                      traffic (docs/spike-results-2026-09-29.md §2).
+                    type: boolean
+                  excludeCIDRs:
+                    description: |-
+                      ExcludeCIDRs are removed from the 0.0.0.0/0 rules (the Cloudflare edge on port 7844 and
+                      external backends). Set them to the cluster's pod and service CIDRs so those rules do not
+                      open in-cluster destinations; while it is empty, status.networkPolicy.warnings says so
+                      (the controller does not discover the cluster's CIDRs).
+                    items:
+                      maxLength: 18
+                      type: string
+                      x-kubernetes-validations:
+                      - message: must be an IPv4 CIDR
+                        rule: isCIDR(self) && cidr(self).ip().family() == 4
+                    maxItems: 32
+                    type: array
+                type: object
+              zoneRef:
+                description: ZoneRef is required for zone-scoped kinds and ignored
+                  otherwise.
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                type: object
+            required:
+            - accountRef
+            type: object
+          status:
+            description: TunnelStatus defines the observed state of a Tunnel.
+            properties:
+              atProvider:
+                description: AtProvider is the tunnel as last read from the Cloudflare
+                  API.
+                properties:
+                  config_src:
+                    description: '"cloudflare" for remotely managed tunnels, "local"
+                      otherwise.'
+                    type: string
+                  conns_active_at:
+                    type: string
+                  conns_inactive_at:
+                    type: string
+                  created_at:
+                    type: string
+                  deleted_at:
+                    description: Set once the tunnel has been (soft-)deleted.
+                    type: string
+                  id:
+                    description: UUID of the tunnel.
+                    type: string
+                  name:
+                    type: string
+                  remote_config:
+                    type: boolean
+                  status:
+                    description: 'Status: inactive (never connected), healthy, degraded
+                      or down.'
+                    type: string
+                  tun_type:
+                    type: string
+                type: object
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              connector:
+                description: Connector reports the cloudflared Deployment.
+                properties:
+                  deploymentName:
+                    description: DeploymentName is the owned cloudflared Deployment.
+                    type: string
+                  readyReplicas:
+                    description: ReadyReplicas as reported by the Deployment.
+                    format: int32
+                    type: integer
+                  replicas:
+                    description: Replicas desired.
+                    format: int32
+                    type: integer
+                  tokenSecretName:
+                    description: TokenSecretName is the owned Secret holding the tunnel
+                      token (key "token").
+                    type: string
+                type: object
+              id:
+                description: ID is the Cloudflare ID of the external resource.
+                type: string
+              networkPolicy:
+                description: NetworkPolicy reports the generated NetworkPolicy.
+                properties:
+                  backends:
+                    description: |-
+                      Backends lists, per referencing VPCService, what the policy allows, e.g.
+                      "web: pods of Service ns/marker TCP/8080" or "db: external 0.0.0.0/0 TCP/5432".
+                    items:
+                      type: string
+                    type: array
+                  name:
+                    description: Name of the owned NetworkPolicy.
+                    type: string
+                  warnings:
+                    description: |-
+                      Warnings lists what makes the policy wider than intended, e.g. 0.0.0.0/0 rules without
+                      excludeCIDRs (they also reach in-cluster pods on those ports).
+                    items:
+                      type: string
+                    type: array
+                type: object
+              observedGeneration:
+                format: int64
+                type: integer
+              writeOnlyHash:
+                description: WriteOnlyHash is a hash of write-only forProvider fields
+                  last applied.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: metadata.name must be at most 63 characters
+          rule: self.metadata.name.size() <= 63
+    served: true
+    storage: true
+    subresources:
+      status: {}
