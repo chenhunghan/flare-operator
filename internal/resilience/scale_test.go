@@ -15,6 +15,7 @@ import (
 	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
 	"flare.dev/operator/internal/cfclient"
+	"flare.dev/operator/internal/fake"
 	"flare.dev/operator/internal/generic/descriptors"
 	"flare.dev/operator/internal/generic/kinds"
 	"flare.dev/operator/internal/reconcile"
@@ -32,6 +33,10 @@ var createBudget = map[string]int{
 	"SecretsStore":   7,
 	"AIGateway":      7,
 }
+
+// listPageSize is the smallest default page size of the kinds' lists (KV 20, 0007; the generic
+// profile 20, 0153/0155).
+const listPageSize = 20
 
 // pollBudget is the most calls one drift poll of an in-sync object may cost: the GET of the item
 // and, for tagged kinds, the owner-tag read.
@@ -119,9 +124,12 @@ func TestScale(t *testing.T) {
 			}
 		}
 	}
+	// Each create's adoption lookup lists the kind's collection, one call per page (20 items per
+	// page for most kinds, UNVERIFIED for the generic-profile kinds), so it grows with the number
+	// of objects of the kind already there.
 	budget := 0
 	for k, c := range objs {
-		budget += c * createBudget[k]
+		budget += c * (createBudget[k] + (c+listPageSize-1)/listPageSize)
 	}
 	t.Logf("%d objects converged in %v with %d API calls (%d tag calls, %.1f calls/object, budget %d); per kind (without tag calls): %v",
 		n, converged.Round(time.Second), len(j), tags, float64(len(j))/float64(n), budget, perKind)
@@ -179,8 +187,11 @@ func TestScale(t *testing.T) {
 	t.Logf("at the default %v poll: %.0f calls/hour for these %d objects (%.1f%% of the %.0f/hour default client budget)",
 		5*time.Minute, perPoll*float64(n)*12, n, 100*perPoll*float64(n)*12/(cfclient.DefaultRPS*3600), cfclient.DefaultRPS*3600)
 
-	// Every object is exactly one Cloudflare resource.
-	cf := apiClient(t, e, acct)
+	// Every object is exactly one Cloudflare resource. The check uses a second token of the
+	// account: the manager's polls keep the first one's window (1200 per 5 minutes) busy.
+	verify := &testenv.Account{CloudflareAccount: acct.CloudflareAccount, AccountID: acct.AccountID, Token: "verify-" + testenv.RandomHex(8)}
+	e.Fake.AddToken(fake.Token{Value: verify.Token, AccountID: acct.AccountID})
+	cf := apiClient(t, e, verify)
 	for _, it := range items {
 		id := it.obj.GetResourceStatus().ID
 		field := it.en.NameField

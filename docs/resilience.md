@@ -79,7 +79,8 @@ The client limits itself per token to `cfclient.DefaultRPS` 3.6 calls/s (burst 2
 Cloudflare's 1200 calls per 5 minutes, leaving room for other users of the token. That is
 **12 960 calls/hour**. `spec.rateLimit` on the CloudflareAccount changes it per account.
 
-Measured costs (flarefake journal, `TestScale`, ownership tags on):
+Measured costs (flarefake journal, `TestScale`, ownership tags on; creates in an account with
+fewer than one page of the kind, see the list-page cost below):
 
 | | calls |
 |---|---|
@@ -106,7 +107,20 @@ Scale runs (`TestScale`, one account, default client rate limit, mixed generated
 - 24 objects (the CI size): converged in 41 s with 165 calls (6.9/object, no 429); steady state
   1.50 calls per poll.
 - 500 objects (`FLARE_SCALE_OBJECTS=500 go test -run TestScale -timeout 60m
-  ./internal/resilience/`): SCALE500
+  ./internal/resilience/`, about 83 of each of the six generated kinds): converged in 22 min
+  with 4769 calls (9.5/object; 1377 of them tag calls), no 429 from the fake's 1200-per-5-minutes
+  limit. The run is rate-limit bound: 4769 / 3.6 per second ≈ 22 min. Steady state: 1.31 calls
+  per poll on this mix, i.e. about 7 800 calls/hour (61 % of the client budget) at the 5-minute
+  default.
+
+Creates cost more in large accounts: every create first lists the kind's collection to adopt a
+same-named resource, one call per page (20 items per page for KV and the generic-profile kinds,
+100 for Queues and D1), so the n-th object of a kind pays about n/20 extra calls. At 83 objects
+per kind the generic kinds averaged 9.6 calls per create instead of 5. A list cache
+(`spec.rateLimit.listCacheTTL` on the CloudflareAccount) serves those lookups from memory
+between writes; the cache is invalidated by every write of the same client to the collection,
+so it cannot hide the operator's own creates (other writers' creates can be missed for up to
+the TTL).
 
 ## 4. Flags and chart values
 

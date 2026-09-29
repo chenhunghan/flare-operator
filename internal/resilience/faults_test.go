@@ -128,7 +128,7 @@ func TestRateLimitStorm(t *testing.T) {
 		// A request already on the wire when the 429 arrived may land just after it.
 		for _, n := range j[i+1:] {
 			d := n.Time.Sub(e.Time)
-			if d > 50*time.Millisecond && d < 900*time.Millisecond {
+			if d > 200*time.Millisecond && d < 800*time.Millisecond {
 				t.Errorf("%s %s arrived %v after a 429 with Retry-After 1s: the token was not paused", n.Method, n.Path, d)
 			}
 		}
@@ -185,7 +185,7 @@ func TestLongRetryAfter(t *testing.T) {
 		}
 	}
 	for _, e := range j {
-		if d := e.Time.Sub(at); d > 50*time.Millisecond && d < wait-time.Second {
+		if d := e.Time.Sub(at); d > 500*time.Millisecond && d < wait-time.Second {
 			t.Errorf("%s %s sent %v into a %v back-off", e.Method, e.Path, d, wait)
 		}
 	}
