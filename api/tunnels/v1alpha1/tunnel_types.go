@@ -76,6 +76,8 @@ type TunnelNetworkPolicy struct {
 }
 
 // TunnelSpec defines the desired state of a Tunnel.
+//
+// +kubebuilder:validation:XValidation:rule="size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253",message="accountRef.name must name a CloudflareAccount in this namespace (1-253 characters)",fieldPath=".accountRef.name",reason="FieldValueInvalid"
 type TunnelSpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
 	// ForProvider holds the Cloudflare API fields, named exactly as in the API.
@@ -175,8 +177,9 @@ type TunnelStatus struct {
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,categories={cloudflare,tunnels}
+// +kubebuilder:resource:scope=Namespaced,shortName=cftunnel;cftun,categories={cloudflare,managed,tunnels}
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 63",message="metadata.name must be at most 63 characters"
+// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.name) || !has(self.spec.forProvider) || !has(self.spec.forProvider.name) || self.spec.forProvider.name == oldSelf.spec.forProvider.name || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name == self.spec.forProvider.name)",message="forProvider.name is immutable once the tunnel exists (status.id is set): renaming is not supported; recreate the object, or set it to the name Cloudflare reports (status.atProvider.name)",fieldPath=".spec.forProvider.name",reason="FieldValueInvalid"
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
 // +kubebuilder:printcolumn:name="EXTERNAL-ID",type="string",JSONPath=".status.id"

@@ -80,6 +80,7 @@ type D1DatabaseReadReplicationObservation struct {
 
 // D1DatabaseSpec defines the desired state of a D1Database.
 // +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.name))",message="forProvider.name is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
+// +kubebuilder:validation:XValidation:rule="size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253",message="accountRef.name must name a CloudflareAccount in this namespace (1-253 characters)"
 type D1DatabaseSpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
 	// ForProvider holds the Cloudflare API fields, named exactly as in the API.
@@ -103,10 +104,15 @@ type D1DatabaseStatus struct {
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,categories={cloudflare,d1}
+// +kubebuilder:resource:scope=Namespaced,shortName=cfd1,categories={cloudflare,managed,d1}
+// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.jurisdiction) || !has(self.spec.forProvider) || !has(self.spec.forProvider.jurisdiction) || self.spec.forProvider.jurisdiction == oldSelf.spec.forProvider.jurisdiction || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.jurisdiction) && oldSelf.status.atProvider.jurisdiction == self.spec.forProvider.jurisdiction)",message="forProvider.jurisdiction is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.jurisdiction)"
+// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.name) || !has(self.spec.forProvider) || !has(self.spec.forProvider.name) || self.spec.forProvider.name == oldSelf.spec.forProvider.name || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name == self.spec.forProvider.name)",message="forProvider.name is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.name)"
+// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.primary_location_hint) || !has(self.spec.forProvider) || !has(self.spec.forProvider.primary_location_hint) || self.spec.forProvider.primary_location_hint == oldSelf.spec.forProvider.primary_location_hint",message="forProvider.primary_location_hint is immutable once the resource exists (status.id is set): recreate the object to change it"
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
 // +kubebuilder:printcolumn:name="EXTERNAL-ID",type="string",JSONPath=".status.id"
+// +kubebuilder:printcolumn:name="DATABASE",type="string",JSONPath=".status.atProvider.name"
+// +kubebuilder:printcolumn:name="VERSION",type="string",JSONPath=".status.atProvider.version",priority=1
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
 type D1Database struct {
 	metav1.TypeMeta   `json:",inline"`

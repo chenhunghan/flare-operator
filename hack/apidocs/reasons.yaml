@@ -1,0 +1,173 @@
+# Condition and event reasons, rendered into docs/api-reference.md by hack/apidocs.
+# TestReasonsDocumented fails when a Reason*/EventReason* string constant in api/ or internal/
+# (internal/fake excepted) is missing here, or when an entry here names no such constant.
+conditions:
+  - reason: Available
+    condition: Ready
+    status: "True"
+    kinds: every kind
+    meaning: >-
+      The Cloudflare resource exists and was read. For a CloudflareAccount: the API token is
+      active and can act on the account.
+  - reason: Creating
+    condition: Ready
+    status: "False"
+    kinds: managed kinds
+    meaning: A create request is being sent; the resource has not been read back yet.
+  - reason: Deleting
+    condition: Ready
+    status: "False"
+    kinds: managed kinds
+    meaning: >-
+      The object is being deleted and its finalizer is deleting (deletionPolicy Delete) or
+      releasing (Orphan) the Cloudflare resource.
+  - reason: Unavailable
+    condition: Ready
+    status: "False"
+    kinds: every kind
+    meaning: >-
+      The resource exists but is not usable yet (Tunnel: cloudflared replicas not ready or the
+      tunnel not connected), or the first read failed transiently (CloudflareAccount: the first
+      token verification got a 429, 5xx or transport error).
+  - reason: ExternalNotFound
+    condition: Ready, Synced
+    status: "False"
+    kinds: managed kinds
+    meaning: >-
+      The Cloudflare resource does not exist and the object may not create it: managementPolicies
+      exclude Create (an observe-only object with nothing to observe), or the external-id
+      annotation pins a resource that was deleted (remove the annotation to create a new one).
+  - reason: AccountNotReady
+    condition: Ready, Synced
+    status: "False"
+    kinds: managed kinds
+    meaning: The CloudflareAccount named by spec.accountRef is missing or not Ready; nothing is sent to Cloudflare.
+  - reason: DependencyNotReady
+    condition: Ready, Synced
+    status: "False"
+    kinds: managed kinds, CloudflareAccount
+    meaning: >-
+      A referenced object is not Ready yet (a WorkerScript binding's kvNamespaceRef, queueRef,
+      d1DatabaseRef, vpcServiceRef or serviceRef; a VPCService's tunnelRef), so nothing is sent
+      until it is; or deletion waits for referrers (a Tunnel or VPCService still used, a
+      CloudflareAccount still used by managed objects).
+  - reason: ReconcileSuccess
+    condition: Synced
+    status: "True"
+    kinds: every kind
+    meaning: The last reconcile applied spec to Cloudflare (or found nothing to change).
+  - reason: ObserveOnly
+    condition: Synced
+    status: "True"
+    kinds: managed kinds
+    meaning: managementPolicies is ["Observe"]; the resource was read and nothing is ever written.
+  - reason: ReconcileError
+    condition: Synced
+    status: "False"
+    kinds: every kind
+    meaning: >-
+      The last reconcile failed (the message quotes the Cloudflare error, sanitized) or spec
+      differs from Cloudflare in a way the policies or the API do not allow to fix (no update
+      operation, Update not in managementPolicies). Transient errors are retried with backoff.
+  - reason: Immutable
+    condition: Synced
+    status: "False"
+    kinds: managed kinds
+    meaning: >-
+      forProvider changes a field Cloudflare cannot change after creation; nothing is written.
+      Recreate the object to change it. The CRD's CEL rules reject most such changes at once;
+      this is the controller's own check (e.g. after the field was removed and re-added, or an
+      adopted resource differs).
+  - reason: NameConflict
+    condition: Ready, Synced
+    status: "False"
+    kinds: Tunnel, VPCService, WorkerScript
+    meaning: >-
+      The Cloudflare name is taken by a resource this object cannot prove it owns; it is not
+      adopted by name. Set the cloudflare.flare.dev/external-id annotation to adopt it.
+  - reason: InvalidHostname
+    condition: Ready, Synced
+    status: "False"
+    kinds: VPCService
+    meaning: >-
+      host.hostname looks like a short in-cluster name; cloudflared never applies DNS search
+      domains, so use the fully qualified name.
+  - reason: InvalidScriptName
+    condition: Ready, Synced
+    status: "False"
+    kinds: WorkerScript
+    meaning: The script name (forProvider.script_name, or metadata.name) is not a valid Workers script name.
+  - reason: InvalidSpec
+    condition: Ready, Synced
+    status: "False"
+    kinds: WorkerScript
+    meaning: >-
+      forProvider cannot be uploaded (an invalid module name or type, wasm-base64 content that
+      is not base64, a main_module that is not one of the modules, an unusable sourceRef
+      ConfigMap, ...).
+  - reason: SecretNotFound
+    condition: Ready
+    status: "False"
+    kinds: CloudflareAccount
+    meaning: The Secret named by spec.tokenSecretRef does not exist.
+  - reason: SecretKeyMissing
+    condition: Ready
+    status: "False"
+    kinds: CloudflareAccount
+    meaning: The token Secret has no (or an empty) spec.tokenSecretRef.key.
+  - reason: TokenInvalid
+    condition: Ready
+    status: "False"
+    kinds: CloudflareAccount
+    meaning: Cloudflare rejected the token, or reported an unexpected token status.
+  - reason: TokenDisabled
+    condition: Ready
+    status: "False"
+    kinds: CloudflareAccount
+    meaning: The token is disabled (status.atProvider.status disabled).
+  - reason: TokenExpired
+    condition: Ready
+    status: "False"
+    kinds: CloudflareAccount
+    meaning: The token has expired (status.atProvider.expires_on is in the past).
+  - reason: TokenNotYetValid
+    condition: Ready
+    status: "False"
+    kinds: CloudflareAccount
+    meaning: The token's not_before is in the future; the account is verified again at that time.
+  - reason: AccountMismatch
+    condition: Ready
+    status: "False"
+    kinds: CloudflareAccount
+    meaning: The token is valid but cannot act on spec.accountID.
+  - reason: ClientError
+    condition: Ready
+    status: "False"
+    kinds: CloudflareAccount
+    meaning: The operator could not build an API client for the account (e.g. an unusable spec.baseURL).
+  - reason: BaseURLNotAllowed
+    condition: Ready
+    status: "False"
+    kinds: CloudflareAccount
+    meaning: >-
+      spec.baseURL is set, but the operator runs without --allow-base-url-override and the URL
+      is not in --allowed-base-url.
+  - reason: TokenSecretUpdateFailed
+    condition: Synced
+    status: "False"
+    kinds: CloudflareAccount
+    meaning: >-
+      The finalizer that protects the token Secret (cloudflare.flare.dev/account-token) could
+      not be added or removed (check the operator's RBAC and admission policies).
+events:
+  - reason: ExternalResourceKept
+    type: Warning
+    kinds: managed kinds
+    meaning: >-
+      An object with deletionPolicy Delete was deleted but its Cloudflare resource was kept
+      (ownership not proven, or the CloudflareAccount is gone), or an orphaned resource keeps
+      its owner tag.
+  - reason: ForeignOwnerTunnelKept
+    type: Warning
+    kinds: Tunnel
+    meaning: A Tunnel with deletionPolicy Delete was deleted but its Cloudflare tunnel was kept because another owner holds it.

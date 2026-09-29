@@ -91,9 +91,10 @@ fmt-check:       ## fail if gofmt would change anything in api, cmd, internal, t
 # Directories written by `make generate manifests` (controller-gen) and `make generate-crds` (flaregen).
 GENERATED_PATHS ?= api config internal/generic
 
-verify-generated: ## regenerate deepcopy/CRDs/RBAC, run flaregen -check, fail if GENERATED_PATHS differ from HEAD
+verify-generated: ## regenerate deepcopy/CRDs/RBAC, run flaregen -check and api-docs-check, fail if GENERATED_PATHS differ from HEAD
 	$(MAKE) generate manifests
 	$(MAKE) generate-check
+	$(MAKE) api-docs-check
 	@git diff --exit-code -- $(GENERATED_PATHS) || { echo "generated files differ from HEAD: run make generate manifests generate-crds and commit"; exit 1; }
 	@untracked="$$(git ls-files --others --exclude-standard -- $(GENERATED_PATHS))"; if [ -n "$$untracked" ]; then echo "untracked generated files:"; echo "$$untracked"; exit 1; fi; echo "generated files OK"
 
@@ -123,13 +124,19 @@ define go-install-tool
 ln -sf $(notdir $(1))-$(3) $(1)
 endef
 
-.PHONY: generate-crds generate-check
+.PHONY: generate-crds generate-check api-docs api-docs-check
 
 generate-crds:   ## regenerate api/<product>/v1alpha1, config/crd/bases and internal/generic/descriptors (cmd/flaregen)
 	go run ./cmd/flaregen
 
 generate-check:  ## fail if the generated CRD files are not up to date
 	go run ./cmd/flaregen -check
+
+api-docs:        ## render docs/api-reference.md from config/crd/bases and hack/apidocs/reasons.yaml
+	go run ./hack/apidocs
+
+api-docs-check:  ## fail if docs/api-reference.md is not up to date (part of verify-generated, so of make ci)
+	go run ./hack/apidocs -check
 
 ## Packaging: images and the Helm chart (charts/flare-operator)
 .PHONY: docker-build docker-build-fake chart-sync chart-check helm-lint

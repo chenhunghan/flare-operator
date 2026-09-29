@@ -40,6 +40,7 @@ type KVNamespaceObservation struct {
 
 // KVNamespaceSpec defines the desired state of a KVNamespace.
 // +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.title))",message="forProvider.title is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
+// +kubebuilder:validation:XValidation:rule="size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253",message="accountRef.name must name a CloudflareAccount in this namespace (1-253 characters)"
 type KVNamespaceSpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
 	// ForProvider holds the Cloudflare API fields, named exactly as in the API.
@@ -62,10 +63,12 @@ type KVNamespaceStatus struct {
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,categories={cloudflare,kv}
+// +kubebuilder:resource:scope=Namespaced,shortName=cfkv,categories={cloudflare,managed,kv}
+// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.jurisdiction) || !has(self.spec.forProvider) || !has(self.spec.forProvider.jurisdiction) || self.spec.forProvider.jurisdiction == oldSelf.spec.forProvider.jurisdiction || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.jurisdiction) && oldSelf.status.atProvider.jurisdiction == self.spec.forProvider.jurisdiction)",message="forProvider.jurisdiction is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.jurisdiction)"
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
 // +kubebuilder:printcolumn:name="EXTERNAL-ID",type="string",JSONPath=".status.id"
+// +kubebuilder:printcolumn:name="TITLE",type="string",JSONPath=".status.atProvider.title"
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
 type KVNamespace struct {
 	metav1.TypeMeta   `json:",inline"`

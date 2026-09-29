@@ -622,14 +622,12 @@ func (r *Reconciler) verify(ctx context.Context, acct *cloudflarev1alpha1.Cloudf
 	}
 
 	now := r.now()
+	acct.Status.ID = "" // set below once the token is usable
+	acct.Status.AtProvider = observation(info)
 	acct.Status.TokenID = info.ID
 	acct.Status.TokenStatus = info.Status
 	acct.Status.TokenType = info.Type
-	acct.Status.TokenExpiresOn = nil
-	if info.ExpiresOn != nil {
-		t := metav1.NewTime(*info.ExpiresOn)
-		acct.Status.TokenExpiresOn = &t
-	}
+	acct.Status.TokenExpiresOn = acct.Status.AtProvider.ExpiresOn.DeepCopy()
 	requeue := r.interval()
 	switch {
 	case info.Status == "disabled":
@@ -644,6 +642,7 @@ func (r *Reconciler) verify(ctx context.Context, acct *cloudflarev1alpha1.Cloudf
 	default:
 		t := metav1.NewTime(now)
 		acct.Status.LastVerifiedTime = &t
+		acct.Status.ID = acct.Spec.AccountID
 		r.setCond(acct, commonv1alpha1.ConditionReady, metav1.ConditionTrue, commonv1alpha1.ReasonAvailable, readyMessage(info.Type))
 		r.setCond(acct, commonv1alpha1.ConditionSynced, metav1.ConditionTrue, commonv1alpha1.ReasonReconcileOK, "")
 		if info.ExpiresOn != nil {
@@ -654,8 +653,24 @@ func (r *Reconciler) verify(ctx context.Context, acct *cloudflarev1alpha1.Cloudf
 }
 
 func clearToken(acct *cloudflarev1alpha1.CloudflareAccount) {
+	acct.Status.ID = ""
+	acct.Status.AtProvider = cloudflarev1alpha1.CloudflareAccountObservation{}
 	acct.Status.TokenID, acct.Status.TokenStatus, acct.Status.TokenType = "", "", ""
 	acct.Status.TokenExpiresOn = nil
+}
+
+// observation is status.atProvider for a verified token.
+func observation(info *TokenInfo) cloudflarev1alpha1.CloudflareAccountObservation {
+	o := cloudflarev1alpha1.CloudflareAccountObservation{ID: info.ID, Status: info.Status}
+	if info.ExpiresOn != nil {
+		t := metav1.NewTime(*info.ExpiresOn)
+		o.ExpiresOn = &t
+	}
+	if info.NotBefore != nil {
+		t := metav1.NewTime(*info.NotBefore)
+		o.NotBefore = &t
+	}
+	return o
 }
 
 // maxConditionMessage bounds condition messages (they may quote API error text).

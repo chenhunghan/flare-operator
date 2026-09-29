@@ -131,9 +131,19 @@ func Generate(doc *openapi3.T, cfg *Config, opts Options) (*Output, error) {
 		out.Files[dir+"/zz_generated.deepcopy.go"] = dc
 	}
 
+	shortNames := map[string]string{}
 	for _, m := range out.Kinds {
+		for _, sn := range m.ShortNames {
+			if other, dup := shortNames[sn]; dup {
+				return nil, fmt.Errorf("shortName %q of %s is also used by %s", sn, m.Kind, other)
+			}
+			shortNames[sn] = m.Kind
+		}
 		crd := BuildCRD(m)
 		if err := ValidateCRD(crd); err != nil {
+			return nil, err
+		}
+		if err := checkPrintColumns(m, crd.Spec.Versions[0].Schema.OpenAPIV3Schema); err != nil {
 			return nil, err
 		}
 		y, err := MarshalCRD(crd)

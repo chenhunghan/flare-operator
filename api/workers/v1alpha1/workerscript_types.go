@@ -77,6 +77,7 @@ type SecretKeyRef struct {
 // is not Ready yet makes the WorkerScript Synced=False, reason DependencyNotReady, and nothing
 // is uploaded until it is.
 //
+// +kubebuilder:validation:XValidation:rule="(!has(self.kvNamespaceRef) || size(self.kvNamespaceRef.name) > 0) && (!has(self.queueRef) || size(self.queueRef.name) > 0) && (!has(self.d1DatabaseRef) || size(self.d1DatabaseRef.name) > 0) && (!has(self.vpcServiceRef) || size(self.vpcServiceRef.name) > 0) && (!has(self.serviceRef) || size(self.serviceRef.name) > 0)",message="a kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef or serviceRef needs a non-empty name"
 // +kubebuilder:validation:XValidation:rule="self.type == 'plain_text' ? has(self.text) : !has(self.text)",message="text is required for (and only valid with) type plain_text"
 // +kubebuilder:validation:XValidation:rule="self.type == 'secret_text' ? has(self.secretKeyRef) : !has(self.secretKeyRef)",message="secretKeyRef is required for (and only valid with) type secret_text"
 // +kubebuilder:validation:XValidation:rule="self.type == 'kv_namespace' ? has(self.namespace_id) != has(self.kvNamespaceRef) : !has(self.namespace_id) && !has(self.kvNamespaceRef)",message="type kv_namespace needs exactly one of namespace_id or kvNamespaceRef (only valid with that type)"
@@ -239,6 +240,7 @@ type WorkerScriptParameters struct {
 
 // WorkerScriptSpec defines the desired state of a WorkerScript.
 //
+// +kubebuilder:validation:XValidation:rule="size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253",message="accountRef.name must name a CloudflareAccount in this namespace (1-253 characters)",fieldPath=".accountRef.name",reason="FieldValueInvalid"
 // +kubebuilder:validation:XValidation:rule="has(self.forProvider) || (has(self.managementPolicies) && size(self.managementPolicies) > 0 && !('*' in self.managementPolicies) && !('Create' in self.managementPolicies) && !('Update' in self.managementPolicies))",message="forProvider is required unless managementPolicies exclude Create and Update (e.g. [\"Observe\"])"
 type WorkerScriptSpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
@@ -332,12 +334,12 @@ type WorkerScriptStatus struct {
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,categories={cloudflare,workers}
+// +kubebuilder:resource:scope=Namespaced,shortName=cfworker;cfscript,categories={cloudflare,managed,workers}
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
-// +kubebuilder:printcolumn:name="SCRIPT",type="string",JSONPath=".status.id"
+// +kubebuilder:printcolumn:name="EXTERNAL-ID",type="string",JSONPath=".status.id",description="The Cloudflare script name"
+// +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".status.atProvider.url"
 // +kubebuilder:printcolumn:name="VERSION",type="string",JSONPath=".status.atProvider.version_id",priority=1
-// +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".status.atProvider.url",priority=1
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
 type WorkerScript struct {
 	metav1.TypeMeta   `json:",inline"`

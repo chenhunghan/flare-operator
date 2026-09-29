@@ -12,6 +12,7 @@ spec:
   names:
     categories:
     - cloudflare
+    - managed
     - widgettools
     kind: WidgetSettings
     listKind: WidgetSettingsList
@@ -109,6 +110,17 @@ spec:
             - accountRef
             - zoneRef
             type: object
+            x-kubernetes-validations:
+            - fieldPath: .accountRef.name
+              message: accountRef.name must name a CloudflareAccount in this namespace
+                (1-253 characters)
+              reason: FieldValueInvalid
+              rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
+                253
+            - fieldPath: .zoneRef
+              message: zoneRef needs exactly one of id or name
+              reason: FieldValueInvalid
+              rule: has(self.zoneRef.id) != has(self.zoneRef.name)
           status:
             description: WidgetSettingsStatus defines the observed state of a WidgetSettings.
             properties:

@@ -6,11 +6,19 @@
 # citing a recording (test/recordings/2026-09-29/NNNN) or marking UNVERIFIED.
 #
 # Regenerate with `make generate-crds`; TestGeneratedUpToDate fails otherwise.
+#
+# kubectl UX (docs/api-reference.md): every kind gets the columns READY, SYNCED, EXTERNAL-ID,
+# its printColumns, then AGE, and the categories cloudflare, managed and its product.
+# shortNames all start with "cf" so they cannot collide with core Kubernetes short names
+# (po, svc, ns, ...) or those of common CRDs (cert-manager, Kueue's "queue", ...).
 version: v1alpha1
 groupSuffix: cloudflare.flare.dev
 kinds:
   - fernGroup: kv.namespaces
     kind: KVNamespace
+    shortNames: [cfkv]
+    printColumns:
+      - {name: TITLE, type: string, jsonPath: .status.atProvider.title}
     defaultDeletionPolicy: Orphan
     tagResourceType: kv_namespace
     listOrder: "id ascending by default; order=title and direction=asc|desc supported"
@@ -23,6 +31,10 @@ kinds:
 
   - fernGroup: queues
     kind: Queue
+    shortNames: [cfqueue, cfq]
+    printColumns:
+      - {name: QUEUE, type: string, jsonPath: .status.atProvider.queue_name}
+      - {name: CONSUMERS, type: number, jsonPath: .status.atProvider.consumers_total_count, priority: 1}
     defaultDeletionPolicy: Orphan
     tagResourceType: queue
     immutable: [jurisdiction]
@@ -42,6 +54,10 @@ kinds:
   - fernGroup: d1
     path: /accounts/{account_id}/d1/database
     kind: D1Database
+    shortNames: [cfd1]
+    printColumns:
+      - {name: DATABASE, type: string, jsonPath: .status.atProvider.name}
+      - {name: VERSION, type: string, jsonPath: .status.atProvider.version, priority: 1}
     defaultDeletionPolicy: Orphan
     tagResourceType: d1_database
     fields:
@@ -59,6 +75,10 @@ kinds:
   # (emulate: generic) until a live recording pass replaces its UNVERIFIED behavior.
   - fernGroup: vectorize
     kind: VectorizeIndex
+    shortNames: [cfvec]
+    printColumns:
+      - {name: DIMENSIONS, type: integer, jsonPath: .status.atProvider.config.dimensions}
+      - {name: METRIC, type: string, jsonPath: .status.atProvider.config.metric}
     idField: name
     emulate: generic
     why:
@@ -69,6 +89,9 @@ kinds:
 
   - fernGroup: secrets-store.stores
     kind: SecretsStore
+    shortNames: [cfstore]
+    printColumns:
+      - {name: STORE, type: string, jsonPath: .status.atProvider.name}
     group: secretsstore
     emulate: generic
     why:
@@ -79,6 +102,10 @@ kinds:
 
   - fernGroup: ai-gateway.gateways
     kind: AIGateway
+    shortNames: [cfaigw]
+    printColumns:
+      - {name: COLLECT-LOGS, type: boolean, jsonPath: .status.atProvider.collect_logs}
+      - {name: CACHE-TTL, type: integer, jsonPath: .status.atProvider.cache_ttl, priority: 1}
     group: aigateway
     emulate: generic
     why:

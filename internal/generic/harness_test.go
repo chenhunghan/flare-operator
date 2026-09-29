@@ -267,6 +267,54 @@ func (h *harness) setForProvider(obj reconcile.ManagedObject, forProvider string
 	}
 }
 
+// setImmutable applies a forProvider that changes Immutable fields. The API server rejects an
+// in-place change of a top-level immutable field once status.id is set (the CRD's CEL
+// transition rules), so the change is made in two updates the rules allow, each only removing or
+// adding fields: managementPolicies [Observe] with an empty forProvider (no create-required
+// rule applies), then forProvider with the original policies. The controller's own immutable
+// check (Synced=False, reason Immutable) then sees the change.
+func (h *harness) setImmutable(obj reconcile.ManagedObject, forProvider string) {
+	h.t.Helper()
+	if err := h.tryForProvider(obj, forProvider, nil); err == nil {
+		return // no CEL rule covers the change (e.g. a nested field)
+	} else if !apierrors.IsInvalid(err) || !strings.Contains(err.Error(), "immutable") {
+		h.t.Fatalf("immutable change: want the API server's immutable error, got %v", err)
+	}
+	pols := append([]commonv1alpha1.ManagementAction(nil), obj.GetResourceSpec().ManagementPolicies...)
+	if err := h.tryForProvider(obj, "{}", []commonv1alpha1.ManagementAction{commonv1alpha1.ManageObserve}); err != nil {
+		h.t.Fatalf("immutable change, step 1 (Observe, empty forProvider): %v", err)
+	}
+	if pols == nil {
+		pols = []commonv1alpha1.ManagementAction{}
+	}
+	if err := h.tryForProvider(obj, forProvider, pols); err != nil {
+		h.t.Fatalf("immutable change, step 2 (forProvider, original policies): %v", err)
+	}
+}
+
+// tryForProvider replaces forProvider (and managementPolicies when pols is not nil; an empty
+// pols clears them) and returns the update error.
+func (h *harness) tryForProvider(obj reconcile.ManagedObject, forProvider string, pols []commonv1alpha1.ManagementAction) error {
+	h.t.Helper()
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := h.get(obj); err != nil {
+			return err
+		}
+		v := reflect.ValueOf(obj).Elem().FieldByName("Spec").FieldByName("ForProvider")
+		v.Set(reflect.Zero(v.Type()))
+		if err := json.Unmarshal([]byte(forProvider), v.Addr().Interface()); err != nil {
+			return err
+		}
+		if pols != nil {
+			obj.GetResourceSpec().ManagementPolicies = nil
+			if len(pols) > 0 {
+				obj.GetResourceSpec().ManagementPolicies = pols
+			}
+		}
+		return h.e.Client.Update(h.ctx(), obj)
+	})
+}
+
 func (h *harness) delete(obj reconcile.ManagedObject) {
 	h.t.Helper()
 	if err := h.e.Client.Delete(h.ctx(), obj); err != nil {

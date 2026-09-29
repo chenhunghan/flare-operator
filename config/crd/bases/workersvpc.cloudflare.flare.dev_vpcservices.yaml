@@ -10,10 +10,14 @@ spec:
   names:
     categories:
     - cloudflare
+    - managed
     - workersvpc
     kind: VPCService
     listKind: VPCServiceList
     plural: vpcservices
+    shortNames:
+    - cfvpcsvc
+    - cfvpc
     singular: vpcservice
   scope: Namespaced
   versions:
@@ -26,6 +30,9 @@ spec:
       type: string
     - jsonPath: .status.id
       name: EXTERNAL-ID
+      type: string
+    - jsonPath: .status.atProvider.type
+      name: TYPE
       type: string
     - jsonPath: .spec.forProvider.tunnelRef.name
       name: TUNNEL
@@ -235,6 +242,10 @@ spec:
                   rule: self.type == 'tcp' || (!has(self.tcp_port) && !has(self.app_protocol))
                 - message: http_port and https_port are only valid for type http
                   rule: self.type == 'http' || (!has(self.http_port) && !has(self.https_port))
+                - fieldPath: .tunnelRef.name
+                  message: tunnelRef.name must not be empty
+                  reason: FieldValueInvalid
+                  rule: '!has(self.tunnelRef) || size(self.tunnelRef.name) > 0'
                 - message: set exactly one of tunnelRef or the host's network/resolver_network
                     tunnel_id
                   rule: has(self.tunnelRef) != ((has(self.host.network) && has(self.host.network.tunnel_id))
@@ -267,6 +278,12 @@ spec:
             - accountRef
             type: object
             x-kubernetes-validations:
+            - fieldPath: .accountRef.name
+              message: accountRef.name must name a CloudflareAccount in this namespace
+                (1-253 characters)
+              reason: FieldValueInvalid
+              rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
+                253
             - message: forProvider is required unless managementPolicies is [Observe]
               rule: has(self.forProvider) || (has(self.managementPolicies) && self.managementPolicies
                 == ['Observe'])

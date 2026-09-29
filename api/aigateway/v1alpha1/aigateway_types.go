@@ -571,6 +571,7 @@ type AIGatewayStripeUsageEventsObservation struct {
 // +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.id))",message="forProvider.id is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
 // +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.rate_limiting_interval))",message="forProvider.rate_limiting_interval is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
 // +kubebuilder:validation:XValidation:rule="!(!has(self.managementPolicies) || size(self.managementPolicies) == 0 || '*' in self.managementPolicies || 'Create' in self.managementPolicies) || (has(self.forProvider) && has(self.forProvider.rate_limiting_limit))",message="forProvider.rate_limiting_limit is required unless managementPolicies exclude Create (e.g. [\"Observe\"])"
+// +kubebuilder:validation:XValidation:rule="size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253",message="accountRef.name must name a CloudflareAccount in this namespace (1-253 characters)"
 type AIGatewaySpec struct {
 	commonv1alpha1.ResourceSpec `json:",inline"`
 	// ForProvider holds the Cloudflare API fields, named exactly as in the API.
@@ -593,10 +594,13 @@ type AIGatewayStatus struct {
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,categories={cloudflare,aigateway}
+// +kubebuilder:resource:scope=Namespaced,shortName=cfaigw,categories={cloudflare,managed,aigateway}
+// +kubebuilder:validation:XValidation:rule="!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.id) || !has(self.spec.forProvider) || !has(self.spec.forProvider.id) || self.spec.forProvider.id == oldSelf.spec.forProvider.id || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.id) && oldSelf.status.atProvider.id == self.spec.forProvider.id)",message="forProvider.id is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.id)"
 // +kubebuilder:printcolumn:name="READY",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="SYNCED",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status"
 // +kubebuilder:printcolumn:name="EXTERNAL-ID",type="string",JSONPath=".status.id"
+// +kubebuilder:printcolumn:name="COLLECT-LOGS",type="boolean",JSONPath=".status.atProvider.collect_logs"
+// +kubebuilder:printcolumn:name="CACHE-TTL",type="integer",JSONPath=".status.atProvider.cache_ttl",priority=1
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
 type AIGateway struct {
 	metav1.TypeMeta   `json:",inline"`

@@ -405,10 +405,95 @@ func TestCELField(t *testing.T) {
 		Observation: &Type{Kind: KObject}, CreateRequired: []string{"ok", "1bad"}}
 	crd := BuildCRD(m)
 	spec := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
-	if len(spec.XValidations) != 1 || !strings.Contains(spec.XValidations[0].Rule, "has(self.forProvider.ok)") {
+	// The create-required rule, then the accountRef rule every managed kind carries.
+	if len(spec.XValidations) != 2 || !strings.Contains(spec.XValidations[0].Rule, "has(self.forProvider.ok)") ||
+		spec.XValidations[1].Rule != AccountRefRule {
 		t.Errorf("rules %+v", spec.XValidations)
 	}
 	if fp := spec.Properties["forProvider"]; !reflect.DeepEqual(fp.Required, []string{"1bad"}) {
 		t.Errorf("forProvider.required = %v", fp.Required)
+	}
+}
+
+func TestImmutableRules(t *testing.T) {
+	str := &Type{Kind: KString}
+	m := &KindModel{Kind: "X", Plural: "xs", Group: "g.cloudflare.flare.dev", Product: "g", Version: "v1alpha1",
+		Resource: &Resource{FernGroup: "g"},
+		Params: &Type{Kind: KObject, Fields: []*Field{{JSONName: "region", Type: str}, {JSONName: "secret", Type: str},
+			{JSONName: "cfg", Type: &Type{Kind: KObject}}, {JSONName: "in", Type: str}}},
+		Observation: &Type{Kind: KObject, Fields: []*Field{{JSONName: "region", Type: str}, {JSONName: "secret", Type: str},
+			{JSONName: "cfg", Type: &Type{Kind: KObject}}}},
+	}
+	m.Descriptor.Immutable = []string{"cfg", "in", "nested.path", "region", "secret"}
+	m.Descriptor.WriteOnly = []string{"secret"}
+	crd := BuildCRD(m)
+	if err := ValidateCRD(crd); err != nil {
+		t.Fatal(err)
+	}
+	rules := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.XValidations
+	byField := map[string]string{}
+	for _, r := range rules {
+		if !strings.HasPrefix(r.Rule, "!("+ExistsCEL+")") || !strings.Contains(r.Message, "is immutable") {
+			t.Errorf("rule %q (%s) is not an immutability rule", r.Rule, r.Message)
+		}
+		f := strings.SplitN(strings.TrimPrefix(r.Message, "forProvider."), " ", 2)[0]
+		byField[f] = r.Rule
+		if f != "in" && r.FieldPath != ".spec.forProvider."+f {
+			t.Errorf("%s: fieldPath %q", f, r.FieldPath)
+		}
+	}
+	if len(rules) != 4 || byField["nested.path"] != "" {
+		t.Fatalf("want rules for cfg, in, region, secret (not nested.path), got %v", byField)
+	}
+	// Only a scalar that is read back may be set to status.atProvider's value.
+	for f, escape := range map[string]bool{"region": true, "secret": false, "cfg": false, "in": false} {
+		if got := strings.Contains(byField[f], "oldSelf.status.atProvider"); got != escape {
+			t.Errorf("%s: atProvider escape %v, want %v: %s", f, got, escape, byField[f])
+		}
+	}
+	if !strings.Contains(byField["in"], "self.spec.forProvider.__in__") {
+		t.Errorf("reserved word not escaped: %s", byField["in"])
+	}
+}
+
+func TestKubectlUX(t *testing.T) {
+	m := &KindModel{Kind: "X", Plural: "xs", Group: "g.cloudflare.flare.dev", Product: "g", Version: "v1alpha1",
+		Resource: &Resource{FernGroup: "g"}, Params: &Type{Kind: KObject},
+		Observation: &Type{Kind: KObject, Fields: []*Field{{JSONName: "name", Type: &Type{Kind: KString}},
+			{JSONName: "obj", Type: &Type{Kind: KObject}}}},
+		ShortNames:   []string{"cfx"},
+		PrintColumns: []PrintColumn{{Name: "NAME", Type: "string", JSONPath: ".status.atProvider.name", Priority: 1}},
+	}
+	crd := BuildCRD(m)
+	v := crd.Spec.Versions[0]
+	var cols []string
+	for _, c := range v.AdditionalPrinterColumns {
+		cols = append(cols, c.Name)
+	}
+	if strings.Join(cols, " ") != "READY SYNCED EXTERNAL-ID NAME AGE" || v.AdditionalPrinterColumns[3].Priority != 1 {
+		t.Errorf("columns %v", v.AdditionalPrinterColumns)
+	}
+	if n := crd.Spec.Names; !reflect.DeepEqual(n.ShortNames, []string{"cfx"}) || !reflect.DeepEqual(n.Categories, []string{"cloudflare", "managed", "g"}) {
+		t.Errorf("names %+v", n)
+	}
+	if err := checkPrintColumns(m, v.Schema.OpenAPIV3Schema); err != nil {
+		t.Error(err)
+	}
+	for _, path := range []string{".status.atProvider.nope", ".status.atProvider.obj"} {
+		m.PrintColumns[0].JSONPath = path
+		if err := checkPrintColumns(m, v.Schema.OpenAPIV3Schema); err == nil {
+			t.Errorf("%s: no error", path)
+		}
+	}
+	for _, bad := range []string{
+		"kinds: [{fernGroup: a, shortNames: [Bad]}]",
+		"kinds: [{fernGroup: a, printColumns: [{name: lower, type: string, jsonPath: .status.id}]}]",
+		"kinds: [{fernGroup: a, printColumns: [{name: X, type: map, jsonPath: .status.id}]}]",
+		"kinds: [{fernGroup: a, printColumns: [{name: X, type: string, jsonPath: \".status.conditions[0]\"}]}]",
+		"kinds: [{fernGroup: a, printColumns: [{name: X, type: string, jsonPath: .status.id, priority: 2}]}]",
+	} {
+		if _, err := ParseConfig([]byte(bad)); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
 	}
 }
