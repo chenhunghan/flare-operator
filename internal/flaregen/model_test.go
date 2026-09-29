@@ -379,3 +379,32 @@ func TestParseConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestCELField(t *testing.T) {
+	for in, want := range map[string]string{
+		"title": "title", "queue_name": "queue_name", "namespace": "__namespace__", "in": "__in__",
+		"a-b": "a__dash__b", "a.b": "a__dot__b", "a/b": "a__slash__b", "a__b": "a__underscores__b",
+	} {
+		if got := CELField(in); got != want {
+			t.Errorf("CELField(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for name, ok := range map[string]bool{"title": true, "x-y": true, "1abc": false, "a b": false, "@type": false} {
+		if CELAccessible(name) != ok {
+			t.Errorf("CELAccessible(%q) = %v", name, !ok)
+		}
+	}
+	// A create-required field CEL cannot name falls back to a plain schema requirement.
+	m := &KindModel{Kind: "X", Plural: "xs", Group: "g.cloudflare.flare.dev", Product: "g", Version: "v1alpha1",
+		Resource: &Resource{FernGroup: "g"}, Params: &Type{Kind: KObject, Fields: []*Field{
+			{JSONName: "ok", Type: &Type{Kind: KString}}, {JSONName: "1bad", Type: &Type{Kind: KString}}}},
+		Observation: &Type{Kind: KObject}, CreateRequired: []string{"ok", "1bad"}}
+	crd := BuildCRD(m)
+	spec := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
+	if len(spec.XValidations) != 1 || !strings.Contains(spec.XValidations[0].Rule, "has(self.forProvider.ok)") {
+		t.Errorf("rules %+v", spec.XValidations)
+	}
+	if fp := spec.Properties["forProvider"]; !reflect.DeepEqual(fp.Required, []string{"1bad"}) {
+		t.Errorf("forProvider.required = %v", fp.Required)
+	}
+}
