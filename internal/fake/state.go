@@ -12,6 +12,7 @@ type account struct {
 	vnets   map[string]*virtualNetwork
 	vpc     map[string]*vpcService
 	tags    map[string]*tagRecord // tags.go; created lazily
+	scripts map[string]*workerScript
 }
 
 func (s *Server) accountLocked(id string) *account {
@@ -25,6 +26,7 @@ func (s *Server) accountLocked(id string) *account {
 			tunnels: map[string]*tunnel{},
 			vnets:   map[string]*virtualNetwork{},
 			vpc:     map[string]*vpcService{},
+			scripts: map[string]*workerScript{},
 		}
 		s.accounts[id] = a
 	}

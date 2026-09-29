@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -104,6 +105,12 @@ func (s *Spec) ValidateRequest(r *http.Request, body []byte) error {
 			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
 			MultiError:         true,
 		},
+	}
+	// kin-openapi cannot decode the spec's multipart schemas (Workers script upload and settings
+	// PATCH fail with "unsupported schema of request body" even when valid), so for multipart
+	// bodies only the path and query are validated; the Workers profile parses the parts itself.
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" {
+		in.Options.ExcludeRequestBody = true
 	}
 	return openapi3filter.ValidateRequest(context.Background(), in)
 }

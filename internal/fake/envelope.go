@@ -9,6 +9,8 @@ import (
 type APIError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	// DocumentationURL is sent by some products (Workers VPC bindings, recording 0106).
+	DocumentationURL string `json:"documentation_url,omitempty"`
 }
 
 // envelopeStyle captures per-product quirks of the v4 envelope seen in recordings.

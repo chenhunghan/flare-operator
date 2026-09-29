@@ -33,6 +33,10 @@ type Options struct {
 	// D1Region is reported as created_in_region / running_in_region when no location hint is
 	// given (the real API picks the region nearest the caller; recording 0017 shows "APAC").
 	D1Region string
+
+	// WorkersSubdomain is the account's workers.dev subdomain (GET …/workers/subdomain). Zero
+	// means "example-subdomain", the sanitized value in recording 0001.
+	WorkersSubdomain string
 }
 
 // Server is an in-memory Cloudflare API. It is safe for concurrent use; all state mutations
@@ -50,7 +54,8 @@ type Server struct {
 	routes   []route
 	seq      int64 // creation sequence; orders lists deterministically even with a frozen clock
 
-	tokens map[string]*Token // tokens.go; nil = open mode
+	tokens          map[string]*Token // tokens.go; nil = open mode
+	workerStartupMs int               // startup_time_ms reported by script uploads (see SetWorkerStartupTime)
 }
 
 // nextSeq returns a monotonically increasing creation number. Callers hold s.mu.
@@ -93,7 +98,10 @@ func New(opts Options) *Server {
 	if opts.D1Region == "" {
 		opts.D1Region = "WNAM"
 	}
-	s := &Server{opts: opts, Clock: &Clock{}, accounts: map[string]*account{}}
+	if opts.WorkersSubdomain == "" {
+		opts.WorkersSubdomain = "example-subdomain"
+	}
+	s := &Server{opts: opts, Clock: &Clock{}, accounts: map[string]*account{}, workerStartupMs: workerDefaultStartupMs}
 	s.limiter = newLimiter(opts.RateLimit, opts.RateWindow)
 	s.registerKV()
 	s.registerD1()
@@ -102,6 +110,7 @@ func New(opts Options) *Server {
 	s.registerVPC()
 	s.registerTokens()
 	s.registerTags()
+	s.registerWorkers()
 	return s
 }
 
@@ -114,6 +123,7 @@ func (s *Server) Reset() {
 	s.faults = nil
 	s.seq = 0
 	s.tokens = nil
+	s.workerStartupMs = workerDefaultStartupMs
 	s.ids.reset()
 	s.limiter.reset()
 	s.Clock.Real()
@@ -239,9 +249,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Workflows send no rate-limit headers at all, and GET /zones uses its own policy name
 	// (recordings 0001, 0161, 0003…0027). Clients must therefore self-limit.
 	_, reset, allowed := s.limiter.take(token, now)
-	if policy, emit := rateHeaderPolicy(r.Method, path); emit {
-		w.Header().Set("Ratelimit", fmt.Sprintf("%q;r=%d;t=1", policy, s.opts.RateLimit-1))
-		w.Header().Set("Ratelimit-Policy", fmt.Sprintf("%q;q=%d;w=%d", policy, s.opts.RateLimit, int(s.opts.RateWindow.Seconds())))
+	if policy, quota, emit := rateHeaderPolicy(r.Method, path); emit {
+		window := int(s.opts.RateWindow.Seconds())
+		if quota == 0 {
+			quota = s.opts.RateLimit
+		} else {
+			window = 300
+		}
+		w.Header().Set("Ratelimit", fmt.Sprintf("%q;r=%d;t=1", policy, quota-1))
+		w.Header().Set("Ratelimit-Policy", fmt.Sprintf("%q;q=%d;w=%d", policy, quota, window))
 	}
 	if !allowed {
 		// 429 body/code UNVERIFIED (not yet recorded); 971 is Cloudflare's documented throttling code.
@@ -384,17 +400,35 @@ func (l *limiter) take(token string, now time.Time) (remaining, resetSeconds int
 }
 
 // rateHeaderPolicy reports which Ratelimit policy name the real API advertises for a request,
-// and whether it sends the headers at all.
-func rateHeaderPolicy(method, path string) (string, bool) {
+// its advertised quota (0 = the default budget), and whether it sends the headers at all.
+//
+// Workers script writes advertise their own policies with q=180000;w=300: upload (0036),
+// workers.dev subdomain (0037) and delete (0108). The emulator still counts them against the
+// default per-token budget; whether they are separate buckets in reality is UNVERIFIED.
+func rateHeaderPolicy(method, path string) (string, int, bool) {
 	for _, p := range []string{"/storage/kv/", "/d1/", "/workflows"} {
 		if strings.Contains(path+"/", p) {
-			return "", false
+			return "", 0, false
 		}
 	}
 	if method == http.MethodGet && strings.Trim(path, "/") == "zones" {
-		return "list_zones", true
+		return "list_zones", 0, true
 	}
-	return "default", true
+	if segs := strings.Split(strings.Trim(path, "/"), "/"); len(segs) >= 5 && segs[0] == "accounts" &&
+		segs[2] == "workers" && segs[3] == "scripts" {
+		const workersQuota = 180000
+		switch {
+		case len(segs) == 5 && method == http.MethodPut:
+			return "workers_script_upload", workersQuota, true // 0036
+		case len(segs) == 5 && method == http.MethodDelete:
+			return "workers_script_modify", workersQuota, true // 0108
+		case len(segs) == 6 && segs[5] == "subdomain" && method != http.MethodGet:
+			return "workers_route_update", workersQuota, true // 0037 (DELETE UNVERIFIED)
+		case len(segs) == 6 && segs[5] == "settings" && method == http.MethodPatch:
+			return "workers_script_modify", workersQuota, true // UNVERIFIED
+		}
+	}
+	return "default", 0, true
 }
 
 func secondsCeil(d time.Duration) int {
