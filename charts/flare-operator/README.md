@@ -28,6 +28,10 @@ the manager `--allowed-base-url` for that Service's URL only, in three spellings
 CloudflareAccount (the install NOTES print the exact value). Never enable it in a cluster that
 manages a real Cloudflare account.
 
+`make e2e-images e2e-install e2e e2e-uninstall` builds the images (plus the cloudflared stand-in
+`test/e2e/cloudflared-stub`), installs this chart with flarefake, runs `test/e2e` and removes the
+release, its CRDs and the namespace again; see the Makefile and `test/e2e/doc.go`.
+
 ## Values
 
 See `values.yaml`. Common ones: `image.*`, `clusterName`, `ownershipTags`, `controllers`,

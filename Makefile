@@ -78,13 +78,14 @@ $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
 fmt:
-	gofmt -w api cmd internal
+	gofmt -w api cmd internal test/e2e
 
-vet:
+vet:             ## go vet, including the e2e-tagged test/e2e package
 	go vet ./...
+	go vet -tags e2e ./test/e2e/...
 
-fmt-check:       ## fail if gofmt would change anything in api, cmd, internal (the dirs `make fmt` rewrites)
-	@out="$$(gofmt -l api cmd internal)"; if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi; echo "gofmt OK"
+fmt-check:       ## fail if gofmt would change anything in api, cmd, internal, test/e2e (the dirs `make fmt` rewrites)
+	@out="$$(gofmt -l api cmd internal test/e2e)"; if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi; echo "gofmt OK"
 
 # Directories written by `make generate manifests` (controller-gen) and `make generate-crds` (flaregen).
 GENERATED_PATHS ?= api config internal/generic
@@ -167,3 +168,44 @@ helm-lint: chart-check ## helm lint + helm template (default and flarefake value
 		fi; \
 	done
 	@[ -n "$(KUBECONFORM)" ] || echo "kubeconform not installed; skipped schema validation"
+
+## e2e on a real cluster (test/e2e): the chart with flarefake, driven by go test -tags e2e.
+## Example for the Lima k0s VM:
+##   export KUBECONFIG=~/.lima/<instance>/kubeconfig.yaml DOCKER_HOST=unix://$HOME/.lima/<instance>/docker.sock
+##   make e2e-images E2E_IMAGE_LOAD='limactl shell <instance> sudo k0s ctr -n k8s.io images import -'
+##   make e2e-install e2e e2e-uninstall
+.PHONY: e2e e2e-images e2e-install e2e-uninstall
+
+E2E_TAG ?= e2e
+E2E_NAMESPACE ?= flare-system
+E2E_RELEASE ?= flare-operator
+# Images are loaded into the node's runtime (E2E_IMAGE_LOAD), not pulled.
+E2E_PULL_POLICY ?= Never
+# A command that reads `docker save` output on stdin and imports it into the cluster's container
+# runtime (empty: skip, e.g. for kind use `kind load` by hand or push to a registry).
+E2E_IMAGE_LOAD ?=
+E2E_CLUSTER_NAME ?= flare-e2e
+
+e2e-images:      ## build flare-operator, flarefake and the cloudflared stub as :$(E2E_TAG) and load them (E2E_IMAGE_LOAD)
+	$(MAKE) docker-build IMG=flare-operator:$(E2E_TAG)
+	$(MAKE) docker-build-fake FAKE_IMG=flarefake:$(E2E_TAG)
+	$(CONTAINER_TOOL) build --platform=$(PLATFORM) -t cloudflared-stub:$(E2E_TAG) test/e2e/cloudflared-stub
+	@if [ -n "$(E2E_IMAGE_LOAD)" ]; then \
+		echo "loading images with: $(E2E_IMAGE_LOAD)"; \
+		$(CONTAINER_TOOL) save flare-operator:$(E2E_TAG) flarefake:$(E2E_TAG) cloudflared-stub:$(E2E_TAG) | $(E2E_IMAGE_LOAD); \
+	else echo "E2E_IMAGE_LOAD is empty: images were not loaded into the cluster"; fi
+
+e2e-install:     ## helm install the chart with flarefake into $(E2E_NAMESPACE) (CRDs from the chart)
+	$(HELM) upgrade --install $(E2E_RELEASE) $(CHART) -n $(E2E_NAMESPACE) --create-namespace --wait --timeout 5m \
+		-f $(CHART)/ci/flarefake-values.yaml --set clusterName=$(E2E_CLUSTER_NAME) \
+		--set image.tag=$(E2E_TAG) --set image.pullPolicy=$(E2E_PULL_POLICY) \
+		--set flarefake.image.tag=$(E2E_TAG) --set flarefake.image.pullPolicy=$(E2E_PULL_POLICY)
+
+e2e:             ## run test/e2e against the installed chart (skips without KUBECONFIG)
+	E2E_OPERATOR_NAMESPACE=$(E2E_NAMESPACE) E2E_RELEASE=$(E2E_RELEASE) E2E_STUB_IMAGE=cloudflared-stub:$(E2E_TAG) \
+		E2E_STUB_PULL_POLICY=$(E2E_PULL_POLICY) go test -tags e2e ./test/e2e/ -count=1 -v -timeout 20m
+
+e2e-uninstall:   ## helm uninstall, then delete the chart's CRDs (Helm keeps them) and $(E2E_NAMESPACE)
+	-$(HELM) uninstall $(E2E_RELEASE) -n $(E2E_NAMESPACE) --wait
+	kubectl delete -f $(CHART)/crds/ --ignore-not-found
+	kubectl delete namespace $(E2E_NAMESPACE) --ignore-not-found
