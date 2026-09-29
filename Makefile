@@ -190,6 +190,10 @@ CHART ?= charts/flare-operator
 HELM ?= helm
 KUBECTL ?= kubectl
 KUBECONFORM ?= $(shell command -v kubeconform 2>/dev/null)
+# Pinned Kubernetes schema version and a local schema cache, so helm-lint does not depend on
+# fetching the moving "master" schemas on every run.
+KUBECONFORM_K8S_VERSION ?= 1.36.0
+KUBECONFORM_CACHE ?= $(HOME)/.cache/flare-operator/kubeconform
 
 # Version stamp (internal/version) for local builds, the images and .goreleaser.yaml.
 VERSION_PKG = flare.dev/operator/internal/version
@@ -283,12 +287,13 @@ chart-check:     ## fail if the chart's CRDs or ClusterRoles are out of sync wit
 helm-lint: chart-check ## helm lint + helm template (default and flarefake values); kubeconform if installed
 	$(HELM) lint --strict $(CHART)
 	$(HELM) lint --strict $(CHART) -f $(CHART)/ci/flarefake-values.yaml
+	@mkdir -p $(KUBECONFORM_CACHE)
 	@for v in $(CHART)/ci/*-values.yaml; do \
 		echo "helm template -f $$v"; \
 		$(HELM) template flare-operator $(CHART) -n flare-system --include-crds -f $$v > /dev/null || exit 1; \
 		if [ -n "$(KUBECONFORM)" ]; then \
 			$(HELM) template flare-operator $(CHART) -n flare-system --include-crds -f $$v \
-				| $(KUBECONFORM) -strict -summary -ignore-missing-schemas || exit 1; \
+				| $(KUBECONFORM) -strict -summary -ignore-missing-schemas -kubernetes-version $(KUBECONFORM_K8S_VERSION) -cache $(KUBECONFORM_CACHE) || exit 1; \
 		fi; \
 	done
 	@[ -n "$(KUBECONFORM)" ] || echo "kubeconform not installed; skipped schema validation"
