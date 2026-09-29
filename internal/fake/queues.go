@@ -51,8 +51,11 @@ func (q *queue) json() map[string]any {
 		"created_on": tsMicro(q.Created), "modified_on": tsMicro(q.Modified),
 	}
 	if q.Jurisdiction != "" {
-		// Returned only when set: 0028 has none, and wrangler relies on the key being absent for
-		// non-jurisdictional queues. SOURCED: cloudflare/workers-sdk@485cfb3:packages/wrangler/src/queues/cli/commands/list.ts#L36
+		// Returned only when set: 0028 has none. SOURCED (statement): wrangler's `queues list`
+		// shows its jurisdiction column only when some queue carries the key, and its comment
+		// expects non-jurisdictional queues to lack it,
+		// cloudflare/workers-sdk@3bdcd0d:packages/wrangler/src/queues/cli/commands/list.ts#L21-L36.
+		// wrangler works either way (it prints "" for a missing value), so this is no dependency.
 		m["jurisdiction"] = q.Jurisdiction
 	}
 	return m

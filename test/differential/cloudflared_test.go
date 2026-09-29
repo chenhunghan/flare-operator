@@ -16,18 +16,13 @@ import (
 	"flare.dev/operator/test/differential/harness"
 )
 
-// cloudflaredSrc prefixes evidence citations into cloudflared's source at the pinned release
-// (tag 2026.9.3).
-const (
-	cloudflaredSrc = "cloudflare/cloudflared@2026.9.3:"
-	cloudflaredID  = "cloudflared@" + CloudflaredVersion
-)
+// Evidence citations into cloudflared's source use the pinned release, tag 2026.9.3
+// ("cloudflare/cloudflared@2026.9.3:<path>#L<n>").
 
-var dCfdRoutes = harness.Discrepancy{
-	ID: "CFD-TEAMNET-ROUTES", Client: cloudflaredID,
-	Summary:  "Tunnel IP routes (GET/POST/DELETE /accounts/{a}/teamnet/routes…) are not emulated (404/7000); `cloudflared tunnel route ip show/add` fail.",
-	Evidence: cloudflaredSrc + "cfapi/base_client.go#L53 (accountRoutesEndpoint); cfapi/ip_route.go",
-}
+// knownCloudflaredSpecViolation: `route ip add` must send tunnel_id, which the spec both
+// requires and marks readOnly in the request body (an unsatisfiable request schema), so the
+// live API accepts it. SOURCED (relies): cloudflare/cloudflared@2026.9.3:cfapi/ip_route.go#L75-L88,L160-L175.
+const knownCloudflaredSpecViolation = `POST /accounts/` + harness.AccountID + `/teamnet/routes: request body has an error: doesn't match schema: readOnly property "tunnel_id" in request`
 
 // fakeZoneID fills the origin cert's zoneID, which cloudflared requires (decodeOriginCert,
 // cloudflared@2026.9.3:credentials/origin_cert.go#L106-L108) but uses only for DNS routes.
@@ -48,7 +43,8 @@ func originCert(t *testing.T, dir string) string {
 }
 
 // TestCloudflared drives the pinned cloudflared's management-API commands (tunnel create,
-// list, info, token, cleanup, delete; vnet add/list/delete) against flarefake. It never runs a
+// list, info, token, cleanup, delete; vnet add/list/delete; route ip add/show/get/delete)
+// against flarefake. It never runs a
 // connector (`tunnel run`), so nothing contacts the Cloudflare edge.
 func TestCloudflared(t *testing.T) {
 	bin := findClient(t, "FLARE_DIFF_CLOUDFLARED",
@@ -151,11 +147,28 @@ func TestCloudflared(t *testing.T) {
 		}
 		c(t, "vnet", "delete", "flare-diff-vnet")
 	})
-	dCfdRoutes.Check(t, func() error {
-		mark := f.Mark()
-		r := run(t, home, env, bin, "tunnel", "--no-autoupdate", "route", "ip", "show", "--output", "json")
-		logRequests(t, f, mark)
-		return r.failed()
+	t.Run("route-ip", func(t *testing.T) {
+		const network = "10.9.0.0/16"
+		c(t, "route", "ip", "add", network, name, "flare-diff route")
+		var routes []struct {
+			ID         string
+			Network    string
+			TunnelID   string `json:"tunnel_id"`
+			TunnelName string `json:"tunnel_name"`
+			Comment    string
+		}
+		jsonOut(t, c(t, "route", "ip", "show", "--output", "json"), &routes)
+		if len(routes) != 1 || routes[0].Network != network || routes[0].TunnelID != tunnelID || routes[0].TunnelName != name || routes[0].Comment != "flare-diff route" {
+			t.Fatalf("route ip show %+v, want %s over %s", routes, network, name)
+		}
+		if r := c(t, "route", "ip", "get", "10.9.1.2"); !strings.Contains(r.stdout, network) {
+			t.Errorf("route ip get 10.9.1.2 does not name %s:\n%s", network, r.stdout)
+		}
+		c(t, "route", "ip", "delete", network) // by network: cloudflared looks the route ID up first
+		var live []any
+		if get(t, f, acctPath("/teamnet/routes?is_deleted=false"), &live); len(live) != 0 {
+			t.Errorf("routes after delete: %v", live)
+		}
 	})
 	t.Run("delete", func(t *testing.T) {
 		c(t, "delete", name)
@@ -165,13 +178,11 @@ func TestCloudflared(t *testing.T) {
 		}
 	})
 	t.Run("spec-and-routes", func(t *testing.T) {
-		for _, v := range f.UnexplainedSchemaViolations() {
+		for _, v := range f.UnexplainedSchemaViolations(knownCloudflaredSpecViolation) {
 			t.Errorf("cloudflared request broke the pinned spec (new discrepancy?): %s", v)
 		}
 		for _, u := range f.Unanswered() {
-			if !strings.Contains(u, "/teamnet/routes") {
-				t.Errorf("cloudflared called a route flarefake does not emulate (new discrepancy?): %s", u)
-			}
+			t.Errorf("cloudflared called a route flarefake does not emulate (new discrepancy?): %s", u)
 		}
 	})
 }

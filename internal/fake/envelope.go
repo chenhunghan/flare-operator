@@ -46,6 +46,9 @@ type response struct {
 	errors     []APIError
 	messages   []any // nil = []
 	style      envelopeStyle
+	// raw, when rawType is set, is sent as the whole body instead of an envelope (a KV value).
+	raw     []byte
+	rawType string
 }
 
 func ok(result any) response { return response{status: http.StatusOK, result: result} }
@@ -63,6 +66,12 @@ func (r response) withStyle(s envelopeStyle) response { r.style = s; return r }
 func writeResponse(w http.ResponseWriter, resp response) {
 	if resp.status == http.StatusNoContent { // no envelope at all (tags-delete; DOCS: https://developers.cloudflare.com/resource-tagging/how-to/manage-tags/ "returns 204 No Content")
 		w.WriteHeader(resp.status)
+		return
+	}
+	if resp.rawType != "" {
+		w.Header().Set("Content-Type", resp.rawType)
+		w.WriteHeader(resp.status)
+		_, _ = w.Write(resp.raw)
 		return
 	}
 	success := len(resp.errors) == 0 && resp.status < 400

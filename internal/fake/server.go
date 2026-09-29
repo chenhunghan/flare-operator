@@ -131,6 +131,7 @@ func New(opts Options) *Server {
 	s.registerD1()
 	s.registerQueues()
 	s.registerTunnels()
+	s.registerRoutes()
 	s.registerVPC()
 	s.registerTokens()
 	s.registerTags()
@@ -212,8 +213,16 @@ func (s *Server) handle(method, pattern string, h handler) {
 	s.routes = append(s.routes, route{method: method, segments: strings.Split(strings.Trim(pattern, "/"), "/"), h: h})
 }
 
+// match finds the route for method and path. path may be percent-encoded (the request's
+// escaped path): it is split on "/" first and each segment is unescaped afterwards, so a
+// parameter such as a KV key name can carry an encoded "/".
 func (s *Server) match(method, path string) (handler, map[string]string, bool) {
 	segs := strings.Split(strings.Trim(path, "/"), "/")
+	for i, seg := range segs {
+		if u, err := url.PathUnescape(seg); err == nil {
+			segs[i] = u
+		}
+	}
 	pathMatched := false
 	for _, rt := range s.routes {
 		if len(rt.segments) != len(segs) {
@@ -301,11 +310,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !allowed {
 		// 429 with retry-after: DOCS https://developers.cloudflare.com/fundamentals/api/reference/limits/.
-		// The body's code 971 is UNVERIFIED (not recorded, and not in the docs); users report it
-		// from the real API through wrangler (cloudflare/workers-sdk issue #10025, a field report).
+		// Clients act on the status and Retry-After only, never on the body's error code. SOURCED
+		// (relies): cloudflare-go retries on status 429 and reads Retry-After,
+		// cloudflare/cloudflare-go@3da6607:internal/requestconfig/requestconfig.go#L253-L277,L280;
+		// wrangler retries an APIError with status 429 and waits for Retry-After,
+		// wrangler@4.143.0:wrangler-dist/cli.js#L59624-L59647 (retryOnAPIFailure). So the body
+		// only has to be a spec-conformant error: code 1015 is Cloudflare's documented
+		// rate-limit error (DOCS https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1015/),
+		// and the pinned spec requires codes >= 1000. The API's own body is UNVERIFIED (no
+		// recording; field reports quote code 971, which is below the spec's minimum).
 		w.Header().Set("Retry-After", fmt.Sprint(reset))
 		entry.Status = http.StatusTooManyRequests
-		writeResponse(w, fail(http.StatusTooManyRequests, 971, "Please wait and consider throttling your request speed"))
+		writeResponse(w, fail(http.StatusTooManyRequests, rateLimitedCode, "You are being rate limited. Please wait and consider throttling your request speed."))
 		return
 	}
 
@@ -330,7 +346,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h, params, pathKnown := s.match(r.Method, path)
+	h, params, pathKnown := s.match(r.Method, strings.TrimPrefix(r.URL.EscapedPath(), "/client/v4"))
 	if h == nil {
 		// Unknown routes: real API answers 404/7000 "No route for that URI"; unsupported method on
 		// a known route 405/10405 — both UNVERIFIED (not yet recorded).
@@ -498,6 +514,9 @@ func rateHeaderPolicy(method, path string) (string, int, bool) {
 	}
 	return "default", 0, true
 }
+
+// rateLimitedCode is the error code of the emulator's 429 body (see ServeHTTP).
+const rateLimitedCode = 1015
 
 func secondsCeil(d time.Duration) int {
 	s := int((d + time.Second - 1) / time.Second)

@@ -71,7 +71,8 @@ var scenarios = []scenario{
 		name: "tunnel+vpc+workers",
 		include: func(l string) bool {
 			return strings.HasPrefix(l, "vpc-") || strings.HasPrefix(l, "vnet-") ||
-				oneOf(l, "final-virtual-networks", "final-tunnels-active", "final-vpc-services", "verify-tunnels", "verify-vpc") ||
+				oneOf(l, "final-virtual-networks", "final-tunnels-active", "final-vpc-services", "verify-tunnels", "verify-vpc",
+					"final-tunnel-routes") ||
 				oneOf(l, "subdomain-get", "scripts-list", "logs-upload", "logs-subdomain-enable", "logs-versions-list",
 					"logs-deployments-list", "logs-upload-v2", "logs-script-delete", "logs-script-get-after-delete",
 					"logs-scripts-list-final", "verify-scripts", "final-workers-scripts")
@@ -105,7 +106,7 @@ var scenarios = []scenario{
 		include: func(l string) bool {
 			return strings.HasPrefix(l, "k8s-") && !strings.Contains(l, "hyperdrive") ||
 				oneOf(l, "final2-tunnels-active", "final2-vpc-services", "final2-kv", "final2-d1", "final2-queues", "final2-vnets",
-					"final2-scripts")
+					"final2-scripts", "final2-tunnel-routes")
 		},
 		before: map[string]func(s *Server){
 			"k8s-tunnel-create":              func(s *Server) { s.EnqueueIDs(k8sTunnelID, "32c0a24c-c920-4a50-8475-643853700c5b") },

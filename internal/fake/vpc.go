@@ -159,9 +159,27 @@ func vpcCreate(c *reqCtx) response {
 	return ok(svc.json())
 }
 
+// vpcList: GET …/services[?type=&page=&per_page=]. No result_info (0112, 0119, 0210), so a
+// client pages until a page comes back empty: SOURCED (relies) cloudflare-go's
+// V4PagePaginationArray asks for page N+1 until the result is empty,
+// cloudflare/cloudflare-go@3da6607:packages/pagination/pagination.go#L215-L227, and
+// connectivity/directoryservice.go#L82-L101 lists this route that way. page/per_page follow the
+// spec (defaults 1 and 1000, per_page at most 1000); that the API applies them, and the type
+// filter, are UNVERIFIED (the recordings hold at most one page).
 func vpcList(c *reqCtx) response {
-	out := []any{}
+	var items []*vpcService
 	for _, v := range sortedBySeq(c.account.vpc, func(v *vpcService) int64 { return v.Seq }) {
+		if t := c.query.Get("type"); t == "" || v.Type == t {
+			items = append(items, v)
+		}
+	}
+	perPage := c.intQuery("per_page", 1000)
+	if perPage > 1000 {
+		perPage = 1000
+	}
+	pageItems, _, _, _ := paginate(items, c.intQuery("page", 1), perPage, 1000)
+	out := make([]any, 0, len(pageItems))
+	for _, v := range pageItems {
 		out = append(out, v.json())
 	}
 	return ok(out) // 0112: no result_info

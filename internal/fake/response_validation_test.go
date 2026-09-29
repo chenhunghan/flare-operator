@@ -60,8 +60,7 @@ func TestRecordedResponsesAgainstSpec(t *testing.T) {
 
 // TestResponseAllowlistReproducedByRecordings checks every allowlist entry's evidence: a
 // recording-backed entry must match a violation of its cited recording's real response; an
-// unsatisfiable entry's schema must reject every candidate result value; a field entry must
-// cite its source.
+// unsatisfiable entry's schema must reject every candidate result value.
 func TestResponseAllowlistReproducedByRecordings(t *testing.T) {
 	if testing.Short() {
 		t.Skip("loads the pinned spec")
@@ -78,7 +77,7 @@ func TestResponseAllowlistReproducedByRecordings(t *testing.T) {
 		}
 		ids[a.id] = true
 		kinds := 0
-		for _, k := range []bool{a.recording != "", a.unsatisfiable, a.field != ""} {
+		for _, k := range []bool{a.recording != "", a.unsatisfiable} {
 			if k {
 				kinds++
 			}
@@ -112,11 +111,21 @@ func TestResponseAllowlistReproducedByRecordings(t *testing.T) {
 				if method == "" {
 					method = http.MethodGet
 				}
-				path := strings.NewReplacer("{account_id}", "a", "{tunnel_id}", "t").Replace(op)
+				path := strings.NewReplacer("{account_id}", "a", "{tunnel_id}", "t", "{script_name}", "s",
+					"{database_id}", "8b1f2e4c-3a5d-4e6f-9a7b-0c1d2e3f4a5b").Replace(op)
 				req, _ := http.NewRequest(method, "http://x/client/v4"+path, nil)
+				// A success status gets success envelopes; a 4XX entry gets failure envelopes
+				// (with an ordinary error code) at status 400.
+				status, envelope := a.status, `{"success":true,"errors":[],"messages":[],"result":%s}`
+				if a.status4xx {
+					status, envelope = http.StatusBadRequest, `{"success":false,"errors":[{"code":10021,"message":"m"}],"messages":[],"result":%s}`
+				}
 				for _, cand := range []string{`null`, `{}`, `[]`, `""`} {
-					body := []byte(`{"success":true,"errors":[],"messages":[],"result":` + cand + `}`)
-					_, errs := spec.ValidateResponse(req, a.status, http.Header{"Content-Type": {"application/json"}}, body)
+					body := []byte(strings.Replace(envelope, "%s", cand, 1))
+					got, errs := spec.ValidateResponse(req, status, http.Header{"Content-Type": {"application/json"}}, body)
+					if got != op {
+						t.Errorf("%s: %s %s resolves to operation %q", a.id, method, path, got)
+					}
 					if len(errs) == 0 {
 						t.Errorf("%s: result %s validates on %s %s, so the schema is satisfiable", a.id, cand, method, op)
 					}

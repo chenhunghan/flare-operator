@@ -13,9 +13,8 @@ Each mismatch is recorded as a **known discrepancy**. It becomes a skipped subte
 
 | Path | What |
 |---|---|
-| `test/differential/harness/` | In-process flarefake on a random port (`harness.Start`). It captures every request (method, path, query, Content-Type, User-Agent, body prefix, status, envelope error codes). It also holds shims, `Discrepancy`, and `KnownSpecDefects`. There is no build tag, and its unit tests run in `make test`. |
+| `test/differential/harness/` | In-process flarefake on a random port (`harness.Start`). It captures every request (method, path, query, Content-Type, User-Agent, body prefix, status, envelope error codes). It also holds `Discrepancy`, `KnownSpecDefects`, and shims (test-local answers for a route flarefake lacks, registered only together with the discrepancy they name; none is in use). There is no build tag, and its unit tests run in `make test`. |
 | `test/differential/wrangler_test.go` | wrangler scenario (build tag `differential`) |
-| `test/differential/wrangler_shims_test.go` | Test-local answers for routes flarefake lacks. Each shim is registered only for its discrepancy, so the deploy flow can go on. |
 | `test/differential/cloudflared_test.go` | cloudflared management-API scenario |
 | `test/differential/go/` | A **separate Go module** (its own `go.mod`, with `replace flare.dev/operator => ../../..`) that pins cloudflare-go. The operator's `go.mod` stays free of the SDK. |
 | `test/differential/npm/` | `package.json` and `package-lock.json` that pin wrangler and its dependency tree |
@@ -38,7 +37,10 @@ The wrangler environment has these safety settings:
 - `WRANGLER_HIDE_BANNER=true`, which also skips the npm update check;
 - `CI=1`, a temporary `HOME`, and `CLOUDFLARE_CF_FETCH_ENABLED=false`.
 
-Every client also runs with `HTTPS_PROXY`/`HTTP_PROXY` set to a closed loopback port and `NO_PROXY=127.0.0.1,localhost`. Any stray non-loopback request (telemetry, update check, a wrong base URL) therefore fails instead of reaching the internet. cloudflared runs only management commands and never `tunnel run`, so it never contacts the edge.
+wrangler and cloudflared run with `HTTPS_PROXY`/`HTTP_PROXY` set to a closed loopback port and `NO_PROXY=127.0.0.1,localhost`, so a stray non-loopback request from wrangler (telemetry, update check, a wrong base URL) fails instead of reaching the internet. The net does not cover everything:
+
+- cloudflared's API client builds its own `http.Transport` without a proxy function (`cfapi/base_client.go#L65-L68`), so it ignores the proxy variables. It is pointed at flarefake by `TUNNEL_API_URL` only, and it runs only management commands, never `tunnel run`, so it never contacts the edge.
+- cloudflare-go runs in-process with `option.WithBaseURL` and no proxy set.
 
 ## How to run
 
@@ -55,22 +57,21 @@ A client that is not installed is skipped with a hint. You can override where a 
 **wrangler 4.143.0:**
 - KV:
   - `kv namespace create/list/rename/delete`
-  - `kv key put/get` (discrepancy)
+  - `kv key put` (plain and with `--metadata`), `kv key get`, `kv key list`, `kv key delete`
 - Queues:
-  - `queues create/info/delete`
-  - `queues list` (discrepancy)
-  - create against strict mode (discrepancy)
+  - `queues create/info/list/delete`
+  - `queues create` against strict mode (`-reject-schema-violations`)
 - D1:
   - `d1 create/list --json/delete`
-  - `d1 execute --remote` (discrepancy)
+  - `d1 execute --remote --command` with constant `SELECT`s (flarefake executes nothing else; see below)
 - Workers:
   - `deploy` of an ES-module Worker with KV, Queue and D1 bindings to the resources created above. The stored bindings and the workers.dev state are checked in flarefake.
-  - `versions list`, `deployments list`, `deployments status`
+  - `versions list`, `versions view` (JSON and text), `deployments list`, `deployments status`
   - workers.dev off and back on (`triggers deploy`)
-  - `delete`
-  - `versions view` and a redeploy (both discrepancies)
+  - a redeploy of the existing Worker, which goes through the versions API: `POST …/versions`, `POST …/deployments` at 100%, `PATCH …/script-settings`
+  - `delete` (`DELETE …/workers/services/{name}?force=true`)
 
-  The test also asserts that every request wrangler made either matches the pinned spec or is a known discrepancy or spec defect, and that it hit only emulated routes apart from the discrepancies.
+  The test also asserts that every request wrangler made either matches the pinned spec or is a known client-side spec violation, and that it hit only emulated routes. No route is shimmed any more.
 
 **cloudflare-go v7.11.0:**
 - User token verify.
@@ -82,10 +83,10 @@ A client that is not installed is skipped with a hint. You can override where a 
   - connections, with a connector attached through `/_fake`
   - configurations put/get
 - Virtual networks: create/list/delete.
-- Workers VPC services: create/get/list/delete.
+- Workers VPC services: create/get/list (one page, and `ListAutoPaging` to the end)/delete.
 - Resource Tagging: set/get/list.
 - Workers:
-  - script upload with KV and plain_text bindings
+  - script upload with KV and plain_text bindings, and a one-line module whose handler must still be detected
   - list, versions, deployments
   - per-script and account subdomain
   - delete
@@ -104,30 +105,34 @@ The extras seen so far (`credentials_file`, `token`, `ha_status`, D1 `file_size`
 - `tunnel token`: decodes to `{a, t, s}`.
 - `tunnel cleanup`.
 - `tunnel vnet add/list/delete`.
-- `tunnel route ip show` (discrepancy).
+- `tunnel route ip add/show/get/delete` (delete by network, which cloudflared resolves with a `network_subset` + `network_superset` lookup).
 - `tunnel delete`.
 
 ## Known discrepancies
 
-Each discrepancy is a `harness.Discrepancy` in the test that found it. **Shimmed** means a test-local shim answers that route so the rest of the flow still exercises flarefake.
+Each discrepancy is a `harness.Discrepancy` in the test that found it. Two remain, both on the client side:
 
 | ID | Mismatch | Evidence |
 |---|---|---|
-| WR-SERVICE-GET (shimmed) | `GET …/workers/services/{name}` is not emulated (404/7000) and is not in the pinned spec. `wrangler deploy` needs 404 **10007**/10090 for a new Worker, or `default_environment.script.tag`, and aborts otherwise. | `wrangler-dist/cli.js#L174943`; workers-sdk `packages/deploy-helpers/src/deploy/helpers/worker-not-found-error.ts#L4,L9` |
-| WR-SECRETS-LIST (shimmed) | `GET …/scripts/{name}/secrets` is not emulated. deploy lists secrets whenever there are bindings, and tolerates only 404/10007. | `…/deploy/helpers/check-remote-secrets-override.ts#L10,L35-L42` |
-| WR-WORKER-GET (shimmed) | `GET …/workers/workers/{name}` is not emulated. wrangler reads `subdomain.enabled/previews_enabled` from it after every upload. | `packages/deploy-helpers/src/triggers/subdomain.ts#L159-L173` |
-| WR-SERVICE-DELETE (shimmed) | `wrangler delete` calls `DELETE …/workers/services/{name}?force=`, which is not emulated. | `packages/wrangler/src/delete.ts#L154-L159` |
-| WR-REDEPLOY-VERSIONS | Redeploying an existing Worker uses `POST …/versions` (405 in flarefake), then `POST …/deployments` and `PATCH …/script-settings`. The upload carries `{"type":"inherit"}` bindings. | `…/deploy/deploy.ts#L423-L432,L517-L525`; `…/helpers/versions-api.ts#L145,L180` |
-| WR-VERSION-GET | `GET …/versions/{id}` is not emulated (`wrangler versions view`). | `…/helpers/versions-api.ts#L27-L31` |
-| WR-QUEUE-LIST-COUNTS | Queue list items lack `producers_total_count`/`consumers_total_count` (UNVERIFIED shape, since 0148 is an empty list). `wrangler queues list` crashes on `.toString()`. | `packages/wrangler/src/queues/cli/commands/list.ts#L45-L46,L56-L57` |
-| WR-QUEUE-CREATE-CONTENT-TYPE | The queue create body is sent with no Content-Type, so undici sends `text/plain;charset=UTF-8`. Spec validation flags it, and strict mode (`-reject-schema-violations`) rejects real wrangler. | `packages/wrangler/src/queues/client.ts#L55-L64` |
-| WR-KV-VALUES | KV values routes are not emulated. wrangler also sends values as `text/plain`, which the spec does not allow (only octet-stream or multipart). | `packages/wrangler/src/kv/helpers.ts#L247-L252` |
-| WR-D1-EXECUTE | `POST …/d1/database/{id}/query` answers 501/99999, because SQL is not emulated. | `packages/wrangler/src/d1/execute.ts#L630-L640` |
-| CFD-TEAMNET-ROUTES | `…/teamnet/routes` (tunnel IP routes) is not emulated. | cloudflared `cfapi/base_client.go#L53`, `cfapi/ip_route.go` |
-| SDK-VPC-LIST-PAGINATION | The VPC services list ignores `?page=` and repeats the full list on every page. cloudflare-go's V4PagePaginationArray asks for page N+1 until a page comes back empty, so `ListAutoPaging` never ends. | cloudflare-go `packages/pagination/pagination.go#L215-L227`, `connectivity/directoryservice.go#L82-L101` |
-| FAKE-HANDLER-DETECTION | flarefake's line-start handler regex (UNVERIFIED) reports `handlers: []` for `export default { async fetch() {…} }`, the shape esbuild and wrangler emit. Recording 0036 shows `[fetch]`. | cloudflare-go `workers/script.go` (`Handlers`); recording 0036 |
 | SDK-WORKERS-UPLOAD-FORM | cloudflare-go's `Workers.Scripts.Update` flattens the multipart form (`metadata.main_module`, `files.0`) instead of sending a JSON `metadata` part, and flarefake answers 400/10021. flarefake follows the spec, the recorded upload (0036) and what wrangler sends (a JSON `metadata` part), so this may be an SDK defect. What the live API does is UNVERIFIED. | cloudflare-go `workers/script.go#L4154-L4167` |
 | SDK-SETTINGS-PLACEMENT-PANIC | **Client defect, not flarefake.** cloudflare-go panics decoding `"placement": {}` in `GET …/settings`, and the live API sends exactly that (0065, 0091). Operator code must not use this SDK call. | cloudflare-go `workers/scriptscriptandversionsetting.go#L8368-L8375`, `internal/apijson/port.go#L84` |
+
+**Fixed in flarefake on 2026-09-30** (entries and shims deleted; the scenario steps above now cover them). The emulator code cites its evidence at each behavior (`internal/fake`):
+
+| ID | Fix |
+|---|---|
+| WR-SERVICE-GET, WR-SERVICE-DELETE | `GET`/`DELETE …/workers/services/{name}` (absent from the pinned spec): 404/10007 for a missing Worker, else `default_environment.script` with `tag`, `tags`, `last_deployed_from`; the DELETE deletes the script (`workers_versions.go`) |
+| WR-SECRETS-LIST | `GET …/scripts/{name}/secrets` lists secret bindings by name and type, 404/10007 for a missing Worker |
+| WR-WORKER-GET | `GET …/workers/workers/{id}` (by name or tag) answers the spec's `workers_Worker`, including `subdomain` |
+| WR-REDEPLOY-VERSIONS | `POST …/versions` (not deployed; `inherit` bindings and `keep_bindings` resolved against the deployed version, 400/10057 for an unresolvable inherit under `bindings_inherit=strict`), `POST …/deployments` (percentages over known versions, adding up to 100), `GET`/`PATCH …/script-settings` (no new version) |
+| WR-VERSION-GET | `GET …/versions/{id}` with `resources.bindings/script/script_runtime` |
+| WR-QUEUE-LIST-COUNTS | already fixed by PR-1 (list items carry the producer/consumer counts); the discrepancy only reported "no longer reproduces" |
+| WR-QUEUE-CREATE-CONTENT-TYPE | request validation reads a `text/plain` body as the declared media type for the two operations where wrangler is shown to send one (queue create, KV value put, `spec.go` `plainTextBodies`); the body is still validated, and `text/plain` stays a violation everywhere else |
+| WR-KV-VALUES | KV values `PUT`/`GET`/`DELETE`, `…/metadata/{key}` and `…/keys` (sorted, prefix, cursor, expiration) (`kv_values.go`) |
+| WR-D1-EXECUTE | `POST …/query` executes constant `SELECT`s (numbers, strings, NULL, TRUE/FALSE, parameters, aliases; several statements; `batch`) and answers 400/99999 "not emulated" for anything else (`d1_sql.go`). No SQL engine: a pure-Go SQLite driver would pull a large transpiled C runtime into the operator's module for a surface the operator does not use. |
+| CFD-TEAMNET-ROUTES | `…/teamnet/routes` list (filters, paging; replays 0159 and 0222), create, get, delete (soft), `…/routes/ip/{ip}` (`teamnet_routes.go`) |
+| SDK-VPC-LIST-PAGINATION | the VPC services list honors `page`/`per_page` (spec defaults 1 and 1000), so a page past the end is empty |
+| FAKE-HANDLER-DETECTION | handler detection also finds methods and properties right after `{` or `,`: `export default { async fetch() {…} }` and esbuild's `var x_default = { async fetch(…` |
 
 `harness.KnownSpecDefects` lists places where clients break the pinned spec but a recording proves the live API accepts the request. These are spec defects, not flarefake discrepancies:
 
@@ -135,14 +140,20 @@ Each discrepancy is a `harness.Discrepancy` in the test that found it. **Shimmed
 - the D1 `database_id` oneOf (0020);
 - a catch-all ingress rule without `hostname` (0045, 0046). cloudflare-go also marks this field required, which is `knownSDKDecodeGaps`.
 
-What wrangler sends that flarefake already accepts, useful as SOURCED evidence for PR-1:
+The tests also list, next to the scenario, requests a client makes on every such call that break the pinned spec, so the live API must accept them (SOURCED, relies). flarefake journals them and answers normally:
+
+- wrangler (`knownWranglerSpecViolations`): `GET`/`DELETE …/workers/services/{name}` (not in the spec); `kv key delete` without a body (the spec requires one); `kv key put --metadata` sending metadata as a plain form field (the spec's encoding wants `application/json`).
+- cloudflared (`knownCloudflaredSpecViolation`): `route ip add` sends `tunnel_id`, which the spec both requires and marks readOnly in the request body.
+
+What wrangler sends that flarefake accepts, useful as SOURCED evidence:
 
 - The upload is `PUT …/scripts/{name}?excludeScript=true&bindings_inherit=strict`.
   - The module part is `application/javascript+module`.
   - Metadata includes `code_update_strategy: {mode: "deferred", max_delay: 300}`.
   - D1 bindings use `id`, not `database_id`.
+- A redeploy uses `POST …/versions?bindings_inherit=strict`, then `POST …/deployments` and `PATCH …/script-settings`.
 - workers.dev is toggled with `POST …/subdomain {"enabled":true|false}`.
-- `GET …/queues?name=` is used for lookups.
+- `GET …/queues?name=` is used for lookups; the queue create body and KV values are sent as `text/plain`.
 - `GET …/versions?deployable=true`.
 
 A `FLARE_DIFF_CAPTURE_DIR` run gives the full request list.
@@ -161,4 +172,4 @@ A `FLARE_DIFF_CAPTURE_DIR` run gives the full request list.
    - add a shim (`f.AddShim`) only if later steps need the route, and name the discrepancy in it.
 
    Never change `internal/fake` in a differential-test change.
-6. Add the discrepancy to the table above.
+6. Add the discrepancy to the table above. When flarefake is fixed, delete the entry and its shim, add a scenario step that asserts the fixed behavior, and move the ID to the "Fixed" table.

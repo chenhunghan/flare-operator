@@ -123,8 +123,9 @@ func flattenSchemaErrors(err error) []string {
 //     its evidence.
 //   - unsatisfiable: the spec's schema for the operation/status accepts no value at all for the
 //     failing field (checked by the same test with candidate values).
-//   - field: a real-API response quoted in an official Cloudflare repository (weaker; no
-//     recording exists yet).
+//
+// Field reports (a real response quoted in an issue) are not evidence here: without a
+// recording the emulator sends a spec-conformant response instead.
 type allowedResponseViolation struct {
 	id     string
 	method string // "" = any
@@ -140,7 +141,6 @@ type allowedResponseViolation struct {
 
 	recording     string // NNNN of the recording showing the real API does this
 	unsatisfiable bool
-	field         string // citation of a quoted real-API response (see type comment)
 	why           string
 }
 
@@ -178,6 +178,7 @@ const (
 	opScriptVers    = "/accounts/{account_id}/workers/scripts/{script_name}/versions"
 	opD1List        = "/accounts/{account_id}/d1/database"
 	opD1            = "/accounts/{account_id}/d1/database/{database_id}"
+	opD1Query       = "/accounts/{account_id}/d1/database/{database_id}/query"
 	opQueues        = "/accounts/{account_id}/queues"
 )
 
@@ -227,14 +228,15 @@ var responseAllowlist = []allowedResponseViolation{
 		errRe:    regexp.MustCompile(`^/(success: value is not one of the allowed values \[true\]|result: Value is not nullable|result: doesn't match any schema from "anyOf")$`),
 		requires: reSuccessTrue, recording: "0095",
 		why: "many 4XX schemas are allOf(<success response>, <failure>), which demands success true and false at once; real errors (0095 tunnel, 0163 vnet) violate it"},
+	{id: "d1-query-result-unsatisfiable", method: http.MethodPost, operations: []string{opD1Query}, status: 200,
+		errRe: regexp.MustCompile(`^/result: value must be an object$`), unsatisfiable: true,
+		why: "the query response is allOf(d1_api-response-common with result an object, result an array of query results): no result value validates (the D1 list's result has the same defect, 0021)"},
+	{id: "versions-upload-4xx-unsatisfiable", method: http.MethodPost, operations: []string{opScriptVers}, status4xx: true,
+		errRe: regexp.MustCompile(`^/: doesn't match any schema from "anyOf"$`), unsatisfiable: true,
+		why: "the version upload's 4XX is anyOf(allOf(<success response>, <failure>), exports-reconciliation error with code 100402 only): no other error validates (the same success-and-failure defect as 0095)"},
 	{id: "tunnel-empty-response-unsatisfiable", method: http.MethodDelete, operations: []string{opTunnelConns}, status: 200,
 		errRe: regexp.MustCompile(`^/result: doesn't match any schema from "anyOf"$`), unsatisfiable: true,
 		why: "tunnel_empty_response is allOf(result anyOf[object,array,string], result enum [null]): no result value validates"},
-	{id: "rate-limit-code-971", operations: []string{"*"}, status: http.StatusTooManyRequests,
-		errRe:    regexp.MustCompile(`^/errors/0/code: number must be at least 1000$`),
-		requires: regexp.MustCompile(`^/errors/0/code: number must be at least 1000$`),
-		field:    `cloudflare/workers-sdk issue #10025 (2025-07-19): wrangler printed the API's "Please wait and consider throttling your request speed [code: 971]"`,
-		why:      "the API's throttling code 971 is below the spec's minimum error code 1000"},
 }
 
 // classify marks v.Allowed when every error is covered by an allowlist entry.

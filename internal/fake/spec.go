@@ -112,10 +112,40 @@ func (s *Spec) ValidateRequest(r *http.Request, body []byte) error {
 	// body sent to a Workers operation that the spec declares multipart, only the path and query
 	// are validated; the Workers profile parses the parts itself. Every other request, including a
 	// multipart body sent to a JSON-only operation, has its body validated as usual.
-	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" && workersMultipartOp(route) {
+	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if mt == "multipart/form-data" && workersMultipartOp(route) {
 		in.Options.ExcludeRequestBody = true
 	}
+	if as := plainTextBodyAs(r.Method, route, mt); as != "" {
+		clone.Header.Set("Content-Type", as)
+	}
 	return openapi3filter.ValidateRequest(context.Background(), in)
+}
+
+// plainTextBodies are operations where the live API evidently accepts a text/plain body that
+// the spec does not declare: an official client sends it that way on every call, so the call
+// would fail in production otherwise. The body is then validated as the declared media type,
+// so a malformed or schema-violating body still fails strict validation, and text/plain stays
+// a violation everywhere else. Keyed by method and spec path template.
+var plainTextBodies = map[string]string{
+	// SOURCED (relies): wrangler's createQueue sends JSON.stringify(body) with no Content-Type,
+	// so undici sends text/plain;charset=UTF-8,
+	// cloudflare/workers-sdk@3bdcd0d:packages/wrangler/src/queues/client.ts#L55-L64 (and
+	// wrangler@4.143.0:wrangler-dist/cli.js#L56358-L56386 adds no Content-Type).
+	http.MethodPost + " /accounts/{account_id}/queues": "application/json",
+	// SOURCED (relies): `wrangler kv key put` sends a string value as the raw body with no
+	// Content-Type (text/plain;charset=UTF-8); the spec allows only octet-stream and multipart,
+	// cloudflare/workers-sdk@3bdcd0d:packages/wrangler/src/kv/helpers.ts#L247-L259.
+	http.MethodPut + " /accounts/{account_id}/storage/kv/namespaces/{namespace_id}/values/{key_name}": "application/octet-stream",
+}
+
+// plainTextBodyAs returns the media type a text/plain body to route is validated as, or "".
+func plainTextBodyAs(method string, route *routers.Route, mt string) string {
+	if mt != "text/plain" || route == nil || route.Operation == nil || route.Operation.RequestBody == nil ||
+		route.Operation.RequestBody.Value == nil || route.Operation.RequestBody.Value.Content.Get("text/plain") != nil {
+		return ""
+	}
+	return plainTextBodies[method+" "+route.Path]
 }
 
 // workersMultipartOp reports whether route is a Workers operation (a path under

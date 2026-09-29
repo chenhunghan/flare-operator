@@ -138,10 +138,11 @@ func (s *Server) registerTunnels() {
 	s.handle(http.MethodDelete, vn+"/{virtual_network_id}", vnetDelete)
 }
 
-// tunnelNotFound: unknown tunnel IDs answer 404. SOURCED (relies): terraform removes a tunnel
-// from state exactly on a 404 read,
+// tunnelNotFound: unknown tunnel IDs answer 404. SOURCED (tolerates): terraform's generated
+// Read removes a tunnel from state on a 404,
 // cloudflare/terraform-provider-cloudflare@65783c2:internal/services/zero_trust_tunnel_cloudflared/resource.go#L175.
-// The error code and message are UNVERIFIED (not yet recorded).
+// That is generic 404 handling, so it shows a 404 is handled, not that the API sends one. The
+// status, error code and message are UNVERIFIED (not yet recorded).
 func tunnelNotFound() response {
 	return fail(http.StatusNotFound, 1003, "Tunnel not found")
 }
@@ -437,9 +438,10 @@ func vnetCreate(c *reqCtx) response {
 func vnetDelete(c *reqCtx) response {
 	v, found := c.account.vnets[c.params["virtual_network_id"]]
 	if !found {
-		// 404: SOURCED (relies): terraform drops a virtual network from state on a 404 read,
-		// cloudflare/terraform-provider-cloudflare@65783c2:internal/services/zero_trust_tunnel_cloudflared_virtual_network/resource.go#L172
-		// (GET; assumed for DELETE). Code and message UNVERIFIED.
+		// 404: SOURCED (tolerates): terraform's generated Read drops a virtual network from state
+		// on a 404, cloudflare/terraform-provider-cloudflare@65783c2:internal/services/zero_trust_tunnel_cloudflared_virtual_network/resource.go#L172
+		// (GET; assumed for DELETE). Generic 404 handling only, so the status, code and message
+		// are UNVERIFIED.
 		return fail(http.StatusNotFound, 1003, "Virtual network not found")
 	}
 	if v.IsDefault { // 0163

@@ -41,12 +41,6 @@ var acct = cloudflare.F(harness.AccountID)
 const sdkSrc = "cloudflare/cloudflare-go@3da6607:"
 
 var (
-	dSDKVPCListPages = harness.Discrepancy{
-		ID: "SDK-VPC-LIST-PAGINATION", Client: SDKVersion,
-		Summary: "GET /accounts/{a}/connectivity/directory/services ignores ?page=: every page repeats the full list (flarefake sends no result_info, like recording 0112, which only shows an empty list). " +
-			"cloudflare-go's V4PagePaginationArray asks for page N+1 until a page is empty, so ListAutoPaging never ends.",
-		Evidence: sdkSrc + "packages/pagination/pagination.go#L215-L227; " + sdkSrc + "connectivity/directoryservice.go#L82-L101",
-	}
 	dSDKWorkersUploadForm = harness.Discrepancy{
 		ID: "SDK-WORKERS-UPLOAD-FORM", Client: SDKVersion,
 		Summary: "cloudflare-go's Workers.Scripts.Update sends the upload as flattened form fields (metadata.main_module, metadata.bindings.0.name, files.0) instead of one JSON 'metadata' part; flarefake answers 400/10021 'Missing metadata part.'. " +
@@ -54,15 +48,6 @@ var (
 		Evidence: sdkSrc + "workers/script.go#L4154-L4167 (apiform.MarshalRoot); " + sdkSrc + "internal/apiform/encoder.go#L26",
 	}
 )
-
-// dFakeHandlers is found with cloudflare-go but hits every client: wrangler's esbuild output
-// also puts the handler on the object literal's first line ("var index_default = { async
-// fetch() {", see a FLARE_DIFF_CAPTURE_DIR capture of TestWrangler).
-var dFakeHandlers = harness.Discrepancy{
-	ID: "FAKE-HANDLER-DETECTION", Client: SDKVersion,
-	Summary:  "flarefake detects handlers with a line-start regex (UNVERIFIED heuristic, internal/fake/workers.go workerHandlerRe), so a module whose handler is not at the start of a line (`export default { async fetch() {…} }`, esbuild/wrangler output) is reported with handlers [] instead of [fetch] (recording 0036 shows [fetch] for a fetch module).",
-	Evidence: sdkSrc + "workers/script.go (ScriptUpdateResponse.Handlers); recording 0036",
-}
 
 // dSDKSettingsPlacementPanic is a cloudflare-go defect, not a flarefake one: flarefake sends
 // what the live API sent (recordings 0065 and 0091 both carry "placement": {}). It stays a
@@ -339,18 +324,12 @@ func TestCloudflareGo(t *testing.T) {
 		}
 		got, err := c.Connectivity.Directory.Services.Get(ctx, svc.ServiceID, connectivity.DirectoryServiceGetParams{AccountID: acct})
 		decoded(t, "Connectivity.Directory.Services.Get", got, err)
-		// One page (List, not ListAutoPaging; see the discrepancy below).
 		page, err := c.Connectivity.Directory.Services.List(ctx, connectivity.DirectoryServiceListParams{AccountID: acct})
 		if decoded(t, "Connectivity.Directory.Services.List", page, err) && len(page.Result) != 1 {
 			t.Errorf("Connectivity.Directory.Services.List: %d items, want 1", len(page.Result))
 		}
-		dSDKVPCListPages.Check(t, func() error {
-			items, err := listItems(c.Connectivity.Directory.Services.ListAutoPaging(ctx, connectivity.DirectoryServiceListParams{AccountID: acct}))
-			if err == nil && len(items) != 1 {
-				err = fmt.Errorf("%d items, want 1", len(items))
-			}
-			return err
-		})
+		// ListAutoPaging asks for page N+1 until a page is empty (no result_info, as in 0112).
+		list(t, "Connectivity.Directory.Services.List", c.Connectivity.Directory.Services.ListAutoPaging(ctx, connectivity.DirectoryServiceListParams{AccountID: acct}), 1)
 		if err := c.Connectivity.Directory.Services.Delete(ctx, svc.ServiceID, connectivity.DirectoryServiceDeleteParams{AccountID: acct}); err != nil {
 			t.Errorf("Connectivity.Directory.Services.Delete: %v", err)
 		}
@@ -427,18 +406,14 @@ func TestCloudflareGo(t *testing.T) {
 		if len(up.Handlers) != 1 || up.Handlers[0] != "fetch" {
 			t.Errorf("upload handlers %v, want [fetch]", up.Handlers)
 		}
-		dFakeHandlers.Check(t, func() error {
-			oneLine := "export default { async fetch(req, env) { return new Response('hi'); } };\n"
-			body, ctype := specUpload(t, map[string]any{"main_module": "index.js", "compatibility_date": "2026-09-01"}, "index.js", oneLine)
-			up, err := c.Workers.Scripts.Update(ctx, name+"-oneline", params, option.WithRequestBody(ctype, body))
-			if err != nil {
-				return err
-			}
-			if len(up.Handlers) != 1 || up.Handlers[0] != "fetch" {
-				return fmt.Errorf("handlers %v for a one-line fetch module, want [fetch]", up.Handlers)
-			}
-			return nil
-		})
+		// A one-line module (the handler is not at the start of a line) reports [fetch] too.
+		oneLine := "export default { async fetch(req, env) { return new Response('hi'); } };\n"
+		body1, ctype1 := specUpload(t, map[string]any{"main_module": "index.js", "compatibility_date": "2026-09-01"}, "index.js", oneLine)
+		if up1, err := c.Workers.Scripts.Update(ctx, name+"-oneline", params, option.WithRequestBody(ctype1, body1)); !decoded(t, "Workers.Scripts.Update (one line)", up1, err) {
+			return
+		} else if len(up1.Handlers) != 1 || up1.Handlers[0] != "fetch" {
+			t.Errorf("handlers %v for a one-line fetch module, want [fetch]", up1.Handlers)
+		}
 		list(t, "Workers.Scripts.List", c.Workers.Scripts.ListAutoPaging(ctx, workers.ScriptListParams{AccountID: acct}), -1)
 		dSDKSettingsPlacementPanic.Check(t, func() error {
 			return noPanic(func() error {
