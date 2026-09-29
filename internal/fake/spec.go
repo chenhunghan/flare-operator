@@ -71,6 +71,7 @@ func LoadSpec(path string) (*Spec, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load spec: %w", err)
 	}
+	liftAccessRequired(doc) // readOnly/writeOnly required across allOf (spec_access.go)
 	// Route on paths only: the spec's server URL is https://api.cloudflare.com/client/v4.
 	doc.Servers = openapi3.Servers{{URL: "/client/v4"}}
 	router, err := gorillamux.NewRouter(doc)

@@ -1,0 +1,55 @@
+package fake
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+// The real Hyperdrive create response (0195) omits the writeOnly password that
+// hyperdrive_hyperdrive-database-full requires in an allOf sibling; OpenAPI applies such a
+// required only to requests, and liftAccessRequired makes kin-openapi do so. Required fields
+// that are not writeOnly still fail, and a returned writeOnly field still fails.
+func TestLiftAccessRequired(t *testing.T) {
+	if testing.Short() {
+		t.Skip("loads the pinned spec")
+	}
+	spec, err := LoadDefaultSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec195 recording
+	for _, rec := range loadRecordings(t) {
+		if strings.HasPrefix(rec.file, "0195-") {
+			rec195 = rec
+		}
+	}
+	if rec195.file == "" {
+		t.Fatal("no recording 0195")
+	}
+	req, _ := http.NewRequest(http.MethodPost, "http://x/client/v4/accounts/a/hyperdrive/configs", nil)
+	h := http.Header{"Content-Type": {"application/json"}}
+	validate := func(body map[string]any) []string {
+		b, _ := json.Marshal(body)
+		_, errs := spec.ValidateResponse(req, 200, h, b)
+		return errs
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(rec195.ResponseBody), &body); err != nil {
+		t.Fatal(err)
+	}
+	if errs := validate(body); len(errs) > 0 {
+		t.Errorf("0195 violates the spec: %v", errs)
+	}
+	origin := body["result"].(map[string]any)["origin"].(map[string]any)
+	delete(origin, "user")
+	if errs := validate(body); len(errs) == 0 {
+		t.Error("an origin without its required user validates")
+	}
+	origin["user"] = "spike"
+	origin["password"] = "leak"
+	if errs := validate(body); len(errs) == 0 {
+		t.Error("an origin returning the writeOnly password validates")
+	}
+}

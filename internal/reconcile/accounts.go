@@ -254,9 +254,24 @@ type Resolved struct {
 }
 
 // AccountReady reports whether acct's Ready condition is True for its current generation.
+//
+// Setting deletionTimestamp makes the API server bump metadata.generation once (graceful
+// deletion of an object with finalizers). The deletion changes nothing the verification rests
+// on, so for a deleting account a Ready condition observed at the generation just before that
+// bump still counts. Without this, every user that reads the account between its deletion and
+// the account controller's next status write (a cache easily lags that long) got "not Ready
+// (not verified yet)" and backed off, although a deleting account stays Ready for its users.
+// A spec change made before or after the deletion bumps the generation again, which still
+// requires a fresh verification.
 func AccountReady(acct *cloudflarev1alpha1.CloudflareAccount) bool {
 	c := meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionReady)
-	return c != nil && c.Status == metav1.ConditionTrue && c.ObservedGeneration == acct.Generation
+	if c == nil || c.Status != metav1.ConditionTrue {
+		return false
+	}
+	if c.ObservedGeneration == acct.Generation {
+		return true
+	}
+	return !acct.DeletionTimestamp.IsZero() && c.ObservedGeneration > 0 && c.ObservedGeneration == acct.Generation-1
 }
 
 // AccountLabel is the label Resolve puts on every managed object: the name of the

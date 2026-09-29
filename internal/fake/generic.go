@@ -36,7 +36,11 @@ package fake
 //   - PUT replaces: the body is shaped as on create, keeping the ID, the creation timestamps and
 //     fields the PUT body cannot carry (create-only fields); modified timestamps advance.
 //     PATCH merges (RFC 7386, null deletes).
-//   - DELETE → result null, or the deleted object projected onto the spec's delete result.
+//   - DELETE → result null, or the deleted object projected onto the spec's delete result, or
+//     (a delete result that rejects null) the first zero value the spec accepts.
+//   - Every result is shaped to satisfy the pinned spec's response schema, which strict response
+//     validation checks in tests: a oneOf/anyOf is shaped by one branch that the spec accepts
+//     (pickBranch in generic_schema.go: the branch keeping most of the value, then spec order).
 //   - List: creation order; page/per_page pagination with the result_info fields the spec's
 //     list response declares (per_page default from the spec, else 20: Hyperdrive 0153 and
 //     Secrets Store 0155 answer per_page 20), cursor pagination when result_info declares a
@@ -118,7 +122,8 @@ type genericModel struct {
 	createRes *gSchema // create result, when it is an object schema
 	putBody   *gSchema
 	listInfo  *gSchema
-	delRes    *gSchema
+	delRes    *gSchema // delete result, when it is an object schema with properties
+	delResult *gSchema // delete result schema, whatever it is
 	perPage   int
 	cursor    bool
 	idGen     func(time.Time) string
@@ -219,7 +224,8 @@ func newGenericModel(k GenericKind, spec *Spec) (*genericModel, string) {
 	}
 	m.putBody = requestBodySchema(m.put)
 	if m.del != nil {
-		if res, _ := responseResult(m.del); res != nil && len(res.props) > 0 {
+		m.delResult, _ = responseResult(m.del)
+		if res := m.delResult; res != nil && len(res.props) > 0 {
 			m.delRes = res
 		}
 	}
@@ -413,12 +419,12 @@ func (m *genericModel) createH(c *reqCtx) response {
 	if k.NameField != "" && k.NameField != k.IDField && m.nameTaken(col, body[k.NameField], "") {
 		return m.conflict(k.NameField, fmt.Sprint(body[k.NameField]))
 	}
-	obj := shapeObject(m.item, body, m.ctx(c, c.now, true))
+	obj := shapeTop(m.item, body, m.ctx(c, c.now, true))
 	obj[k.IDField] = id
 	m.finish(obj)
 	col.items[id] = &genericObject{obj: obj, seq: c.s.nextSeq(), created: c.now}
 	if m.createRes != nil && m.createRes != m.item {
-		return ok(m.finish(shapeObject(m.createRes, obj, m.ctx(c, c.now, false))))
+		return ok(m.finish(shapeTop(m.createRes, obj, m.ctx(c, c.now, false))))
 	}
 	return ok(deepCopyJSON(obj))
 }
@@ -462,9 +468,9 @@ func (m *genericModel) updateH(merge bool) handler {
 func (m *genericModel) updated(c *reqCtx, cur, body map[string]any, created time.Time, merge bool) map[string]any {
 	if merge {
 		next := deepCopyJSON(cur).(map[string]any)
-		mergePatch(next, shapeObject(m.item, body, m.ctx(c, created, false)))
+		mergePatch(next, shapeTop(m.item, body, m.ctx(c, created, false)))
 		// Refresh server timestamps only (fill=true over the merged object keeps its values).
-		return shapeObject(m.item, next, m.ctx(c, created, true))
+		return shapeTop(m.item, next, m.ctx(c, created, true))
 	}
 	in := deepCopyJSON(body).(map[string]any)
 	// Fields the PUT body cannot carry (create-only fields, server-set values) survive; the
@@ -478,7 +484,7 @@ func (m *genericModel) updated(c *reqCtx, cur, body map[string]any, created time
 			in[f] = deepCopyJSON(v)
 		}
 	}
-	return shapeObject(m.item, in, m.ctx(c, created, true))
+	return shapeTop(m.item, in, m.ctx(c, created, true))
 }
 
 func (m *genericModel) deleteH(c *reqCtx) response {
@@ -493,7 +499,13 @@ func (m *genericModel) deleteH(c *reqCtx) response {
 	}
 	delete(col.items, id)
 	if m.delRes != nil {
-		return ok(shapeObject(m.delRes, o.obj, m.ctx(c, o.created, false)))
+		return ok(shapeTop(m.delRes, o.obj, m.ctx(c, o.created, false)))
+	}
+	// result null, unless the spec's delete result rejects null: then the first zero value it
+	// accepts (Vectorize v2's delete result is anyOf object/array/string → {}). UNVERIFIED: no
+	// recording deletes a generically emulated kind.
+	if res := m.delResult; res != nil && !res.accepts(nil) {
+		return ok(zeroValue(res, m.ctx(c, o.created, true)))
 	}
 	return ok(nil)
 }
@@ -588,7 +600,7 @@ func (m *genericModel) singletonObj(c *reqCtx) map[string]any {
 	col := m.coll(c)
 	if col.singleton == nil {
 		col.singletonCreated = c.now
-		col.singleton = m.finish(shapeObject(m.item, map[string]any{}, m.ctx(c, c.now, true)))
+		col.singleton = m.finish(shapeTop(m.item, map[string]any{}, m.ctx(c, c.now, true)))
 	}
 	return col.singleton
 }
