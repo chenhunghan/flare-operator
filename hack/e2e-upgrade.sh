@@ -5,7 +5,10 @@
 # against flarefake in the chart; nothing talks to the Cloudflare API.
 #
 # Steps:
-#   1. wait (up to E2E_BUSY_WAIT seconds) while E2E_NAMESPACE exists: another e2e run owns it
+#   1. wait (up to E2E_BUSY_WAIT seconds) while E2E_NAMESPACE exists: another e2e run owns it.
+#      The check is repeated right before the install (after minutes of image builds), where
+#      `kubectl create namespace` claims E2E_NAMESPACE atomically: only a run that created it
+#      tears it down
 #   2. build the previous ref's manager image (git archive of E2E_UPGRADE_FROM) as
 #      flare-operator:E2E_PREV_TAG, and this checkout's images (make e2e-images); load them
 #   3. helm install the previous chart (flarefake runs this checkout's flarefake image, so the
@@ -13,8 +16,11 @@
 #   4. go test -run TestUpgradePre  (E2E_UPGRADE_PHASE=pre)
 #   5. make crds-apply, helm upgrade to this checkout's chart
 #   6. go test -run TestUpgradePost (E2E_UPGRADE_PHASE=post), then the TestEndToEnd smoke subset
-#   7. always: make e2e-uninstall (release, CRDs, namespace, E2E_IMAGE_REMOVE of the loaded
-#      images) plus the previous-ref image, and the scratch directory
+#   7. always: when this run claimed E2E_NAMESPACE, make e2e-uninstall (release, CRDs,
+#      namespace, E2E_IMAGE_REMOVE of the loaded images, plus the previous-ref image). When it
+#      did not (it skipped, or failed before the claim), it touches no Kubernetes object: it
+#      removes only the previous-ref image, plus the :E2E_TAG images when E2E_NAMESPACE is
+#      absent (otherwise another run's pods may use them). The scratch directory always goes
 #
 # Environment (defaults match the Makefile): MAKE, HELM, KUBECTL, CONTAINER_TOOL, PLATFORM,
 # CHART, E2E_NAMESPACE, E2E_RELEASE, E2E_TAG, E2E_PULL_POLICY, E2E_CLUSTER_NAME,
@@ -79,14 +85,27 @@ log "upgrade $from_desc ($from_sha) -> $(git describe --tags --always --dirty) (
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/flare-e2e-upgrade.XXXXXX")
 prev_img=flare-operator:$E2E_PREV_TAG
+# 1 once `kubectl create namespace` below succeeded: this run owns E2E_NAMESPACE, its release
+# and the CRDs, and may tear them down.
+owned=0
 
 cleanup() {
 	rc=$?
 	log "cleanup (exit $rc)"
-	"$KUBECTL" delete namespace "$E2E_UPGRADE_NAMESPACE" --ignore-not-found --wait --timeout=3m || true
-	"$MAKE" e2e-uninstall E2E_NAMESPACE="$E2E_NAMESPACE" E2E_RELEASE="$E2E_RELEASE" E2E_TAG="$E2E_TAG" CHART="$CHART" \
-		E2E_IMAGE_REMOVE="$E2E_IMAGE_REMOVE" E2E_IMAGE_LIST="$E2E_IMAGE_LIST" E2E_EXTRA_IMAGES="$prev_img" \
-		E2E_LOCAL_RMI="$E2E_LOCAL_RMI" || true
+	img_vars=(E2E_TAG="$E2E_TAG" E2E_IMAGE_REMOVE="$E2E_IMAGE_REMOVE" E2E_IMAGE_LIST="$E2E_IMAGE_LIST"
+		E2E_LOCAL_RMI="$E2E_LOCAL_RMI")
+	if [ "$owned" = 1 ]; then
+		"$KUBECTL" delete namespace "$E2E_UPGRADE_NAMESPACE" --ignore-not-found --wait --timeout=3m || true
+		"$MAKE" e2e-uninstall E2E_NAMESPACE="$E2E_NAMESPACE" E2E_RELEASE="$E2E_RELEASE" CHART="$CHART" \
+			E2E_EXTRA_IMAGES="$prev_img" "${img_vars[@]}" || true
+	elif "$KUBECTL" get namespace "$E2E_NAMESPACE" >/dev/null 2>&1; then
+		log "namespace $E2E_NAMESPACE belongs to another run: leaving it, its release, the CRDs and the :$E2E_TAG images"
+		# Only the previous-ref image is this run's alone.
+		"$MAKE" e2e-rmi E2E_REMOVE_IMAGES="$prev_img" "${img_vars[@]}" || true
+	else
+		log "nothing was installed: removing the images only"
+		"$MAKE" e2e-rmi E2E_EXTRA_IMAGES="$prev_img" "${img_vars[@]}" || true
+	fi
 	# Without E2E_LOCAL_RMI the previous-ref image is still removed locally: nothing else uses it.
 	[ -n "$E2E_LOCAL_RMI" ] || "$CONTAINER_TOOL" rmi "$prev_img" >/dev/null 2>&1 || true
 	rm -rf "$work"
@@ -109,9 +128,19 @@ helm_args=(-n "$E2E_NAMESPACE" --wait --timeout 5m --set clusterName="$E2E_CLUST
 	--set image.pullPolicy="$E2E_PULL_POLICY"
 	--set flarefake.image.tag="$E2E_TAG" --set flarefake.image.pullPolicy="$E2E_PULL_POLICY")
 
-# 3. The previous chart (its CRDs come from its crds/ on this first install).
+# 3. Claim the namespace atomically (another run may have started during the image builds),
+# then install the previous chart (its CRDs come from its crds/ on this first install).
+if ! "$KUBECTL" create namespace "$E2E_NAMESPACE"; then
+	if "$KUBECTL" get namespace "$E2E_NAMESPACE" >/dev/null 2>&1; then
+		log "SKIPPED: namespace $E2E_NAMESPACE appeared during the image builds (another e2e run?)"
+		exit 0
+	fi
+	log "FAIL: cannot create namespace $E2E_NAMESPACE"
+	exit 1
+fi
+owned=1
 log "helm install the chart of $from_desc"
-"$HELM" install "$E2E_RELEASE" "$work/prev/$CHART" --create-namespace "${helm_args[@]}" \
+"$HELM" install "$E2E_RELEASE" "$work/prev/$CHART" "${helm_args[@]}" \
 	-f "$work/prev/$CHART/ci/flarefake-values.yaml" --set image.tag="$E2E_PREV_TAG"
 "$HELM" -n "$E2E_NAMESPACE" list
 

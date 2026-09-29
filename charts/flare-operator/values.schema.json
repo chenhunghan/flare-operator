@@ -31,6 +31,12 @@
         { "type": "string", "pattern": "^([0-9]+%?)?$" }
       ]
     },
+    "intOrPercentSet": {
+      "anyOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^[0-9]+%?$" }
+      ]
+    },
     "resources": {
       "type": "object",
       "additionalProperties": false,
@@ -182,7 +188,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
-        "minAvailable": { "$ref": "#/definitions/intOrPercent" },
+        "minAvailable": { "$ref": "#/definitions/intOrPercentSet" },
         "maxUnavailable": { "$ref": "#/definitions/intOrPercent" }
       }
     },

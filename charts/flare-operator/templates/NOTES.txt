@@ -22,6 +22,7 @@ same Cloudflare account, so ownership tags (flare.dev/owner) don't collide.
 Metrics (plain HTTP, no auth): :{{ .Values.metrics.port }}/metrics{{ if .Values.metrics.service.enabled }} via Service {{ include "flare-operator.fullname" . }}-metrics{{ end }}.
 {{- end }}
 {{- if and (gt (int .Values.replicas) 1) .Values.podDisruptionBudget.enabled }}
+
 PodDisruptionBudget {{ include "flare-operator.fullname" . }} limits voluntary disruptions of the {{ .Values.replicas }} manager replicas.
 {{- end }}
 {{- if .Values.networkPolicy.enabled }}

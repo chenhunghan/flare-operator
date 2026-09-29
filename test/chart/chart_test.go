@@ -283,6 +283,7 @@ func TestSchemaRejects(t *testing.T) {
 		"metrics.port=70000",         // out of range
 		"networkPolicy.enable=true",  // typo of enabled
 		"podDisruptionBudget.minAvailable=-1",
+		"podDisruptionBudget.minAvailable=", // empty would render a PDB with neither field
 		"baseURLOverride.allowed={ftp://x}", // not http(s)
 	} {
 		if _, stderr, err := render(t, set); err == nil {

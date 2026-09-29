@@ -388,7 +388,3 @@ type WorkerScriptList struct {
 }
 
 var _ commonv1alpha1.Managed = &WorkerScript{}
-
-func init() {
-	SchemeBuilder.Register(&WorkerScript{}, &WorkerScriptList{})
-}

@@ -78,7 +78,17 @@ CRDs, and chose the documented `make crds-apply` step instead:
 - A failed hook leaves the release in a failed state that is harder to recover than a
   failed `kubectl apply`.
 
-GitOps tools (Argo CD, Flux) apply `crds/` on sync, so they need no extra step.
+GitOps tools need their own settings for CRD upgrades (per their docs; not tested here,
+UNVERIFIED):
+
+- **Flux**: helm-controller creates CRDs on install but skips them on upgrade by default
+  (`spec.install.crds: Create`, `spec.upgrade.crds: Skip`). Set
+  `spec.upgrade.crds: CreateReplace` on the HelmRelease, or apply `crds/` with a separate
+  Kustomization.
+- **Argo CD**: it renders the chart and applies `crds/` with the other manifests on sync, but
+  client-side apply stores the whole object in the `last-applied-configuration` annotation,
+  which fails once a CRD passes the 256 KiB annotation limit. Enable the `ServerSideApply=true`
+  sync option for the Application.
 
 **Tested path.** `make e2e-upgrade` installs the chart and manager of a previous git ref
 (default: the latest tag, else the merge base with `main`), creates an account, a KVNamespace,
@@ -362,5 +372,9 @@ tag, are covered by the controller tests and e2e).
   version.
 
 `make release-snapshot` builds all of it into `dist/` and `bin/chart/`, and publishes nothing.
+In a checkout without a git remote (as today), goreleaser cannot read the git state for a
+snapshot: it stamps commit `none` and date `0001-01-01T00:00:00Z`, and names the artifacts
+`<version>-snapshot.none`. Treat such a snapshot as a local build without provenance; a
+release build (`goreleaser release`, from a tagged clone with a remote) stamps both.
 Publishing stays disabled (`release.disable: true`, placeholder `IMAGE_REGISTRY`) until the
 repository has a permanent home. Record changes in [CHANGELOG.md](../CHANGELOG.md).

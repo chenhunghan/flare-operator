@@ -14,8 +14,10 @@ metadata:
 spec:
   {{- if not (eq (toString .Values.podDisruptionBudget.maxUnavailable) "") }}
   maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
-  {{- else }}
+  {{- else if not (eq (toString .Values.podDisruptionBudget.minAvailable) "<nil>" "") }}
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else }}
+  {{- fail "podDisruptionBudget: set minAvailable or maxUnavailable" }}
   {{- end }}
   selector:
     matchLabels:

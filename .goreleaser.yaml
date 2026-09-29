@@ -9,7 +9,8 @@
 #
 # Nothing is published yet: the repository has no permanent home (README "Status"), so
 # release.disable is true and IMAGE_REGISTRY defaults to a placeholder. `make release-snapshot`
-# builds everything locally into dist/. To publish, set IMAGE_REGISTRY, a release target and
+# builds everything locally into dist/ (without a git remote goreleaser stamps a snapshot with
+# commit "none" and date 0001-01-01: it ignores the git state it cannot fully read). To publish, set IMAGE_REGISTRY, a release target and
 # drop release.disable; see docs/operations.md "Releases".
 version: 2
 project_name: flare-operator

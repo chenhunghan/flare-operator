@@ -260,6 +260,7 @@ release-check:   ## goreleaser check (skipped with a note when goreleaser is not
 
 release-snapshot: ## goreleaser release --snapshot --clean: build everything into dist/ locally, publish nothing (needs docker buildx, helm, syft)
 	@[ -n "$(GORELEASER)" ] || { echo "goreleaser not installed (go install github.com/goreleaser/goreleaser/v2@v2.18.2)"; exit 1; }
+	@[ -n "$$(git remote)" ] || echo "WARNING: no git remote: goreleaser ignores the git state for a snapshot and stamps commit 'none', date 0001-01-01 (docs/operations.md \"Releases\")"
 	$(GORELEASER) release --snapshot --clean
 
 ## CRD upgrades. Helm installs crds/ on the first install only and never upgrades or deletes
@@ -298,7 +299,7 @@ helm-lint: chart-check ## helm lint + helm template (default and flarefake value
 ##   make e2e-images E2E_IMAGE_LOAD='limactl shell <instance> sudo k0s ctr -n k8s.io images import -'
 ##   make e2e-install e2e e2e-uninstall E2E_IMAGE_REMOVE='limactl shell <instance> sudo k0s ctr -n k8s.io images rm' \
 ##     E2E_IMAGE_LIST='limactl shell <instance> sudo k0s ctr -n k8s.io images ls' E2E_LOCAL_RMI=1
-.PHONY: e2e e2e-images e2e-install e2e-uninstall
+.PHONY: e2e e2e-images e2e-install e2e-uninstall e2e-rmi
 
 E2E_TAG ?= e2e
 E2E_NAMESPACE ?= flare-system
@@ -326,6 +327,8 @@ E2E_EXTRA_IMAGES ?=
 # Non-empty: e2e-uninstall also removes the images from the local $(CONTAINER_TOOL) store.
 E2E_LOCAL_RMI ?=
 E2E_IMAGES = flare-operator:$(E2E_TAG) flarefake:$(E2E_TAG) cloudflared-stub:$(E2E_TAG)
+# The images e2e-uninstall and e2e-rmi remove (hack/e2e-upgrade.sh overrides it to remove only
+# its previous-ref image when another run owns E2E_NAMESPACE).
 E2E_REMOVE_IMAGES = $(E2E_IMAGES) $(E2E_EXTRA_IMAGES)
 E2E_IMAGE_REFS = $(addprefix docker.io/library/,$(E2E_REMOVE_IMAGES))
 E2E_CLUSTER_NAME ?= flare-e2e
@@ -346,7 +349,9 @@ e2e-install:     ## helm install the chart with flarefake into $(E2E_NAMESPACE) 
 		--set flarefake.image.tag=$(E2E_TAG) --set flarefake.image.pullPolicy=$(E2E_PULL_POLICY)
 
 ## Upgrade e2e: previous ref's chart and manager -> this checkout (hack/e2e-upgrade.sh). It
-## builds and loads the images itself and always uninstalls (with E2E_IMAGE_REMOVE) at the end.
+## builds and loads the images itself. At the end it uninstalls (with E2E_IMAGE_REMOVE) only what
+## it installed: it claims E2E_NAMESPACE with `kubectl create namespace` right before its helm
+## install and skips the teardown of a namespace another run created.
 ##   make e2e-upgrade E2E_IMAGE_LOAD='limactl shell <instance> sudo k0s ctr -n k8s.io images import -' \
 ##     E2E_IMAGE_REMOVE='limactl shell <instance> sudo k0s ctr -n k8s.io images rm'
 .PHONY: e2e-upgrade
@@ -367,6 +372,9 @@ e2e-uninstall:   ## helm uninstall, delete the chart's CRDs (Helm keeps them) an
 	-$(HELM) uninstall $(E2E_RELEASE) -n $(E2E_NAMESPACE) --wait
 	kubectl delete -f $(CHART)/crds/ --ignore-not-found
 	kubectl delete namespace $(E2E_NAMESPACE) --ignore-not-found --wait
+	@$(MAKE) --no-print-directory e2e-rmi
+
+e2e-rmi:         ## remove the e2e images from the cluster (E2E_IMAGE_REMOVE) and, with E2E_LOCAL_RMI, locally; touches no Kubernetes object
 	@if [ -n "$(E2E_IMAGE_REMOVE)" ]; then \
 		refs="$(E2E_IMAGE_REFS)"; \
 		if [ -n "$(E2E_IMAGE_LIST)" ]; then \
