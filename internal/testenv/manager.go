@@ -3,11 +3,13 @@ package testenv
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -38,6 +40,19 @@ type ManagerOptions struct {
 	// AccountsOptions are appended to the options of the shared reconcile.Accounts, e.g.
 	// reconcile.WithHTTPClient to observe or record every Cloudflare request (test/live).
 	AccountsOptions []reconcile.AccountsOption
+	// MetricsBindAddress serves the manager's Prometheus metrics (default "0": off).
+	MetricsBindAddress string
+	// MaxConcurrentReconciles and ReconcileTimeout are the manager-wide controller defaults
+	// (cmd/manager --max-concurrent-reconciles, --reconcile-timeout); zero keeps
+	// controller-runtime's (1 worker, no deadline).
+	MaxConcurrentReconciles int
+	ReconcileTimeout        time.Duration
+	// PollInterval is Deps.PollInterval (cmd/manager --poll-interval) for registered controllers.
+	PollInterval time.Duration
+	// Namespaces restricts the manager's cache (and so its controllers) to these existing
+	// namespaces, so tests with their own managers can run in parallel without reconciling
+	// each other's objects. Empty watches every namespace.
+	Namespaces []string
 }
 
 // Manager is a running controller manager.
@@ -46,6 +61,21 @@ type Manager struct {
 	Deps controller.Deps
 	// Client is the manager's cached client.
 	Client client.Client
+
+	stopOnce sync.Once
+	stop     func() error
+}
+
+// Stop stops the manager and waits for it to exit (at most 30s), as a crash or restart would;
+// the cleanup at the end of the test then does nothing. Crash-consistency tests stop one
+// manager and start another on the same objects.
+func (m *Manager) Stop(t testing.TB) {
+	t.Helper()
+	var err error
+	m.stopOnce.Do(func() { err = m.stop() })
+	if err != nil {
+		t.Errorf("manager: %v", err)
+	}
 }
 
 // StartManager starts a manager against the envtest API server; it is stopped at the end of t.
@@ -53,11 +83,24 @@ type Manager struct {
 // managers running the same controllers race each other, so start one per test.
 func (e *Env) StartManager(t testing.TB, o ManagerOptions) *Manager {
 	t.Helper()
+	metricsAddr := o.MetricsBindAddress
+	if metricsAddr == "" {
+		metricsAddr = "0"
+	}
+	var cacheOpts cache.Options
+	if len(o.Namespaces) > 0 {
+		cacheOpts.DefaultNamespaces = map[string]cache.Config{}
+		for _, ns := range o.Namespaces {
+			cacheOpts.DefaultNamespaces[ns] = cache.Config{}
+		}
+	}
 	mgr, err := ctrl.NewManager(e.Config, ctrl.Options{
+		Cache:                  cacheOpts,
 		Scheme:                 e.Scheme,
-		Metrics:                metricsserver.Options{BindAddress: "0"},
+		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: "0",
-		Controller:             config.Controller{SkipNameValidation: ptr.To(true)},
+		Controller: config.Controller{SkipNameValidation: ptr.To(true), MaxConcurrentReconciles: o.MaxConcurrentReconciles,
+			ReconciliationTimeout: o.ReconcileTimeout},
 	})
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
@@ -80,9 +123,10 @@ func (e *Env) StartManager(t testing.TB, o ManagerOptions) *Manager {
 	aopts := append([]reconcile.AccountsOption{reconcile.WithUserAgent("flare-operator-testenv"), reconcile.WithBaseURLPolicy(policy)},
 		o.AccountsOptions...)
 	deps := controller.Deps{
-		Accounts:    reconcile.NewAccounts(mgr.GetClient(), aopts...),
-		Tagger:      o.Tagger,
-		ClusterName: o.ClusterName,
+		Accounts:     reconcile.NewAccounts(mgr.GetClient(), aopts...),
+		Tagger:       o.Tagger,
+		ClusterName:  o.ClusterName,
+		PollInterval: o.PollInterval,
 	}
 	ar := &account.Reconciler{Client: mgr.GetClient(), Accounts: deps.Accounts, VerifyInterval: o.AccountVerifyInterval,
 		DependencyRequeue: o.AccountDependencyRequeue}
@@ -108,21 +152,24 @@ func (e *Env) StartManager(t testing.TB, o ManagerOptions) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- mgr.Start(ctx) }()
-	t.Cleanup(func() {
+	m := &Manager{Manager: mgr, Deps: deps, Client: mgr.GetClient()}
+	m.stop = func() error {
 		cancel()
 		select {
 		case err := <-done:
 			if err != nil && !errors.Is(err, context.Canceled) {
-				t.Errorf("manager: %v", err)
+				return err
 			}
+			return nil
 		case <-time.After(30 * time.Second):
-			t.Errorf("manager did not stop within 30s")
+			return errors.New("manager did not stop within 30s")
 		}
-	})
+	}
+	t.Cleanup(func() { m.Stop(t) })
 	syncCtx, syncCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer syncCancel()
 	if !mgr.GetCache().WaitForCacheSync(syncCtx) {
 		t.Fatalf("manager cache did not sync")
 	}
-	return &Manager{Manager: mgr, Deps: deps, Client: mgr.GetClient()}
+	return m
 }

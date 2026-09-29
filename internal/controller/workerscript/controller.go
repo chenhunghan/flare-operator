@@ -110,7 +110,7 @@ func init() {
 		AddToScheme: AddToScheme,
 		Setup: func(mgr ctrl.Manager, d controller.Deps) error {
 			return (&Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Tagger: d.Tagger, ClusterName: d.ClusterName,
-				Recorder: mgr.GetEventRecorder(Name), APIReader: mgr.GetAPIReader()}).SetupWithManager(mgr)
+				Recorder: mgr.GetEventRecorder(Name), APIReader: mgr.GetAPIReader(), ResyncInterval: d.PollInterval}).SetupWithManager(mgr)
 		},
 	})
 }
@@ -416,6 +416,9 @@ func (r *Reconciler) fail(ws *workersv1alpha1.WorkerScript, err error) (ctrl.Res
 	if reconcile.IsPermanent(err) {
 		return ctrl.Result{RequeueAfter: r.resync()}, nil
 	}
+	if wait, ok := reconcile.Throttled(err); ok {
+		return ctrl.Result{RequeueAfter: wait}, nil
+	}
 	return ctrl.Result{}, err
 }
 
@@ -479,8 +482,19 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 			return ctrl.Result{RequeueAfter: r.resync()}, nil
 		}
 		reconcile.MarkCreating(ws, "")
+		// Announce the upload first (pending.go), so a crash before RecordCreated neither turns
+		// the object's own script into a NameConflict nor uploads it twice.
+		if err := reconcile.MarkCreatePending(ctx, r.Client, ws, pendingKey(name, des)); err != nil {
+			return r.fail(ws, fmt.Errorf("record the pending upload of %s: %w", name, err))
+		}
 		up, err := uploadScript(ctx, cf, accountID, name, des.metadata, des.modules)
 		if err != nil {
+			if reconcile.IsPermanent(err) {
+				// The API refused the upload: nothing was made, so nothing may be adopted later.
+				if cerr := reconcile.ClearCreatePending(ctx, r.Client, ws); cerr != nil {
+					return r.fail(ws, errors.Join(err, cerr))
+				}
+			}
 			return r.fail(ws, fmt.Errorf("upload: %w", err))
 		}
 		log.FromContext(ctx).Info("created Worker script", "script", name, "tag", up.Tag)
@@ -505,9 +519,17 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 				observeScript(ws, item)
 			}
 		}
-		msg, err := r.claim(ctx, ws, cf, accountID, name, pol)
+		lost, isLost := pendingUpload(ws, name)
+		isLost = isLost && pol.CanCreate() && !reconcile.HasOwnershipProof(ws, name)
+		msg, err := r.claim(ctx, ws, cf, accountID, name, pol, isLost)
 		if err != nil {
 			return r.fail(ws, err)
+		}
+		if msg == "" && isLost {
+			// The script is this object's interrupted first upload: what it uploaded is what the
+			// create-pending record says, so it is not uploaded again.
+			log.FromContext(ctx).Info("adopted the Worker script of an interrupted upload", "script", name)
+			r.remember(ws, lost)
 		}
 		if msg != "" {
 			ws.Status.AtProvider, ws.Status.ID = workersv1alpha1.WorkerScriptObservation{}, ""
@@ -608,8 +630,11 @@ func (r *Reconciler) readBack(ctx context.Context, ws *workersv1alpha1.WorkerScr
 }
 
 // claim decides whether ws may manage the existing script name, and records that it does. A
-// non-empty message is a NameConflict: nothing is written.
-func (r *Reconciler) claim(ctx context.Context, ws *workersv1alpha1.WorkerScript, cf cfclient.Client, accountID, name string, pol reconcile.Policies) (string, error) {
+// non-empty message is a NameConflict: nothing is written. lost says that ws's create-pending
+// record names this script (pending.go): it is ws's own interrupted first upload, adopted
+// unless a readable owner tag names another object.
+func (r *Reconciler) claim(ctx context.Context, ws *workersv1alpha1.WorkerScript, cf cfclient.Client, accountID, name string,
+	pol reconcile.Policies, lost bool) (string, error) {
 	tag := ws.Status.AtProvider.Tag
 	tagging := reconcile.TaggingEnabled(r.tagger()) && tag != ""
 	target := reconcile.TagTarget{Type: TagResourceType, ID: tag}
@@ -619,6 +644,21 @@ func (r *Reconciler) claim(ctx context.Context, ws *workersv1alpha1.WorkerScript
 		return fmt.Sprintf("a Worker script named %q already exists and %s; set the %s annotation to %q to adopt it "+
 			"(its code and settings are then replaced by forProvider), or choose another forProvider.script_name",
 			name, why, commonv1alpha1.AnnotationExternalID, name)
+	}
+	if !proven && !pinned && lost {
+		if tagging {
+			o, _, err := r.tagger().Owner(ctx, cf, accountID, target)
+			switch {
+			case err != nil && !reconcile.IsPermanent(err):
+				return "", fmt.Errorf("read ownership tag: %w", err)
+			case err == nil && o != "" && o != r.owner(ws):
+				return conflict(fmt.Sprintf("it is owned by %q (tag %s)", o, reconcile.OwnerTagKey)), nil
+			}
+		}
+		if err := reconcile.RecordCreated(ctx, r.Client, ws, name); err != nil {
+			return "", fmt.Errorf("record the Worker script %s uploaded before a restart: %w", name, err)
+		}
+		proven = true
 	}
 	if !proven && !pinned {
 		if !tagging {
@@ -725,7 +765,7 @@ func (r *Reconciler) observeOnly(ctx context.Context, ws *workersv1alpha1.Worker
 	}
 	conflict := ""
 	if pol.CanWrite() {
-		if conflict, err = r.claim(ctx, ws, cf, accountID, name, pol); err != nil {
+		if conflict, err = r.claim(ctx, ws, cf, accountID, name, pol, false); err != nil {
 			return r.fail(ws, err)
 		}
 	}

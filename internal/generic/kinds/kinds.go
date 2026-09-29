@@ -55,7 +55,9 @@ func NewReconciler(e descriptors.Entry, c client.Client, d controller.Deps) *gen
 		Accounts:    d.Accounts,
 		Tagger:      d.Tagger,
 		ClusterName: d.ClusterName,
-		Descriptor:  e.Descriptor,
+		// 0 → generic.DefaultPollInterval
+		PollInterval: d.PollInterval,
+		Descriptor:   e.Descriptor,
 		New: func() reconcile.ManagedObject {
 			return e.New().(reconcile.ManagedObject)
 		},

@@ -101,7 +101,7 @@ func init() {
 		AddToScheme: AddToScheme,
 		Setup: func(mgr ctrl.Manager, d controller.Deps) error {
 			return (&Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Tagger: d.Tagger, ClusterName: d.ClusterName,
-				Recorder: mgr.GetEventRecorder(Name), APIReader: mgr.GetAPIReader()}).SetupWithManager(mgr)
+				Recorder: mgr.GetEventRecorder(Name), APIReader: mgr.GetAPIReader(), ResyncInterval: d.PollInterval}).SetupWithManager(mgr)
 		},
 	})
 }
@@ -329,6 +329,9 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 			return namespaceTerminatingRequeue(ctx, t)
 		}
 		reconcile.MarkSyncError(t, "", err)
+		if wait, ok := reconcile.Throttled(err); ok {
+			return ctrl.Result{RequeueAfter: wait}, nil
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -371,6 +374,15 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 			reconcile.MarkAvailable(t)
 			reconcile.MarkSynced(t)
 			return ctrl.Result{RequeueAfter: r.resync()}, nil
+		case tun != nil && !tagging && pol.CanCreate() && pendingName(t) == t.TunnelName():
+			// This object announced a create of this name (MarkCreatePending, after a lookup
+			// found none) and has no record of its result: the manager died, or the API server
+			// refused the write, between the create and RecordCreated. The tunnel is this
+			// object's own lost create; adopt it (docs/resilience.md). Its token is read below.
+			if err := reconcile.RecordCreated(ctx, r.Client, t, tun.ID); err != nil {
+				return syncErr(fmt.Errorf("record the tunnel %s created before a restart: %w", tun.ID, err))
+			}
+			log.FromContext(ctx).Info("adopted the tunnel of an interrupted create", "id", tun.ID, "name", tun.Name)
 		case tun != nil && !tagging:
 			// Without an ownership tag nothing proves that this object owns a same-named
 			// tunnel: it may be another cluster's, and running connectors on it would take a
@@ -396,7 +408,20 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 			}
 			tagged = true
 		case pol.CanCreate():
+			if !tagging {
+				// Without an owner tag, a same-named tunnel found after a crash could not be told
+				// from someone else's: announce the create first (the case above adopts it).
+				if err := reconcile.MarkCreatePending(ctx, r.Client, t, t.TunnelName()); err != nil {
+					return syncErr(fmt.Errorf("record the pending create of tunnel %q: %w", t.TunnelName(), err))
+				}
+			}
 			if tun, err = createTunnel(ctx, cf, accountID, t.TunnelName()); err != nil {
+				if reconcile.IsPermanent(err) {
+					// The API refused the create: nothing was made, so nothing may be adopted later.
+					if cerr := reconcile.ClearCreatePending(ctx, r.Client, t); cerr != nil {
+						return syncErr(errors.Join(err, cerr))
+					}
+				}
 				return syncErr(err)
 			}
 			token = tun.Token
@@ -756,4 +781,10 @@ func (r *Reconciler) deleteExternal(ctx context.Context, t *tunnelsv1alpha1.Tunn
 		return err // a 404 counts as deleted (reconcile.Finalize)
 	}
 	return nil
+}
+
+// pendingName is the tunnel name of t's create-pending record ("" without one).
+func pendingName(t *tunnelsv1alpha1.Tunnel) string {
+	k, _ := reconcile.PendingCreate(t)
+	return k
 }

@@ -89,8 +89,9 @@ func AsWait(err error) (*WaitError, bool) {
 
 // DeletionResult turns the outcome of a deletion step into a reconcile result: nil → no
 // requeue; a *WaitError → Ready=False/Deleting with its Reason and a requeue after its After,
-// with no error; any other error → Ready=False/Deleting with the error, returned for a
-// rate-limited retry.
+// with no error; a Cloudflare 429 (Throttled) → Ready=False/Deleting and a requeue after its
+// Retry-After, with no error; any other error → Ready=False/Deleting with the error, returned
+// for a rate-limited retry.
 func DeletionResult(mg commonv1alpha1.Managed, err error) (ctrl.Result, error) {
 	if err == nil {
 		return ctrl.Result{}, nil
@@ -98,6 +99,10 @@ func DeletionResult(mg commonv1alpha1.Managed, err error) (ctrl.Result, error) {
 	if we, ok := AsWait(err); ok {
 		MarkDeleting(mg, we.Reason)
 		return ctrl.Result{RequeueAfter: we.After}, nil
+	}
+	if wait, ok := Throttled(err); ok {
+		MarkDeleting(mg, throttleMessage(err, wait))
+		return ctrl.Result{RequeueAfter: wait}, nil
 	}
 	MarkDeleting(mg, err.Error())
 	return ctrl.Result{}, err

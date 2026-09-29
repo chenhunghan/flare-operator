@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"sort"
 	"strings"
@@ -123,11 +124,15 @@ func (r *Reconciler) lastWriteOnly(obj reconcile.ManagedObject, id string) strin
 // Name is the controller name of the kind (lower-case kind).
 func (r *Reconciler) Name() string { return strings.ToLower(r.Descriptor.Kind) }
 
+// poll is the next drift-poll delay: PollInterval (DefaultPollInterval) plus up to 10% random
+// jitter, so objects created together (a GitOps sync, a restart) spread their polls instead of
+// hitting the account's rate limit in lockstep every interval.
 func (r *Reconciler) poll() time.Duration {
-	if r.PollInterval > 0 {
-		return r.PollInterval
+	d := r.PollInterval
+	if d <= 0 {
+		d = DefaultPollInterval
 	}
-	return DefaultPollInterval
+	return d + time.Duration(rand.Int64N(int64(d/10)+1))
 }
 
 func (r *Reconciler) tagger() reconcile.Tagger {
@@ -277,9 +282,14 @@ func (r *Reconciler) tagTarget(id string) reconcile.TagTarget {
 	return reconcile.TagTarget{Type: r.Descriptor.TagResourceType, ID: id}
 }
 
-// errResult reports err as Synced=False and returns it for a rate-limited retry.
+// errResult reports err as Synced=False and returns it for a rate-limited retry. A Cloudflare
+// 429 (the token is backing off) is requeued after its Retry-After instead, without an error,
+// so throttled objects do not spin through the controller's short retry backoff.
 func errResult(obj reconcile.ManagedObject, err error) (ctrl.Result, error) {
 	reconcile.MarkSyncError(obj, "", err)
+	if wait, ok := reconcile.Throttled(err); ok {
+		return ctrl.Result{RequeueAfter: wait}, nil
+	}
 	return ctrl.Result{}, err
 }
 
@@ -328,6 +338,11 @@ func (r *Reconciler) observe(ctx context.Context, obj reconcile.ManagedObject) (
 		foundID, err := r.findByName(ctx, sc, desired)
 		if err != nil {
 			return errResult(obj, err)
+		}
+		if foundID == "" {
+			if foundID, err = r.findByClientID(ctx, sc, desired, id); err != nil {
+				return errResult(obj, err)
+			}
 		}
 		if foundID != "" {
 			if observed, err = r.get(ctx, sc, foundID); err != nil {
@@ -401,6 +416,27 @@ func (r *Reconciler) findByName(ctx context.Context, sc scope, desired map[strin
 		return "", fmt.Errorf("%d resources have %s %q (%s); pin one with the %s annotation",
 			len(ids), d.NameField, want, strings.Join(ids, ", "), commonv1alpha1.AnnotationExternalID)
 	}
+}
+
+// findByClientID handles kinds whose create body carries the ID (IDField in CreateFields, e.g.
+// AIGateway's id) but that have no NameField to adopt by: a resource with the desired ID is
+// looked up directly, so a create whose ID was lost (the manager died before RecordCreated) is
+// found and adopted instead of being re-sent, which the API would refuse as a duplicate and
+// leave the object failing forever. known is the ID already found missing ("" if none). It
+// returns "" when there is nothing to look up or the resource does not exist.
+func (r *Reconciler) findByClientID(ctx context.Context, sc scope, desired map[string]any, known string) (string, error) {
+	d := r.Descriptor
+	want, ok := desired[d.IDField].(string)
+	if d.NameField != "" || !has(d.CreateFields, d.IDField) || !ok || want == "" || want == known {
+		return "", nil
+	}
+	if _, err := r.get(ctx, sc, want); err != nil {
+		if cfclient.IsNotFound(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("look up %s %q for adoption: %w", d.IDField, want, err)
+	}
+	return want, nil
 }
 
 func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc scope, desired map[string]any) (ctrl.Result, error) {

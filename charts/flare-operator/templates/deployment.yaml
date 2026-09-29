@@ -72,6 +72,20 @@ spec:
             - --allowed-base-url={{ . }}
             {{- end }}
             {{- end }}
+            {{- with .Values.reconcile }}
+            {{- with .pollInterval }}
+            - --poll-interval={{ . }}
+            {{- end }}
+            {{- with .maxConcurrentReconciles }}
+            - --max-concurrent-reconciles={{ . }}
+            {{- end }}
+            {{- with .timeout }}
+            - --reconcile-timeout={{ . }}
+            {{- end }}
+            {{- with .cloudflareRequestTimeout }}
+            - --cloudflare-request-timeout={{ . }}
+            {{- end }}
+            {{- end }}
             - --zap-log-level={{ .Values.logging.level }}
             - --zap-encoder={{ .Values.logging.encoder }}
             {{- range .Values.extraArgs }}

@@ -82,7 +82,9 @@ type JournalEntry struct {
 	Fault           bool      `json:"fault,omitempty"`
 }
 
-// Fault makes matching requests fail. Times<=0 means "until removed".
+// Fault makes matching requests fail. Times<=0 means "until removed". The fields after Times
+// shape the failure for resilience tests (fault.go): a Retry-After header, a delayed or
+// passed-through (slow) response, a raw non-envelope body, a query filter.
 type Fault struct {
 	Method    string `json:"method"`
 	PathRegex string `json:"path_regex"`
@@ -90,7 +92,9 @@ type Fault struct {
 	Code      int    `json:"code"`
 	Message   string `json:"message"`
 	Times     int    `json:"times"`
-	re        *regexp.Regexp
+	FaultShape
+	re  *regexp.Regexp
+	qre *regexp.Regexp
 }
 
 // New returns a Server with default options applied.
@@ -153,6 +157,9 @@ func (s *Server) InjectFault(f Fault) error {
 		return err
 	}
 	f.re = re
+	if err := f.compileShape(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.faults = append(s.faults, &f)
@@ -275,10 +282,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if f := s.takeFault(r.Method, path); f != nil {
-		entry.Status, entry.Fault = f.Status, true
-		writeResponse(w, fail(f.Status, f.Code, f.Message))
-		return
+	if f := s.takeFault(r.Method, path, r.URL.RawQuery); f != nil {
+		if !f.Passthrough {
+			entry.Status, entry.Fault = f.Status, true
+			s.writeFault(w, r, f)
+			return
+		}
+		entry.Fault = true
+		defer f.delay(r) // slow response: the request is served, its answer arrives late
 	}
 
 	if s.opts.Spec != nil {
@@ -323,11 +334,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, resp)
 }
 
-func (s *Server) takeFault(method, path string) *Fault {
+func (s *Server) takeFault(method, path, rawQuery string) *Fault {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, f := range s.faults {
-		if (f.Method == "" || strings.EqualFold(f.Method, method)) && f.re.MatchString(path) {
+		if (f.Method == "" || strings.EqualFold(f.Method, method)) && f.re.MatchString(path) && f.matchesQuery(rawQuery) {
 			if f.Times > 0 {
 				f.Times--
 				if f.Times == 0 {

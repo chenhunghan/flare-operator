@@ -38,7 +38,8 @@ func SetExternalID(mg commonv1alpha1.Managed, id string) {
 // memory; in-memory status changes are preserved.
 func PersistExternalID(ctx context.Context, c client.Client, mg ManagedObject, id string) error {
 	mg.GetResourceStatus().ID = id
-	if mg.GetAnnotations()[commonv1alpha1.AnnotationExternalID] == id {
+	_, pending := mg.GetAnnotations()[AnnotationCreatePending]
+	if mg.GetAnnotations()[commonv1alpha1.AnnotationExternalID] == id && !pending {
 		return nil
 	}
 	return patchMeta(ctx, c, mg, func(o client.Object) {
@@ -47,6 +48,7 @@ func PersistExternalID(ctx context.Context, c client.Client, mg ManagedObject, i
 			a = map[string]string{}
 		}
 		a[commonv1alpha1.AnnotationExternalID] = id
+		delete(a, AnnotationCreatePending)
 		o.SetAnnotations(a)
 	})
 }

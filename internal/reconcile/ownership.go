@@ -64,11 +64,13 @@ func hasLegacyProof(mg client.Object, id string) bool {
 func recorded(mg client.Object, id string) bool {
 	a := mg.GetAnnotations()
 	_, legacy := a[AnnotationLegacyCreatedByUID]
-	return !legacy && a[AnnotationOwnershipProof] == ownershipProofValue(mg, id) && a[commonv1alpha1.AnnotationExternalID] == id
+	_, pending := a[AnnotationCreatePending]
+	return !legacy && !pending && a[AnnotationOwnershipProof] == ownershipProofValue(mg, id) && a[commonv1alpha1.AnnotationExternalID] == id
 }
 
 // RecordOwnership durably records that mg owns resource id: it writes AnnotationOwnershipProof
-// and the external-id annotation (and drops AnnotationLegacyCreatedByUID) in one metadata merge
+// and the external-id annotation (and drops AnnotationLegacyCreatedByUID and
+// AnnotationCreatePending) in one metadata merge
 // patch with optimistic locking; status.id is set in memory, as by PersistExternalID. Call it
 // right after EnsureOwner succeeded with a real (non-Noop) Tagger, or to migrate a legacy
 // record; never for an Observe-only object. Right after a create use RecordCreated, which
@@ -86,6 +88,7 @@ func RecordOwnership(ctx context.Context, c client.Client, mg ManagedObject, id 
 		a[commonv1alpha1.AnnotationExternalID] = id
 		a[AnnotationOwnershipProof] = ownershipProofValue(mg, id)
 		delete(a, AnnotationLegacyCreatedByUID)
+		delete(a, AnnotationCreatePending)
 		o.SetAnnotations(a)
 	})
 }
@@ -107,6 +110,7 @@ func RecordCreated(ctx context.Context, c client.Client, mg ManagedObject, id st
 		commonv1alpha1.AnnotationExternalID: id,
 		AnnotationOwnershipProof:            ownershipProofValue(mg, id),
 		AnnotationLegacyCreatedByUID:        nil,
+		AnnotationCreatePending:             nil,
 	}}
 	if uid := mg.GetUID(); uid != "" {
 		meta["uid"] = string(uid)

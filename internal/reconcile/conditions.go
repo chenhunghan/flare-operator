@@ -40,8 +40,12 @@ func SetReady(mg commonv1alpha1.Managed, status metav1.ConditionStatus, reason, 
 	SetCondition(mg, commonv1alpha1.ConditionReady, status, reason, msg)
 }
 
-// SetSynced sets the Synced condition.
+// SetSynced sets the Synced condition. Synced=False also counts one sync failure of mg's kind
+// (MetricSyncFailures).
 func SetSynced(mg commonv1alpha1.Managed, status metav1.ConditionStatus, reason, msg string) {
+	if status == metav1.ConditionFalse {
+		countSyncFailure(mg, reason)
+	}
 	SetCondition(mg, commonv1alpha1.ConditionSynced, status, reason, msg)
 }
 
@@ -80,14 +84,18 @@ func MarkSynced(mg commonv1alpha1.Managed) {
 	SetSynced(mg, metav1.ConditionTrue, reason, "")
 }
 
-// MarkSyncError: Synced=False with reason (ReconcileError when empty) and err's message.
+// MarkSyncError: Synced=False with reason (ReconcileError when empty; RateLimited for a
+// Cloudflare 429, see Throttled) and err's message.
 func MarkSyncError(mg commonv1alpha1.Managed, reason string, err error) {
-	if reason == "" {
-		reason = commonv1alpha1.ReasonReconcileError
-	}
 	msg := ""
 	if err != nil {
 		msg = err.Error()
+	}
+	if wait, ok := Throttled(err); ok && reason == "" {
+		reason, msg = ReasonRateLimited, throttleMessage(err, wait)
+	}
+	if reason == "" {
+		reason = commonv1alpha1.ReasonReconcileError
 	}
 	SetSynced(mg, metav1.ConditionFalse, reason, msg)
 }
