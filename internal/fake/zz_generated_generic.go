@@ -15,6 +15,23 @@ var generatedGenericKinds = []GenericKind{
 		UpdateMethod: "PUT",
 	},
 	{
+		Group: "r2.cloudflare.flare.dev", Kind: "R2Bucket", Scope: "account",
+		CreatePath:   "/accounts/{account_id}/r2/buckets",
+		ItemPath:     "/accounts/{account_id}/r2/buckets/{id}",
+		ListPath:     "/accounts/{account_id}/r2/buckets",
+		IDField:      "name",
+		UpdateMethod: "PATCH",
+		WriteOnly:    []string{"locationHint"},
+		Headers: []GenericHeader{
+			{Header: "cf-r2-jurisdiction", Field: "jurisdiction", Update: false, Default: "default"},
+			{Header: "cf-r2-storage-class", Field: "storageClass", Update: true, Default: ""},
+		},
+		ObservedAs: map[string]string{"storageClass": "storage_class"},
+		SubResources: []GenericSubResource{
+			{Field: "cors", Path: "/cors", Delete: true},
+		},
+	},
+	{
 		Group: "secretsstore.cloudflare.flare.dev", Kind: "SecretsStore", Scope: "account",
 		CreatePath: "/accounts/{account_id}/secrets_store/stores",
 		ItemPath:   "/accounts/{account_id}/secrets_store/stores/{id}",

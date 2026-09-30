@@ -303,7 +303,7 @@ details in [resilience.md §3](resilience.md#3-api-call-budget-and-polling-cost)
 | Operation | Cloudflare calls |
 |---|---|
 | Drift poll of an in-sync tagged generated object (KVNamespace, Queue, D1Database) | 2 (GET, owner-tag read) |
-| Drift poll of an in-sync untagged generated object (VectorizeIndex, SecretsStore, AIGateway) | 1 |
+| Drift poll of an in-sync untagged generated object (VectorizeIndex, SecretsStore, AIGateway) | 1 (R2Bucket: 2, the bucket and its CORS policy) |
 | Create of a tagged generated kind | up to 11, plus one list page per 20 (KV and generic kinds) or 100 (Queues, D1) existing resources of the kind |
 | Create of an untagged generated kind | up to 7, plus the list pages |
 | Token re-verification per CloudflareAccount, every 10 minutes | 1 (account-owned token) or 3 (user token: the account verify fails, then user verify and `GET /accounts/{id}`) |
@@ -365,11 +365,11 @@ resource or lose one. What the operator guarantees (details, residual risks and 
 [resilience.md §1](resilience.md#1-crash-consistency-create-then-record)):
 
 - **Before a create**, the object gets a `cloudflare.flare.dev/create-pending: <uid>/<key>`
-  record (key: the name, or AIGateway's client-chosen id). **After it**, the external-id and
+  record (key: the name, or the client-chosen id of AIGateway and R2Bucket). **After it**, the external-id and
   ownership-proof annotations are written.
 - **On the next reconcile**, a resource matching the record is the object's own lost create
   and is adopted, not created again. The generated kinds and a tagged Tunnel also find it by
-  name; AIGateway by its id.
+  name; AIGateway and R2Bucket by their id (for R2 the bucket name).
 - **An object deleted while the manager was down**, between the create and the record, is
   still cleaned up: the finalizer resolves the create-pending record first and deletes the
   resource under `deletionPolicy: Delete`, through the normal ownership check.
@@ -414,7 +414,7 @@ until they are gone. `Synced=False` with `TokenSecretUpdateFailed` means the `ac
 finalizer could not be added to or removed from the Secret (check the manager's RBAC and the
 Secret).
 
-**Managed kinds (KVNamespace, Queue, D1Database, VectorizeIndex, SecretsStore, AIGateway,
+**Managed kinds (KVNamespace, Queue, D1Database, VectorizeIndex, SecretsStore, AIGateway, R2Bucket,
 Tunnel, VPCService, WorkerScript, PagesProject, PagesDeployment):**
 
 | Condition / reason | Meaning | Fix |
@@ -428,7 +428,8 @@ Tunnel, VPCService, WorkerScript, PagesProject, PagesDeployment):**
 | `Synced=False` `RateLimited` | Cloudflare answered 429 with a long `Retry-After`, or the token is still backing off. The object is requeued after the wait. | Nothing, if it clears. If it persists, lower the load: [Reconcile tuning](#reconcile-tuning-and-the-api-budget). |
 | `Synced=False` `ReconcileError` | The last API call failed; the message has the Cloudflare code. 5xx and transport errors are retried with back-off. It also covers a difference the policies or the API do not allow to fix (no update operation, `Update` not in `managementPolicies`). | 403 → [token permissions](../README.md#token-permissions). 400 → a spec value the API rejects. Timeouts → egress, or `reconcile.cloudflareRequestTimeout`. |
 | `Synced=False` `Immutable` | A create-only field changed; nothing was written. | Revert the field, or delete and recreate the object. |
-| `Synced=False` `NameConflict` (Tunnel, VPCService, WorkerScript, PagesProject; VectorizeIndex, SecretsStore, AIGateway; any generated kind with tagging off) | A same-named resource exists and cannot be proven to be this object's. | Set `cloudflare.flare.dev/external-id` to adopt it, or rename. |
+| `Synced=False` `DeleteFailed` (generated kinds) | The object is being deleted with `deletionPolicy: Delete` and Cloudflare refused the DELETE; the message has the API error. The finalizer stays and retries with back-off. R2Bucket: the bucket still holds objects (the error code is UNVERIFIED). | Empty the bucket (or fix what the message names), or set `deletionPolicy: Orphan` to keep the resource. |
+| `Synced=False` `NameConflict` (Tunnel, VPCService, WorkerScript, PagesProject; VectorizeIndex, SecretsStore, AIGateway, R2Bucket; any generated kind with tagging off) | A same-named resource exists and cannot be proven to be this object's. | Set `cloudflare.flare.dev/external-id` to adopt it, or rename. |
 | `Synced=False` `InvalidHostname` (VPCService) | `host.hostname` looks like a short in-cluster name; `cloudflared` never applies DNS search domains. | Use the fully qualified name. |
 | `Synced=False` `InvalidScriptName` (WorkerScript) | `forProvider.script_name` (or `metadata.name`) is not a valid Workers script name. | Set a valid `script_name`. |
 | `Synced=False` `InvalidSpec` (WorkerScript) | The modules cannot be uploaded: a bad module name or type, content that is not base64 for `wasm-base64`, a `main_module` that is not a module, an unusable `sourceRef` ConfigMap. | Fix `forProvider` or the ConfigMap. |

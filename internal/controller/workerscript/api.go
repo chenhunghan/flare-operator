@@ -30,6 +30,7 @@ var moduleContentTypes = map[string]string{
 	workersv1alpha1.ModuleText:       "text/plain",
 	workersv1alpha1.ModuleJSON:       "application/json",
 	workersv1alpha1.ModuleWasmBase64: "application/wasm",
+	workersv1alpha1.ModuleWasm:       "application/wasm",
 }
 
 // codeScriptNotFound is Workers' "This Worker does not exist on your account." (0109).
@@ -76,10 +77,15 @@ func (s apiSettingsBody) normalized() apiSettingsBody {
 	return s
 }
 
-// apiUploadMetadata is the upload's "metadata" part (0036, 0062, 0183).
+// apiUploadMetadata is the upload's "metadata" part (0036, 0062, 0183). An assets-only Worker
+// has no main_module (assets.go).
 type apiUploadMetadata struct {
-	MainModule string `json:"main_module"`
+	MainModule string `json:"main_module,omitempty"`
 	apiSettingsBody
+	// Assets redeems the completion token of an assets upload; KeepAssets keeps the deployed
+	// version's assets instead (assets.go).
+	Assets     *apiAssets `json:"assets,omitempty"`
+	KeepAssets *bool      `json:"keep_assets,omitempty"`
 }
 
 // apiScript is the upload response (0036) and a script list item (0114).
@@ -94,6 +100,8 @@ type apiScript struct {
 	DeploymentID      string `json:"deployment_id"`
 	CompatibilityDate string `json:"compatibility_date"`
 	UsageModel        string `json:"usage_model"`
+	// HasAssets: the script has static assets (0036: false; true UNVERIFIED).
+	HasAssets bool `json:"has_assets"`
 }
 
 // apiSettings is GET …/settings (0065, 0091): bindings as uploaded, compatibility settings.

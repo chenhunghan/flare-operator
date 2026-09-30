@@ -6,6 +6,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
+	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
 )
 
 // Module types of WorkerModule.Type and the upload part Content-Type each one is sent with.
@@ -22,6 +23,9 @@ const (
 	// ModuleWasmBase64 is a WebAssembly module whose content is base64 (sent decoded, as
 	// application/wasm).
 	ModuleWasmBase64 = "wasm-base64"
+	// ModuleWasm is a WebAssembly module given as its raw bytes (moduleSource files only; sent
+	// as application/wasm).
+	ModuleWasm = "wasm"
 )
 
 // Binding types supported by WorkerBinding.Type (the pinned spec's workers_binding_item).
@@ -34,6 +38,10 @@ const (
 	BindingD1          = "d1"
 	BindingVPCService  = "vpc_service"
 	BindingService     = "service"
+	BindingR2Bucket    = "r2_bucket"
+	BindingSendEmail   = "send_email"
+	// BindingAssets gives the Worker's code a fetcher of its static assets (forProvider.assets).
+	BindingAssets = "assets"
 )
 
 // WorkerModule is one module (one multipart part) of the script.
@@ -85,13 +93,16 @@ type SecretKeyRef struct {
 // +kubebuilder:validation:XValidation:rule="self.type == 'd1' ? has(self.database_id) != has(self.d1DatabaseRef) : !has(self.database_id) && !has(self.d1DatabaseRef)",message="type d1 needs exactly one of database_id or d1DatabaseRef (only valid with that type)"
 // +kubebuilder:validation:XValidation:rule="self.type == 'vpc_service' ? has(self.service_id) != has(self.vpcServiceRef) : !has(self.service_id) && !has(self.vpcServiceRef)",message="type vpc_service needs exactly one of service_id or vpcServiceRef (only valid with that type)"
 // +kubebuilder:validation:XValidation:rule="self.type == 'service' ? has(self.service) != has(self.serviceRef) : !has(self.service) && !has(self.serviceRef) && !has(self.environment) && !has(self.entrypoint)",message="type service needs exactly one of service or serviceRef (only valid with that type, as are environment and entrypoint)"
+// +kubebuilder:validation:XValidation:rule="self.type == 'r2_bucket' ? has(self.bucket_name) : !has(self.bucket_name) && !has(self.jurisdiction)",message="type r2_bucket needs bucket_name (only valid with that type, as is jurisdiction)"
+// +kubebuilder:validation:XValidation:rule="self.type == 'send_email' || (!has(self.destination_address) && !has(self.allowed_destination_addresses) && !has(self.allowed_sender_addresses))",message="destination_address, allowed_destination_addresses and allowed_sender_addresses are only valid with type send_email"
+// +kubebuilder:validation:XValidation:rule="!(has(self.destination_address) && has(self.allowed_destination_addresses))",message="set destination_address or allowed_destination_addresses, not both"
 type WorkerBinding struct {
 	// Name is the JavaScript variable name of the binding (env.<name>).
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=255
 	Name string `json:"name"`
 	// Type of the binding.
-	// +kubebuilder:validation:Enum=plain_text;secret_text;json;kv_namespace;queue;d1;vpc_service;service
+	// +kubebuilder:validation:Enum=plain_text;secret_text;json;kv_namespace;queue;d1;vpc_service;service;r2_bucket;send_email;assets
 	Type string `json:"type"`
 
 	// Text of a plain_text binding.
@@ -150,6 +161,106 @@ type WorkerBinding struct {
 	// Entrypoint of the bound Worker to invoke (service bindings).
 	// +optional
 	Entrypoint *string `json:"entrypoint,omitempty"`
+
+	// BucketName of an r2_bucket binding (the R2 bucket's name).
+	// TODO(FS-r2): add an r2BucketRef naming an R2Bucket in this namespace once that kind exists.
+	// +optional
+	// +kubebuilder:validation:MinLength=3
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9-]*[a-z0-9]$`
+	BucketName *string `json:"bucket_name,omitempty"`
+	// Jurisdiction of the R2 bucket of an r2_bucket binding (a bucket made in a jurisdiction is
+	// found only with it).
+	// +optional
+	// +kubebuilder:validation:Enum=eu;fedramp;fedramp-high;us
+	Jurisdiction *string `json:"jurisdiction,omitempty"`
+
+	// DestinationAddress restricts a send_email binding to this one destination address. A
+	// send_email binding needs Email Routing on a zone of the account, with the destination
+	// addresses verified there; the operator does not check that.
+	// +optional
+	// +kubebuilder:validation:MaxLength=320
+	// +kubebuilder:validation:Pattern=`^[^@\s]+@[^@\s]+$`
+	DestinationAddress *string `json:"destination_address,omitempty"`
+	// AllowedDestinationAddresses restricts a send_email binding to these destination addresses
+	// (not together with destination_address).
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:items:MaxLength=320
+	// +kubebuilder:validation:items:Pattern=`^[^@\s]+@[^@\s]+$`
+	AllowedDestinationAddresses []string `json:"allowed_destination_addresses,omitempty"`
+	// AllowedSenderAddresses restricts the sender addresses of a send_email binding.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:items:MaxLength=320
+	// +kubebuilder:validation:items:Pattern=`^[^@\s]+@[^@\s]+$`
+	AllowedSenderAddresses []string `json:"allowed_sender_addresses,omitempty"`
+}
+
+// Values of WorkerAssetsConfig.HTMLHandling and NotFoundHandling (the pinned spec's
+// workers_assets-2 config enums).
+const (
+	HTMLHandlingAutoTrailingSlash  = "auto-trailing-slash"
+	HTMLHandlingForceTrailingSlash = "force-trailing-slash"
+	HTMLHandlingDropTrailingSlash  = "drop-trailing-slash"
+	HTMLHandlingNone               = "none"
+
+	NotFoundHandlingNone    = "none"
+	NotFoundHandling404Page = "404-page"
+	NotFoundHandlingSPA     = "single-page-application"
+)
+
+// WorkerAssetsConfig is how Cloudflare serves the static assets (metadata.assets.config of the
+// upload). Unset fields take Cloudflare's defaults.
+//
+// +kubebuilder:validation:XValidation:rule="!(has(self.run_worker_first) && has(self.run_worker_first_paths))",message="set run_worker_first or run_worker_first_paths, not both"
+type WorkerAssetsConfig struct {
+	// HTMLHandling decides the redirects and rewrites of requests for HTML content (Cloudflare's
+	// default: auto-trailing-slash).
+	// +optional
+	// +kubebuilder:validation:Enum=auto-trailing-slash;force-trailing-slash;drop-trailing-slash;none
+	HTMLHandling string `json:"html_handling,omitempty"`
+	// NotFoundHandling decides the answer to a request that matches no asset when the Worker
+	// does not run (Cloudflare's default: none, a 404).
+	// +optional
+	// +kubebuilder:validation:Enum=none;404-page;single-page-application
+	NotFoundHandling string `json:"not_found_handling,omitempty"`
+	// RunWorkerFirst true runs the Worker's code before every request, even one that matches an
+	// asset (the code can serve assets through an assets binding). Needs modules.
+	// +optional
+	RunWorkerFirst *bool `json:"run_worker_first,omitempty"`
+	// RunWorkerFirstPaths runs the Worker's code first only for requests matching these rules
+	// (sent as run_worker_first's list form): each starts with "/" or "!/" (a negative rule,
+	// which wins), "*" is a glob, and at least one rule is not negative. Needs modules.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:items:MaxLength=1024
+	// +kubebuilder:validation:items:Pattern=`^!?/`
+	// +kubebuilder:validation:XValidation:rule="self.exists(r, !r.startsWith('!'))",message="run_worker_first_paths needs at least one rule that is not negative"
+	RunWorkerFirstPaths []string `json:"run_worker_first_paths,omitempty"`
+	// BasePath is the URL path prefix the assets are served under (Cloudflare's default: /).
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:Pattern=`^/`
+	BasePath string `json:"base_path,omitempty"`
+}
+
+// WorkerAssets are the Worker's static assets: the files of an artifact, uploaded with the
+// Workers assets upload flow and served by Cloudflare in front of (or instead of) the Worker's
+// code. As with wrangler, the root files _headers and _redirects become the custom headers and
+// redirects rules, and a root .assetsignore (gitignore syntax, matched case-insensitively)
+// excludes files; these three are not served. Files may be at most 25 MiB, and each is served
+// with the Content-Type wrangler gives its extension.
+type WorkerAssets struct {
+	// Source of the files. A change of their content uploads the new and changed files only.
+	Source sharedv1alpha1.ArtifactSource `json:"source"`
+	// Config of how the assets are served.
+	// +optional
+	Config *WorkerAssetsConfig `json:"config,omitempty"`
 }
 
 // WorkerObservabilityLogs are the Workers Logs settings.
@@ -193,8 +304,13 @@ type WorkersDev struct {
 // (PUT /accounts/{account_id}/workers/scripts/{script_name}, multipart: a "metadata" part plus
 // one part per module) and the per-script workers.dev route.
 //
-// +kubebuilder:validation:XValidation:rule="has(self.modules) != has(self.sourceRef)",message="set exactly one of modules or sourceRef"
-// +kubebuilder:validation:XValidation:rule="!has(self.modules) || self.main_module in self.modules",message="main_module must name one of modules"
+// +kubebuilder:validation:XValidation:rule="(has(self.modules) ? 1 : 0) + (has(self.sourceRef) ? 1 : 0) + (has(self.moduleSource) ? 1 : 0) == (has(self.assets) && !has(self.main_module) ? 0 : 1)",message="set exactly one of modules, sourceRef or moduleSource (none only for an assets-only Worker: assets without main_module)"
+// +kubebuilder:validation:XValidation:rule="has(self.main_module) || has(self.assets)",message="main_module is required (unless the Worker is assets-only)"
+// +kubebuilder:validation:XValidation:rule="!has(self.modules) || (has(self.main_module) && self.main_module in self.modules)",message="main_module must name one of modules"
+// +kubebuilder:validation:XValidation:rule="!has(self.moduleTypes) || has(self.moduleSource)",message="moduleTypes is only valid with moduleSource"
+// +kubebuilder:validation:XValidation:rule="has(self.main_module) || !has(self.bindings) || size(self.bindings) == 0",message="an assets-only Worker (no main_module) has no bindings"
+// +kubebuilder:validation:XValidation:rule="has(self.main_module) || !has(self.assets) || !has(self.assets.config) || (!has(self.assets.config.run_worker_first) && !has(self.assets.config.run_worker_first_paths))",message="run_worker_first needs a Worker's code (main_module)"
+// +kubebuilder:validation:XValidation:rule="!has(self.bindings) || self.bindings.filter(b, b.type == 'assets').size() <= (has(self.assets) ? 1 : 0)",message="an assets binding needs forProvider.assets, and there is at most one"
 // +kubebuilder:validation:XValidation:rule="has(self.script_name) == has(oldSelf.script_name)",message="script_name cannot be added or removed"
 type WorkerScriptParameters struct {
 	// ScriptName is the Cloudflare script name. Defaults to metadata.name. Immutable.
@@ -205,17 +321,38 @@ type WorkerScriptParameters struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="script_name is immutable"
 	ScriptName string `json:"script_name,omitempty"`
 	// Modules are the script's modules inline: module name (the part and file name, e.g.
-	// index.js) → content. Exactly one of modules or sourceRef.
+	// index.js) → content. Exactly one of modules, sourceRef or moduleSource.
 	// +optional
 	// +kubebuilder:validation:MinProperties=1
 	// +kubebuilder:validation:MaxProperties=64
 	Modules map[string]WorkerModule `json:"modules,omitempty"`
-	// SourceRef takes the modules from a ConfigMap. Exactly one of modules or sourceRef.
+	// SourceRef takes the modules from a ConfigMap. Exactly one of modules, sourceRef or
+	// moduleSource.
 	// +optional
 	SourceRef *WorkerSourceRef `json:"sourceRef,omitempty"`
-	// MainModule is the module that exports the handlers (metadata.main_module).
+	// ModuleSource takes the modules from an artifact (labelled ConfigMaps, an OCI image or an
+	// HTTPS archive; docs/artifacts.md), for example a bundle built by CI. Every file is a
+	// module named by its path; its type comes from moduleTypes, else from its extension: .js
+	// and .mjs → esm, .cjs → cjs, .json → json, .wasm → wasm (raw bytes), .txt, .html, .htm,
+	// .css, .md, .csv and .svg → text. A file of any other type is an error. At most 64
+	// modules.
+	// +optional
+	ModuleSource *sharedv1alpha1.ArtifactSource `json:"moduleSource,omitempty"`
+	// ModuleTypes overrides the module type of moduleSource files by path (esm, cjs, text, json,
+	// wasm).
+	// +optional
+	// +kubebuilder:validation:MaxProperties=64
+	// +kubebuilder:validation:XValidation:rule="self.all(k, self[k] in ['esm', 'cjs', 'text', 'json', 'wasm'])",message="module types are esm, cjs, text, json or wasm"
+	ModuleTypes map[string]string `json:"moduleTypes,omitempty"`
+	// MainModule is the module that exports the handlers (metadata.main_module). Required
+	// unless the Worker is assets-only (assets, and no modules).
+	// +optional
 	// +kubebuilder:validation:MinLength=1
-	MainModule string `json:"main_module"`
+	MainModule string `json:"main_module,omitempty"`
+	// Assets are static assets served with (or, without main_module, instead of) the Worker's
+	// code. An assets binding (type assets) lets the code fetch them.
+	// +optional
+	Assets *WorkerAssets `json:"assets,omitempty"`
 	// CompatibilityDate of the Workers runtime, e.g. 2026-09-01.
 	// +optional
 	// +kubebuilder:validation:Pattern=`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`
@@ -282,6 +419,9 @@ type WorkerScriptObservation struct {
 	// Handlers the script exports (fetch, scheduled, ...).
 	// +optional
 	Handlers []string `json:"handlers,omitempty"`
+	// HasAssets reports that the script has static assets.
+	// +optional
+	HasAssets bool `json:"has_assets,omitempty"`
 	// +optional
 	CreatedOn string `json:"created_on,omitempty"`
 	// +optional
@@ -327,6 +467,28 @@ type WorkerScriptStatus struct {
 	// tracked in writeOnlyHash.
 	// +optional
 	SettingsHash string `json:"settingsHash,omitempty"`
+	// AssetsHash is a hash of the asset manifest (every served path with the hash and size of
+	// its file, as the upload session was sent it) and the assets config last uploaded. The
+	// assets upload flow runs only when it changes.
+	// +optional
+	AssetsHash string `json:"assetsHash,omitempty"`
+	// Artifacts are the artifacts last loaded for moduleSource and assets.source.
+	// +optional
+	Artifacts *WorkerArtifactsStatus `json:"artifacts,omitempty"`
+}
+
+// WorkerArtifactsStatus reports the loaded artifacts of a WorkerScript.
+type WorkerArtifactsStatus struct {
+	// Modules is the artifact of forProvider.moduleSource.
+	// +optional
+	Modules *sharedv1alpha1.ArtifactStatus `json:"modules,omitempty"`
+	// Assets is the artifact of forProvider.assets.source.
+	// +optional
+	Assets *sharedv1alpha1.ArtifactStatus `json:"assets,omitempty"`
+	// AssetFiles is the number of files in the asset manifest (the artifact's files without
+	// _headers, _redirects, .assetsignore and the files it ignores).
+	// +optional
+	AssetFiles int32 `json:"assetFiles,omitempty"`
 }
 
 // WorkerScript is a Cloudflare Workers script (x-fern-sdk-group-name "workers.legacy.scripts").

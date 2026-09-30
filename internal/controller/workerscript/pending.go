@@ -11,7 +11,7 @@ import (
 // Crash consistency of the first upload (docs/resilience.md). Before uploading a script that
 // does not exist yet, the controller records a create-pending annotation
 // (reconcile.MarkCreatePending) whose key is the script name and the hashes of what it is about
-// to upload. If the manager dies between the upload and RecordCreated, the next reconcile finds
+// to upload (the asset manifest's too). If the manager dies between the upload and RecordCreated, the next reconcile finds
 // a script it has no record of. Without the annotation that is a NameConflict (the object's own
 // script looks like someone else's); with it, the script is adopted as this object's own lost
 // create, and the recorded hashes stand in for the lost status, so the same content is not
@@ -19,7 +19,7 @@ import (
 
 // pendingKey is the create-pending key of an upload of d to script name.
 func pendingKey(name string, d *desired) string {
-	return fmt.Sprintf("%s;c=%s;s=%s;w=%s", name, d.contentHash, d.settingsHash, d.secretsHash)
+	return fmt.Sprintf("%s;c=%s;s=%s;w=%s;a=%s", name, d.contentHash, d.settingsHash, d.secretsHash, d.assetsHash)
 }
 
 // pendingScript is the script name of ws's create-pending record ("" without one).
@@ -39,7 +39,8 @@ func pendingUpload(ws *workersv1alpha1.WorkerScript, name string) (appliedState,
 		return appliedState{}, false
 	}
 	parts := strings.Split(key, ";")
-	if len(parts) != 4 || parts[0] != name {
+	// Records written before static assets have no a= part.
+	if (len(parts) != 4 && len(parts) != 5) || parts[0] != name {
 		return appliedState{}, false
 	}
 	a := appliedState{name: name}
@@ -52,6 +53,8 @@ func pendingUpload(ws *workersv1alpha1.WorkerScript, name string) (appliedState,
 			a.settings = v
 		case "w":
 			a.secrets = v
+		case "a":
+			a.assets = v
 		default:
 			return appliedState{}, false
 		}

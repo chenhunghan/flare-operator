@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"sigs.k8s.io/yaml"
 )
@@ -58,6 +59,17 @@ type KindConfig struct {
 	// applied to both forProvider and atProvider wherever the path exists.
 	Fields map[string]FieldOverride `json:"fields,omitempty"`
 
+	// RequestHeaders send forProvider fields as request headers (header parameters of the
+	// spec's operations) instead of in a body; see RequestHeader and generic.HeaderField.
+	RequestHeaders []RequestHeader `json:"requestHeaders,omitempty"`
+	// ObservedAs maps a top-level forProvider field to the top-level atProvider field that reads
+	// it back under another name (e.g. storageClass: storage_class). The forProvider field is
+	// then not derived write-only; drift is compared with the atProvider field.
+	ObservedAs map[string]string `json:"observedAs,omitempty"`
+	// SubResources are fixed sub-paths of the item (e.g. /cors) with GET and PUT operations,
+	// managed as one forProvider field each; see generic.SubResource.
+	SubResources []SubResourceConfig `json:"subResources,omitempty"`
+
 	// Emulate selects how flarefake emulates the kind: "" (a hand-written profile in
 	// internal/fake, or not at all) or "generic" (the descriptor-driven generic profile,
 	// internal/fake/generic.go; listed in internal/fake/zz_generated_generic.go). See
@@ -66,6 +78,35 @@ type KindConfig struct {
 
 	// Why documents the overrides (recording numbers, UNVERIFIED notes). Not emitted.
 	Why map[string]string `json:"why,omitempty"`
+}
+
+// RequestHeader maps a top-level forProvider field to a header parameter of the spec.
+type RequestHeader struct {
+	// Header is the header parameter's name, e.g. cf-r2-jurisdiction.
+	Header string `json:"header"`
+	// Field is the top-level forProvider field. For SentOn "all" it must not be a body field: it
+	// is added to forProvider with the header parameter's schema. For SentOn "update" it may be a
+	// create-body field (the update then carries it in the header instead).
+	Field string `json:"field"`
+	// SentOn is "all" (default): the header goes on every request of the object (create, get,
+	// list, update, delete, sub-resources); the create operation must declare it, and the field
+	// becomes Immutable (with a CEL rule that also refuses setting or clearing it once the
+	// resource exists). "update": only the update request carries it; the update operation must
+	// declare it, and the field becomes an UpdateField.
+	SentOn string `json:"sentOn,omitempty"`
+}
+
+// SubResourceConfig is one sub-resource of generator.yaml subResources.
+type SubResourceConfig struct {
+	// Field is the top-level forProvider/atProvider field (it must not exist already).
+	Field string `json:"field"`
+	// Path is appended to the item path, e.g. /cors. The spec must define GET and PUT there:
+	// forProvider.<field> takes the PUT body's schema, atProvider.<field> the GET result's.
+	Path string `json:"path"`
+	// ServerSet are dotted paths into the GET result (list elements traversed, e.g. rules.id)
+	// of members the API may assign itself: compared only where forProvider sets them (see
+	// generic.SubResource.ServerSet). Each path must exist in the GET result's schema.
+	ServerSet []string `json:"serverSet,omitempty"`
 }
 
 // PrintColumn is one additional kubectl printer column.
@@ -148,6 +189,20 @@ func ParseConfig(b []byte) (*Config, error) {
 				return nil, fmt.Errorf("generator config: %s: printColumns %s: jsonPath %q must be a plain dotted path such as .status.atProvider.name", k.FernGroup, pc.Name, pc.JSONPath)
 			case pc.Priority < 0 || pc.Priority > 1:
 				return nil, fmt.Errorf("generator config: %s: printColumns %s: priority %d (want 0 or 1)", k.FernGroup, pc.Name, pc.Priority)
+			}
+		}
+		for _, h := range k.RequestHeaders {
+			switch {
+			case h.Header == "" || h.Field == "":
+				return nil, fmt.Errorf("generator config: %s: requestHeaders need header and field", k.FernGroup)
+			case h.SentOn != "" && h.SentOn != "all" && h.SentOn != "update":
+				return nil, fmt.Errorf("generator config: %s: requestHeaders %s: sentOn %q (want all or update)", k.FernGroup, h.Header, h.SentOn)
+			}
+		}
+		for _, sr := range k.SubResources {
+			if sr.Field == "" || !strings.HasPrefix(sr.Path, "/") || strings.ContainsAny(sr.Path, "{}") {
+				return nil, fmt.Errorf("generator config: %s: subResources need a field and a literal path starting with / (got %q, %q)",
+					k.FernGroup, sr.Field, sr.Path)
 			}
 		}
 		for p, o := range k.Fields {

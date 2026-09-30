@@ -1,0 +1,36 @@
+# An R2 bucket with a CORS policy. Emulated by flarefake's generic profile (UNVERIFIED; see
+# docs/generator-scaleout.md); never run against the live API yet.
+#
+# R2 must be enabled on the account first (in the dashboard; this may require a payment method).
+# Until it is, the create fails and the object shows the API error as Synced=False.
+# Token permission: "Workers R2 Storage" (Edit to manage buckets, Read for Observe-only objects).
+#
+# Default deletionPolicy: Orphan (a bucket holds data). With Delete, a bucket that still holds
+# objects cannot be deleted: the object reports Synced=False, reason DeleteFailed, and keeps its
+# finalizer until the bucket is empty or deletionPolicy becomes Orphan.
+#
+# R2Bucket has no owner tag, so an existing bucket with this name is not adopted: the object
+# reports NameConflict until the cloudflare.flare.dev/external-id annotation pins it (the bucket
+# name). A pinned bucket is deleted with the object under Delete.
+apiVersion: r2.cloudflare.flare.dev/v1alpha1
+kind: R2Bucket
+metadata:
+  name: assets
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    name: my-app-assets          # also the ID; unique per account and jurisdiction
+    locationHint: weur           # create-only: apac | eeur | enam | weur | wnam | oc
+    storageClass: Standard       # Standard | InfrequentAccess; changed with a PATCH
+    # jurisdiction: eu           # default | eu | us | fedramp | fedramp-high; sent as the
+    #                            # cf-r2-jurisdiction header, fixed once the bucket exists
+    cors:                        # the bucket's CORS policy; leave it out to not manage it,
+                                 # or set cors: {} to remove it
+      rules:
+        - allowed:
+            origins: ["https://app.example.com"]
+            methods: [GET, HEAD]
+            headers: ["content-type"]
+          exposeHeaders: [etag]
+          maxAgeSeconds: 3600

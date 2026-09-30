@@ -37,9 +37,11 @@ It ships as one Go manager binary and one Helm chart (`charts/flare-operator`).
 - **What is UNVERIFIED.** Emulator behavior with none of that evidence is marked `UNVERIFIED`
   in the code and listed in [docs/emulator-fidelity.md](docs/emulator-fidelity.md). The largest
   gaps are:
-  - `VectorizeIndex`, `SecretsStore` and `AIGateway`: flarefake's generic profile emulates them
-    from the spec. The only recordings are one list call each for Vectorize and Secrets Store
-    (0154, 0155); AI Gateway has none;
+  - `VectorizeIndex`, `SecretsStore`, `AIGateway` and `R2Bucket`: flarefake's generic profile
+    emulates them from the spec. The only recordings are one list call each for Vectorize and
+    Secrets Store (0154, 0155); AI Gateway and R2 have none (R2's "bucket not found" code 10006
+    is taken from wrangler's source). R2 needs to be enabled on the account (possibly with a
+    payment method); the operator only surfaces the API error when it is not;
   - Resource Tagging (the ownership tags): no recording at all;
   - error codes and messages for invalid input;
   - several Workers details (versions, settings, subdomains);
@@ -63,9 +65,10 @@ Open issues are tracked in [docs/STATUS.md](docs/STATUS.md).
 | `VectorizeIndex` | `vectorize.cloudflare.flare.dev` | `cfvec` | `DIMENSIONS`, `METRIC` | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
 | `SecretsStore` | `secretsstore.cloudflare.flare.dev` | `cfstore` | `STORE` | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
 | `AIGateway` | `aigateway.cloudflare.flare.dev` | `cfaigw` | `COLLECT-LOGS`, *`CACHE-TTL`* | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
+| `R2Bucket` | `r2.cloudflare.flare.dev` | `cfr2`, `cfbucket` | `LOCATION`, `STORAGE-CLASS`, *`JURISDICTION`* | `Orphan` | generated, with `generator.yaml` extensions (jurisdiction header, CORS sub-resource); emulated by the generic profile (mostly UNVERIFIED) |
 | `Tunnel` | `tunnels.cloudflare.flare.dev` | `cftunnel`, `cftun` | `STATUS`, `CONNECTORS` | `Delete` | hand-written; also runs `cloudflared` and an egress NetworkPolicy |
 | `VPCService` | `workersvpc.cloudflare.flare.dev` | `cfvpcsvc`, `cfvpc` | `TYPE`, `TUNNEL` | `Delete` | hand-written (Workers VPC) |
-| `WorkerScript` | `workers.cloudflare.flare.dev` | `cfworker`, `cfscript` | `URL`, *`VERSION`* | `Delete` | hand-written (Workers scripts: modules, bindings, workers.dev) |
+| `WorkerScript` | `workers.cloudflare.flare.dev` | `cfworker`, `cfscript` | `URL`, *`VERSION`* | `Delete` | hand-written (Workers scripts: modules, static assets, bindings, workers.dev) |
 | `PagesProject` | `pages.cloudflare.flare.dev` | `cfpages`, `cfpp` | `URL`, `BRANCH`, *`LIVE`* | `Delete` | hand-written (Cloudflare Pages projects: deployment configs, bindings) |
 | `PagesDeployment` | `pages.cloudflare.flare.dev` | `cfpagesdeploy`, `cfpd` | `PROJECT`, `ENV`, `STAGE`, *`URL`* | `Delete` | hand-written (Pages Direct Upload of an artifact) |
 
@@ -79,6 +82,23 @@ validation rule, printer column JSONPath and condition reason.
 `VectorizeIndex` and `SecretsStore` hold data but default to `Delete` (`generator.yaml` sets no
 `defaultDeletionPolicy` for them). Set `deletionPolicy: Orphan` on them if deleting the object
 must not delete the index or store.
+
+`R2Bucket` notes:
+
+- `forProvider.name` is the bucket name and its ID.
+- `forProvider.jurisdiction` is sent as the `cf-r2-jurisdiction` header on every request. It
+  selects where the bucket lives, so once the bucket exists it cannot be set, changed or removed
+  (a CEL rule, and the controller's own check).
+- `forProvider.storageClass` is changed with a bodiless `PATCH` carrying `cf-r2-storage-class`,
+  and read back as `status.atProvider.storage_class`. `locationHint` is create-only.
+- `forProvider.cors` manages the bucket's CORS policy (`PUT …/cors`, which replaces the whole
+  policy: the policy read back must equal `cors` exactly, so a rule narrowed in `cors` is
+  narrowed on Cloudflare too); leaving it out leaves the policy alone, and `cors: {}` (or `cors: {rules: []}`) removes it (`DELETE …/cors`).
+- With `deletionPolicy: Delete`, Cloudflare refuses to delete a bucket that still holds objects.
+  The object then reports `Synced=False` with reason `DeleteFailed` and keeps its finalizer.
+- R2 must be enabled on the account first (in the dashboard, possibly with a payment method).
+  Until then the create fails and `Synced=False` shows the API error. This has not been checked
+  against the live API.
 
 ## Quickstart
 
@@ -203,9 +223,11 @@ against the CRDs on an envtest API server: schema, CEL rules and strict field va
 | [vectorizeindex.yaml](examples/vectorizeindex.yaml) | a `VectorizeIndex` (dimensions, metric), with `deletionPolicy: Orphan` |
 | [secretsstore.yaml](examples/secretsstore.yaml) | a `SecretsStore`, with `deletionPolicy: Orphan` |
 | [aigateway.yaml](examples/aigateway.yaml) | an `AIGateway` (caching, logs, rate limiting) |
+| [r2bucket.yaml](examples/r2bucket.yaml) | an `R2Bucket` with a location hint, storage class and CORS policy |
 | [tunnel.yaml](examples/tunnel.yaml) | a `Tunnel` with its managed `cloudflared` Deployment and egress NetworkPolicy |
 | [vpcservice.yaml](examples/vpcservice.yaml) | two `VPCService`s behind the Tunnel: an HTTP Service by hostname, a TCP backend by IP |
 | [workerscript.yaml](examples/workerscript.yaml) | a `WorkerScript` with inline modules and `*Ref` bindings, one with modules from a ConfigMap, and an observe-only one |
+| [workerscript-fullstack.yaml](examples/workerscript-fullstack.yaml) | a static site with an API Worker (static assets, an `assets`, an `r2_bucket` and a `send_email` binding), an assets-only site from an archive, and modules from an OCI image |
 | [pagesproject.yaml](examples/pagesproject.yaml) | a `PagesProject` with environment variables (one from a Secret) and `*Ref` bindings, and an observe-only one |
 | [pagesdeployment.yaml](examples/pagesdeployment.yaml) | a production `PagesDeployment` from ConfigMaps, a preview one from an HTTPS archive, and one observing the live deployment |
 
@@ -243,8 +265,9 @@ spec lists no group.
 | `VectorizeIndex` | `Vectorize Write` (`Vectorize Read`) | Vectorize › Edit (Read) |
 | `SecretsStore` | `Secrets Store Write` (`Secrets Store Read`) | Secrets Store › Edit (Read) |
 | `AIGateway` | `AI Gateway Write` (`AI Gateway Read`) | AI Gateway › Edit (Read) |
+| `R2Bucket` | `Workers R2 Storage Write` (`Workers R2 Storage Read`). The spec lists the group for the bucket list, create and delete only; for `GET`/`PATCH` of a bucket and its `cors` it lists none (UNVERIFIED: assumed to be the same group). | Workers R2 Storage › Edit (Read) |
 | `Tunnel` | `Cloudflare Tunnel Write` (`Cloudflare Tunnel Read`). The spec also accepts `Cloudflare One Connector: cloudflared Write`/`Read` and `Cloudflare One Connectors Write`/`Read`. Fetching the connector token for `cloudflared` needs Write. | Cloudflare One Connector: cloudflared › Edit (Read); formerly "Cloudflare Tunnel" |
-| `WorkerScript` | Legacy `Workers Scripts Write` (`Workers Scripts Read`). The spec also accepts `Workers Tail Read` for reading a script, its settings, deployments and subdomain, but not for `GET /accounts/{id}/workers/subdomain` (the workers.dev URL), so Observe needs `Workers Scripts Read`. | Legacy: Workers Scripts › Edit (Read). Granular roles: **Admin at Workers product scope** to create or delete scripts; per-Worker Editor only for an adopted Worker; Content Read-Only for Observe. See [below](#workers-roles-legacy-and-granular). |
+| `WorkerScript` | Legacy `Workers Scripts Write` (`Workers Scripts Read`). The spec also accepts `Workers Tail Read` for reading a script, its settings, deployments and subdomain, but not for `GET /accounts/{id}/workers/subdomain` (the workers.dev URL), so Observe needs `Workers Scripts Read`. Static assets: the upload session needs `Workers Scripts Write`; the file uploads authenticate with the session's JWT, not the token. Whether an `r2_bucket` or `send_email` binding also needs an R2 or Email Routing permission is UNVERIFIED. | Legacy: Workers Scripts › Edit (Read). Granular roles: **Admin at Workers product scope** to create or delete scripts; per-Worker Editor only for an adopted Worker; Content Read-Only for Observe. See [below](#workers-roles-legacy-and-granular). |
 | `VPCService` | UNVERIFIED: the spec lists no group for `/connectivity/directory/services`. | Connectivity Directory (UNVERIFIED) |
 | `PagesProject`, `PagesDeployment` | `Pages Write` (`Pages Read`). A deployment also needs Write for `GET …/upload-token`; the asset calls (`/pages/assets/*`) authenticate with that upload token, not with the API token. A `PagesProject` binding to a KV namespace, D1 database, queue or Worker needs no permission on those. | Cloudflare Pages › Edit (Read) |
 | Ownership tags (on by default) | UNVERIFIED: the spec lists no group for `/accounts/{id}/tags`. Or install with `ownershipTags=false`. | Tag, formerly "Resource Tagging" (UNVERIFIED) |
@@ -339,7 +362,7 @@ token to that URL.
 - `Delete` deletes the resource in Cloudflare.
 - `Orphan` keeps the resource and releases the ownership tag, so another object can adopt it.
 
-The per-kind defaults are in the [Kinds](#kinds) table. KV, Queues and D1 default to `Orphan`.
+The per-kind defaults are in the [Kinds](#kinds) table. KV, Queues, D1 and R2 default to `Orphan`.
 Generated kinds default to `Delete` unless `generator.yaml` sets `defaultDeletionPolicy`, which
 it does not yet for `VectorizeIndex` and `SecretsStore`.
 
@@ -352,7 +375,7 @@ Even with `Delete`, the operator deletes only resources it can **prove** it owns
   the external-id annotation.
 
 The last case matters for the kinds without an owner tag (`VectorizeIndex`, `SecretsStore`,
-`AIGateway` and `VPCService`). None of them adopts an existing resource by name: only a pin you
+`AIGateway`, `R2Bucket` and `VPCService`). None of them adopts an existing resource by name: only a pin you
 set yourself, or the operator's record of its own create, lets `Delete` delete the resource (see
 [Adoption](#adoption-cloudflareflaredevexternal-id)).
 
@@ -396,9 +419,9 @@ Without the annotation, what happens depends on the kind:
 - **Generated kinds with an owner tag** (`KVNamespace`, `Queue`, `D1Database`, with tagging on)
   adopt a resource whose name matches `forProvider` (`title`, `queue_name` or `name`) unless
   its owner tag names another object. If several resources match, the object reports an error.
-- **Generated kinds without an owner tag** (`VectorizeIndex`, `SecretsStore`, `AIGateway`, and
-  every generated kind with `--ownership-tags=false`) never adopt by name (or, for
-  `AIGateway`, by `id`): a match gives `Synced=False` with reason `NameConflict` until you set
+- **Generated kinds without an owner tag** (`VectorizeIndex`, `SecretsStore`, `AIGateway`,
+  `R2Bucket`, and every generated kind with `--ownership-tags=false`) never adopt by name (or,
+  for `AIGateway`, by `id`): a match gives `Synced=False` with reason `NameConflict` until you set
   the annotation, unless the create-pending record shows it is the object's own lost create.
   Nothing else could prove that the object owns the resource, and `Delete` would delete it.
 - **`Tunnel`** adopts a same-named tunnel only when its owner tag already names this object
@@ -430,12 +453,13 @@ resource it manages through Cloudflare's Resource Tagging API with
 and writes them back with `If-Match`, so other tags are kept. The tag is how two objects, or two
 clusters, avoid managing and deleting the same resource. The tag's `resource_type` values are
 `kv_namespace`, `queue`, `d1_database`, `cloudflared_tunnel`, `worker` and `pages_project`
-(its `resource_id` being the project's UUID is UNVERIFIED). Five kinds are not tagged:
+(its `resource_id` being the project's UUID is UNVERIFIED). Six kinds are not tagged:
 
 - `SecretsStore`, `VPCService` and `PagesDeployment`: the spec's tags `resource_type` enum has no
   value for them.
-- `VectorizeIndex` and `AIGateway`: the enum has `vectorize_index` and `ai_gateway`, but
-  `generator.yaml` sets no `tagResourceType` for them yet.
+- `VectorizeIndex`, `AIGateway` and `R2Bucket`: the enum has `vectorize_index`, `ai_gateway`
+  and `r2_bucket`, but `generator.yaml` sets no `tagResourceType` for them yet (live support is
+  UNVERIFIED; an R2 bucket name is unique only per jurisdiction).
 
 ### Conditions
 
@@ -445,7 +469,7 @@ Each object reports two conditions. Both are stamped with `metadata.generation`,
 | Condition | Meaning | Common reasons |
 |---|---|---|
 | `Ready` | The Cloudflare resource exists and is usable | `Available`, `Creating`, `Deleting`, `Unavailable`, `ExternalNotFound`, `AccountNotReady`, `DependencyNotReady` |
-| `Synced` | The last reconcile applied the spec | `ReconcileSuccess`, `ObserveOnly`, `ReconcileError`, `RateLimited`, `Immutable` (a create-only field changed; nothing is written), `AccountNotReady`, `DependencyNotReady`, `NameConflict` |
+| `Synced` | The last reconcile applied the spec | `ReconcileSuccess`, `ObserveOnly`, `ReconcileError`, `RateLimited`, `Immutable` (a create-only field changed; nothing is written), `AccountNotReady`, `DependencyNotReady`, `NameConflict`, `DeleteFailed` (Cloudflare refused the delete of a deleted object's resource) |
 
 Every reason, per kind, is in [docs/api-reference.md](docs/api-reference.md#conditions), and
 what to do about each one in [docs/operations.md](docs/operations.md#troubleshooting-by-condition-reason).
@@ -462,12 +486,25 @@ A `WorkerScript` uploads a Cloudflare Workers script ([examples/workerscript.yam
 and completes the private-backend path Worker → `vpc_service` binding → `VPCService` → `Tunnel` →
 Kubernetes Service.
 
-- **Source.** Either inline `forProvider.modules` (module name → `type` `esm`, `cjs`, `text`,
-  `json` or `wasm-base64`, and `content`) or `forProvider.sourceRef`, a ConfigMap whose keys are
-  the modules. `main_module` names the entry module. The script name is `forProvider.script_name`
-  (immutable), else `metadata.name`.
+- **Source.** One of inline `forProvider.modules` (module name → `type` `esm`, `cjs`, `text`,
+  `json` or `wasm-base64`, and `content`), `forProvider.sourceRef`, a ConfigMap whose keys are
+  the modules, or `forProvider.moduleSource`, an [artifact](docs/artifacts.md) (labelled
+  ConfigMaps, an OCI image or an HTTPS archive) whose files are the modules, typed by extension
+  or `moduleTypes`. `main_module` names the entry module. The script name is
+  `forProvider.script_name` (immutable), else `metadata.name`.
+- **Static assets.** `forProvider.assets.source` is an artifact of files that Cloudflare serves
+  in front of the code, configured by `assets.config` (`html_handling`, `not_found_handling`,
+  `run_worker_first` or `run_worker_first_paths`, `base_path`). As with wrangler, the root
+  files `_headers` and `_redirects` become the header and redirect rules, and `.assetsignore`
+  leaves files out. An `assets` binding lets the code fetch them. Without `main_module` and
+  modules the Worker is assets-only. The operator uploads only new and changed files, and runs
+  the upload only when the files or the config change (`status.assetsHash`): a code change with
+  unchanged assets keeps them (`keep_assets`) without an asset call.
 - **Bindings.** `plain_text`, `secret_text` (`secretKeyRef`), `json`, `kv_namespace`, `queue`,
-  `d1`, `vpc_service` and `service`. Each takes either the raw API value (`namespace_id`,
+  `d1`, `vpc_service`, `service`, `r2_bucket` (`bucket_name`, `jurisdiction`), `send_email`
+  (`destination_address` or `allowed_destination_addresses`, `allowed_sender_addresses`; it
+  needs Email Routing on a zone of the account, with the addresses verified there) and `assets`.
+  Each takes either the raw API value (`namespace_id`,
   `queue_name`, `database_id`, `service_id`, `service`) or a reference to an object in the same
   namespace (`kvNamespaceRef`, `queueRef`, `d1DatabaseRef`, `vpcServiceRef`, `serviceRef`).
   Until every referenced object is Ready, nothing is uploaded and `Synced` is `False` with

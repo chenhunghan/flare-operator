@@ -65,6 +65,15 @@ rules:
   - list
   - watch
 - apiGroups:
+  - r2.cloudflare.flare.dev
+  resources:
+  - r2buckets
+  - r2buckets/status
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - secretsstore.cloudflare.flare.dev
   resources:
   - secretsstores
@@ -189,6 +198,19 @@ rules:
   - queues.cloudflare.flare.dev
   resources:
   - queues
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - r2.cloudflare.flare.dev
+  resources:
+  - r2buckets
   verbs:
   - create
   - delete

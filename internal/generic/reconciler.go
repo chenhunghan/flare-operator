@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"net/http"
 	"sort"
@@ -72,6 +73,12 @@ const accountRefIndex = ".spec.accountRef.name"
 //     Both cases emit a Warning event. Singletons are never created or deleted. Before a delete,
 //     objects of registered referrer kinds (referrers.go, e.g. WorkerScript bindings) that still
 //     name the object block it: Ready=False, reason DependencyNotReady, until they are gone.
+//     A DELETE the API refuses (e.g. a non-empty R2 bucket) keeps the finalizer and sets
+//     Synced=False, reason DeleteFailed, with the API error.
+//   - Extension (extension.go) adds what the Descriptor cannot say: request headers (on every
+//     request, e.g. R2's jurisdiction, immutable and checked against atProvider before any
+//     request; or carrying an update field), forProvider fields read back under another name,
+//     and sub-resources (GET into atProvider, PUT when they differ).
 //
 // Unchanged objects cost reads only: a reconcile of an in-sync object makes no Cloudflare write.
 type Reconciler struct {
@@ -83,6 +90,9 @@ type Reconciler struct {
 	ClusterName string
 
 	Descriptor Descriptor
+	// Extension carries what Descriptor cannot express (request headers, fields read back under
+	// another name, sub-resources); the zero value adds nothing. See extension.go.
+	Extension Extension
 	// New returns an empty object of the kind; NewList an empty list (optional: without it,
 	// CloudflareAccount changes do not wake the kind's objects).
 	New     func() reconcile.ManagedObject
@@ -95,7 +105,8 @@ type Reconciler struct {
 	// deletion). SetupWithManager sets it; nil disables events.
 	Recorder events.EventRecorder
 	// APIReader confirms, uncached, that a CloudflareAccount is gone before a finalizer gives
-	// up on its Cloudflare resource (SetupWithManager sets it; default: Client).
+	// up on its Cloudflare resource, and reads the create-pending record where ownership is
+	// decided (freshPending). SetupWithManager sets it; default: Client.
 	APIReader client.Reader
 
 	// applied remembers the write-only hash last applied per object (namespace/name →
@@ -174,7 +185,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, name string) error {
 	}
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named(name).
-		For(r.New(), builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{})))
+		For(r.New(), builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, annotationsChanged())))
 	if r.NewList != nil {
 		b = b.Watches(&cloudflarev1alpha1.CloudflareAccount{}, handler.EnqueueRequestsFromMapFunc(r.objectsForAccount),
 			builder.WithPredicates(accountReadinessChanged()))
@@ -184,6 +195,32 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, name string) error {
 		b = b.Watches(ref.Object, ReferrerWatch(ref))
 	}
 	return b.Complete(r)
+}
+
+// annotationsChanged passes updates that change the object's annotations other than the
+// create-pending record. The reconciler writes and drops that record itself around a create
+// the API refuses (createRefused); reacting to those writes would retry the create at once,
+// again and again, instead of after the error backoff.
+func annotationsChanged() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return false
+			}
+			o, n := e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations()
+			for k, v := range o {
+				if nv, ok := n[k]; k != reconcile.AnnotationCreatePending && (!ok || nv != v) {
+					return true
+				}
+			}
+			for k := range n {
+				if _, ok := o[k]; k != reconcile.AnnotationCreatePending && !ok {
+					return true
+				}
+			}
+			return false
+		},
+	}
 }
 
 // accountReadinessChanged passes account events that can unblock (or block) managed objects:
@@ -259,6 +296,21 @@ type scope struct {
 	cf        cfclient.Client
 	accountID string
 	zoneID    string
+	// header goes on every request for the object's resource (Extension.Headers that are not
+	// Update headers, e.g. R2's cf-r2-jurisdiction). Tag requests do not carry it.
+	header http.Header
+}
+
+// do sends a request for the object's resource, with the scope's headers.
+func (s scope) do(ctx context.Context, req cfclient.Request) (*cfclient.Response, error) {
+	if len(s.header) > 0 {
+		h := s.header.Clone()
+		for k, v := range req.Header {
+			h[k] = v
+		}
+		req.Header = h
+	}
+	return s.cf.Do(ctx, req)
 }
 
 func (s scope) path(p, id string) string {
@@ -267,6 +319,19 @@ func (s scope) path(p, id string) string {
 
 func (r *Reconciler) scopeFor(obj reconcile.ManagedObject, acct *reconcile.Resolved) (scope, error) {
 	s := scope{cf: acct.Client, accountID: acct.AccountID}
+	if len(r.Extension.Headers) > 0 {
+		desired, err := ForProvider(obj)
+		if err != nil {
+			return s, err
+		}
+		s.header = r.Extension.scopeHeader(desired)
+		if obj.GetDeletionTimestamp() != nil {
+			// The finalizer addresses the resource where it was last read: a header field
+			// changed past the CRD's immutability rule would look (and delete) elsewhere, find
+			// nothing, and let the resource go without a word.
+			s.header = r.Extension.observedScopeHeader(desired, lastObserved(obj))
+		}
+	}
 	if r.Descriptor.Scope == "zone" {
 		z := obj.GetResourceSpec().ZoneRef
 		switch {
@@ -328,6 +393,13 @@ func (r *Reconciler) observe(ctx context.Context, obj reconcile.ManagedObject) (
 	}
 
 	id := reconcile.ExternalID(obj)
+	if hc := r.Extension.headerChanges(desired, lastObserved(obj)); id != "" && len(hc) > 0 && pol.CanWrite() {
+		// A request header selects where the resource lives (e.g. its R2 jurisdiction): with the
+		// new value a GET would not find it and the object would create a second resource.
+		reconcile.MarkImmutable(obj, fmt.Sprintf("immutable fields cannot be changed after creation: %s (they select where the resource lives; "+
+			"status.atProvider shows the current value; recreate the object to change them)", joinFields(hc)))
+		return ctrl.Result{RequeueAfter: r.poll()}, nil
+	}
 	var observed json.RawMessage
 	if id != "" {
 		observed, err = r.get(ctx, sc, id)
@@ -350,12 +422,19 @@ func (r *Reconciler) observe(ctx context.Context, obj reconcile.ManagedObject) (
 				return errResult(obj, err)
 			}
 		}
-		if foundID != "" && pol.CanWrite() && !r.tagging() && !r.ownLostCreate(obj, desired) {
-			// No ownership tag can prove that this object owns a same-named resource (the kind
-			// cannot be tagged, or tagging is off): it may be another object's or another
-			// tool's, and managing it would let this object's deletion delete it. Adoption is
-			// explicit, through the external-id annotation (as for VPCService and Tunnel).
-			return r.nameConflict(obj, desired, foundID)
+		if foundID != "" && pol.CanWrite() && !r.tagging() {
+			own, err := r.ownLostCreate(ctx, obj, desired, foundID)
+			if err != nil {
+				return errResult(obj, err)
+			}
+			if !own {
+				// No ownership tag can prove that this object owns a same-named resource (the
+				// kind cannot be tagged, or tagging is off): it may be another object's or
+				// another tool's, and managing it would let this object's deletion delete it.
+				// Adoption is explicit, through the external-id annotation (as for VPCService
+				// and Tunnel).
+				return r.nameConflict(obj, desired, foundID)
+			}
 		}
 		if foundID != "" {
 			if observed, err = r.get(ctx, sc, foundID); err != nil {
@@ -385,14 +464,60 @@ func (r *Reconciler) observe(ctx context.Context, obj reconcile.ManagedObject) (
 	return r.sync(ctx, obj, sc, desired, id, observed, adopted)
 }
 
-// ownLostCreate reports whether obj's create-pending record names the resource desired
-// describes (pendingKey): obj announced that create and never recorded its result, so a
-// resource found by that name or client-chosen ID is obj's own lost create
-// (docs/resilience.md).
-func (r *Reconciler) ownLostCreate(obj reconcile.ManagedObject, desired map[string]any) bool {
+// ownLostCreate reports whether foundID, the resource found by desired's name or client-chosen
+// ID, is obj's own lost create (docs/resilience.md): obj's create-pending record names it
+// (pendingKey), since obj announced that create and never recorded its result, or obj already
+// records foundID as its own create (a RecordCreated that the cached copy does not show yet).
+// Both are read uncached (freshPending): this is the only proof of ownership, and a stale
+// record would adopt, and under deletionPolicy Delete delete, another writer's resource.
+func (r *Reconciler) ownLostCreate(ctx context.Context, obj reconcile.ManagedObject, desired map[string]any, foundID string) (bool, error) {
 	key := r.pendingKey(desired)
-	pending, ok := reconcile.PendingCreate(obj)
-	return ok && key != "" && pending == key
+	if key == "" {
+		return false, nil
+	}
+	cur, err := r.freshPending(ctx, obj)
+	if err != nil {
+		return false, err
+	}
+	if reconcile.HasOwnershipProof(cur, foundID) {
+		return true, nil
+	}
+	pending, ok := reconcile.PendingCreate(cur)
+	return ok && pending == key, nil
+}
+
+// freshPending reads obj from the API server, bypassing the informer cache, and replaces obj's
+// in-memory create-pending record with the stored one; it returns the uncached copy.
+//
+// The record decides whether a same-named resource is obj's own lost create, so it is never
+// taken from the cache where that is decided. The cache can lag behind the reconciler's own
+// writes of the record, which the watch filters out (annotationsChanged), while the retry after
+// an error runs within milliseconds:
+//   - A first-attempt duplicate-name refusal drops the record (create). A retry that still saw
+//     it would take the other writer's resource for its own lost create: adopt it, record an
+//     ownership proof, manage it and, under deletionPolicy Delete, delete it.
+//   - A retry that missed the record of the earlier attempt would drop it on a duplicate-name
+//     refusal as if it were a first attempt, and lose the object's own create; a retry that
+//     still saw a dropped record would not write it again before the POST.
+func (r *Reconciler) freshPending(ctx context.Context, obj reconcile.ManagedObject) (reconcile.ManagedObject, error) {
+	cur := r.New()
+	if err := r.apiReader().Get(ctx, client.ObjectKeyFromObject(obj), cur); err != nil {
+		return nil, fmt.Errorf("read the create-pending record: %w", err)
+	}
+	if cur.GetUID() != obj.GetUID() {
+		return nil, fmt.Errorf("read the create-pending record: the object was replaced (UID %s, want %s)", cur.GetUID(), obj.GetUID())
+	}
+	a := maps.Clone(obj.GetAnnotations())
+	if a == nil {
+		a = map[string]string{}
+	}
+	if v, ok := cur.GetAnnotations()[reconcile.AnnotationCreatePending]; ok {
+		a[reconcile.AnnotationCreatePending] = v
+	} else {
+		delete(a, reconcile.AnnotationCreatePending)
+	}
+	obj.SetAnnotations(a)
+	return cur, nil
 }
 
 // nameConflict reports that a resource with obj's name (or client-chosen ID) exists and obj
@@ -419,7 +544,7 @@ func (r *Reconciler) nameConflict(obj reconcile.ManagedObject, desired map[strin
 }
 
 func (r *Reconciler) get(ctx context.Context, sc scope, id string) (json.RawMessage, error) {
-	resp, err := sc.cf.Do(ctx, cfclient.Request{Method: http.MethodGet, Path: sc.path(r.Descriptor.ItemPath, id)})
+	resp, err := sc.do(ctx, cfclient.Request{Method: http.MethodGet, Path: sc.path(r.Descriptor.ItemPath, id)})
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +562,7 @@ func (r *Reconciler) findByName(ctx context.Context, sc scope, desired map[strin
 	if d.NameField == "" || d.ListPath == "" || !ok || want == "" {
 		return "", nil
 	}
-	items, err := cfclient.ListAll(ctx, sc.cf, cfclient.Request{Path: sc.path(d.ListPath, "")})
+	items, err := cfclient.ListAll(ctx, sc.cf, cfclient.Request{Path: sc.path(d.ListPath, ""), Header: sc.header})
 	if err != nil {
 		return "", fmt.Errorf("list for adoption by %s: %w", d.NameField, err)
 	}
@@ -517,17 +642,39 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 	reconcile.MarkCreating(obj, "")
 	// Announce the create (reconcile.MarkCreatePending): the next reconcile adopts a lost create
 	// by name or client ID anyway, but an object deleted before that has no ID, and its
-	// finalizer finds the resource through this record (reconcile.AdoptPendingCreate). The
-	// record is kept when the API refuses the create: this reconciler takes any resource with
-	// the name (or ID) for the object's own anyway, so the record claims nothing more, and a
-	// duplicate-name refusal may be the answer to a lost create that a lagging list missed.
-	if key := r.pendingKey(desired); key != "" {
+	// finalizer finds the resource through this record (reconcile.AdoptPendingCreate).
+	key := r.pendingKey(desired)
+	// retry: a record for this key stood before this attempt, so an earlier POST of this object
+	// may have created the resource (MarkCreatePending runs before every POST). The record is
+	// read uncached (freshPending): it decides whether a duplicate-name refusal drops it.
+	var retry bool
+	if key != "" {
+		if _, err := r.freshPending(ctx, obj); err != nil {
+			return errResult(obj, err)
+		}
+		prior, hadPrior := reconcile.PendingCreate(obj)
+		retry = hadPrior && prior == key
 		if err := reconcile.MarkCreatePending(ctx, r.Client, obj, key); err != nil {
 			return errResult(obj, fmt.Errorf("record the pending create: %w", err))
 		}
 	}
-	resp, err := sc.cf.Do(ctx, cfclient.Request{Method: http.MethodPost, Path: sc.path(d.CreatePath, ""), Body: pick(desired, d.CreateFields)})
+	resp, err := sc.do(ctx, cfclient.Request{Method: http.MethodPost, Path: sc.path(d.CreatePath, ""), Body: pick(desired, d.CreateFields)})
 	if err != nil {
+		if key != "" && (createRefused(err) || (duplicateRefusal(err) && !retry)) {
+			// The API refused the create and nothing of this object's was made, so the record
+			// must not stand. A kind that cannot be tagged adopts a same-named resource only as
+			// its own lost create (ownLostCreate); a kept record would let this object take
+			// (and, with deletionPolicy Delete, delete) one that someone else creates, e.g.
+			// later while R2 is not enabled on the account (403), or right now: a duplicate-name
+			// refusal (400/409) of a first attempt means another writer has the name (two
+			// clusters or objects applying the same bucket name at once), since no earlier POST
+			// of this object could have made it. Transient failures (5xx, timeouts, 408, 429)
+			// keep the record, and so does a duplicate-name refusal of a retry: the earlier
+			// attempt's create may have happened (and a lagging list missed it).
+			if cerr := reconcile.ClearCreatePending(ctx, r.Client, obj); cerr != nil {
+				return errResult(obj, errors.Join(fmt.Errorf("create: %w", err), cerr))
+			}
+		}
 		return errResult(obj, fmt.Errorf("create: %w", err))
 	}
 	created, err := decodeObject(resp.Result)
@@ -579,6 +726,24 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 	return r.sync(ctx, obj, sc, desired, id, observed, false)
 }
 
+// createRefused reports whether a create error proves that nothing was created: a permanent
+// 4xx (reconcile.IsPermanent: not 408, 409 or 429) other than 400. A duplicate-name refusal
+// of a retry proves nothing (the lookup before the create may have missed this object's own
+// lost create of an earlier attempt, e.g. in a lagging list), and APIs refuse a duplicate name
+// with 400 (0004: KV 400/10014; 0018: D1 400/7502) or 409 (duplicateRefusal).
+func createRefused(err error) bool {
+	ae, ok := cfclient.AsAPIError(err)
+	return ok && reconcile.IsPermanent(err) && ae.Status != http.StatusBadRequest
+}
+
+// duplicateRefusal reports whether a create error may be a duplicate-name refusal (400 or 409,
+// see createRefused): it proves that nothing was created by this attempt, but not that an
+// earlier attempt of the same object created nothing.
+func duplicateRefusal(err error) bool {
+	ae, ok := cfclient.AsAPIError(err)
+	return ok && (ae.Status == http.StatusBadRequest || ae.Status == http.StatusConflict)
+}
+
 // sync records the observed object, checks ownership and immutable fields, and updates drifted
 // fields. id is "" for singletons.
 func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc scope, desired map[string]any, id string,
@@ -593,6 +758,9 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 	}
 	obs, err := decodeObject(observed)
 	if err != nil {
+		return errResult(obj, err)
+	}
+	if observed, err = r.withSubResources(ctx, sc, id, observed, obs); err != nil {
 		return errResult(obj, err)
 	}
 	// Ownership: never touch (or pin) a resource another object owns.
@@ -656,21 +824,33 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 			changed = append(changed, f)
 		}
 	}
-	if len(changed) > 0 {
-		if d.UpdateMethod == "" || !pol.CanUpdate() {
+	subChanged := r.changedSubResources(desired, obs)
+	if len(changed) > 0 || len(subChanged) > 0 {
+		if (len(changed) > 0 && d.UpdateMethod == "") || !pol.CanUpdate() {
 			why := "managementPolicies do not allow Update"
-			if d.UpdateMethod == "" {
+			if len(changed) > 0 && d.UpdateMethod == "" {
 				why = "the API has no update operation"
 			}
 			reconcile.SetSynced(obj, metav1.ConditionFalse, commonv1alpha1.ReasonReconcileError,
-				fmt.Sprintf("forProvider differs from Cloudflare in %s, but %s", strings.Join(changed, ", "), why))
+				fmt.Sprintf("forProvider differs from Cloudflare in %s, but %s", strings.Join(append(changed, subFields(subChanged)...), ", "), why))
 			return ctrl.Result{RequeueAfter: r.poll()}, nil
 		}
-		log.FromContext(ctx).Info("updating", "id", id, "fields", changed)
-		if err := r.update(ctx, sc, id, pick(desired, changed), desired, obs); err != nil {
-			return errResult(obj, fmt.Errorf("update: %w", err))
+		if len(changed) > 0 {
+			log.FromContext(ctx).Info("updating", "id", id, "fields", changed)
+			if err := r.update(ctx, sc, id, pick(desired, changed), desired, obs); err != nil {
+				return errResult(obj, fmt.Errorf("update: %w", err))
+			}
+		}
+		for _, s := range subChanged {
+			log.FromContext(ctx).Info("updating", "id", id, "fields", []string{s.Field})
+			if err := r.writeSubResource(ctx, sc, id, s, desired); err != nil {
+				return errResult(obj, err)
+			}
 		}
 		if observed, err = r.get(ctx, sc, id); err != nil {
+			return errResult(obj, err)
+		}
+		if observed, err = r.withSubResources(ctx, sc, id, observed, nil); err != nil {
 			return errResult(obj, err)
 		}
 		if err := SetAtProvider(obj, observed); err != nil {
@@ -723,11 +903,32 @@ func (r *Reconciler) differs(f string, v any, desired, obs map[string]any, prevW
 			return true
 		}
 	}
-	return !Covers(without(v, sub), obs[f])
+	return !Covers(without(v, sub), obs[r.Extension.ObservedName(f)])
+}
+
+// withSubResources adds the kind's sub-resources (Extension.SubResources) of id to the observed
+// item: obs (the decoded item, or nil to decode observed) gets them, and the returned raw
+// result carries them into status.atProvider. Without sub-resources (or for a singleton) the
+// item is returned unchanged.
+func (r *Reconciler) withSubResources(ctx context.Context, sc scope, id string, observed json.RawMessage, obs map[string]any) (json.RawMessage, error) {
+	if len(r.Extension.SubResources) == 0 || id == "" {
+		return observed, nil
+	}
+	if obs == nil {
+		var err error
+		if obs, err = decodeObject(observed); err != nil {
+			return nil, err
+		}
+	}
+	if err := r.observeSubResources(ctx, sc, id, obs); err != nil {
+		return nil, err
+	}
+	return json.Marshal(obs)
 }
 
 // update sends UpdateMethod to the item. PATCH carries only the changed fields; PUT replaces
 // the object, so it carries every UpdateField: desired where set, else the observed value.
+// Update header fields (Extension.Headers) travel as headers; a body they empty is not sent.
 func (r *Reconciler) update(ctx context.Context, sc scope, id string, changed, desired, observed map[string]any) error {
 	d := r.Descriptor
 	body := changed
@@ -736,12 +937,14 @@ func (r *Reconciler) update(ctx context.Context, sc scope, id string, changed, d
 		for _, f := range d.UpdateFields {
 			if v, ok := desired[f]; ok && v != nil {
 				body[f] = v
-			} else if v, ok := observed[f]; ok && v != nil && !has(d.WriteOnly, f) {
+			} else if v, ok := observed[r.Extension.ObservedName(f)]; ok && v != nil && !has(d.WriteOnly, f) {
 				body[f] = v
 			}
 		}
 	}
-	_, err := sc.cf.Do(ctx, cfclient.Request{Method: d.UpdateMethod, Path: sc.path(d.ItemPath, id), Body: body})
+	req := cfclient.Request{Method: d.UpdateMethod, Path: sc.path(d.ItemPath, id), Body: body}
+	r.Extension.moveUpdateHeaders(&req, body)
+	_, err := sc.do(ctx, req)
 	return err
 }
 
@@ -778,10 +981,17 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 		// A create was announced and its result never recorded: the manager may have died
 		// between the create and RecordCreated. With no ID, or with the ID of a resource that
 		// was found gone (the create recreated it), find the resource the record names and
-		// record it, so it is deleted rather than leaked.
-		var err error
-		if id, err = r.adoptPendingCreate(ctx, obj); err != nil {
+		// record it, so it is deleted rather than leaked. The record is confirmed uncached
+		// first (freshPending): one that the cache still shows after a refused create dropped
+		// it would delete a resource someone else made.
+		if _, err := r.freshPending(ctx, obj); err != nil {
 			return reconcile.DeletionResult(obj, err)
+		}
+		if _, pending := reconcile.PendingCreate(obj); pending {
+			var err error
+			if id, err = r.adoptPendingCreate(ctx, obj); err != nil {
+				return reconcile.DeletionResult(obj, err)
+			}
 		}
 	}
 	release := id != "" && !deleteExternal && reconcile.PoliciesOf(obj).CanWrite() && r.tagging()
@@ -861,17 +1071,28 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 		}
 	}
 	var del func(ctx context.Context, id string) error
+	var refused error // the API's answer to the DELETE, when it refused it
 	if deleteExternal {
 		del = func(ctx context.Context, id string) error {
-			_, err := sc.cf.Do(ctx, cfclient.Request{Method: http.MethodDelete, Path: sc.path(d.ItemPath, id)})
+			_, err := sc.do(ctx, cfclient.Request{Method: http.MethodDelete, Path: sc.path(d.ItemPath, id)})
 			if err == nil {
 				log.FromContext(ctx).Info("deleted", "id", id)
+			} else if ae, ok := cfclient.AsAPIError(err); ok && ae.Status >= 400 && ae.Status < 500 &&
+				ae.Status != http.StatusNotFound && ae.Status != http.StatusRequestTimeout && ae.Status != http.StatusTooManyRequests {
+				refused = err // a 4xx answer; 5xx and transport errors are plain errors
 			}
 			return err
 		}
 	}
 	reconcile.MarkDeleting(obj, "")
 	res, err := reconcile.Finalize(ctx, r.Client, obj, kindDefault, del)
+	if refused != nil && err != nil {
+		// E.g. an R2 bucket that still holds objects: the finalizer stays and retries (with
+		// backoff) until the API accepts the delete or deletionPolicy becomes Orphan.
+		reconcile.SetSynced(obj, metav1.ConditionFalse, reconcile.ReasonDeleteFailed,
+			fmt.Sprintf("Cloudflare refused to delete %s %s: %v (the finalizer retries; resolve the cause, or set deletionPolicy Orphan to keep the resource)",
+				d.Kind, id, refused))
+	}
 	if err == nil && !controllerutil.ContainsFinalizer(obj, commonv1alpha1.Finalizer) {
 		r.applied.Delete(client.ObjectKeyFromObject(obj))
 	}
@@ -918,7 +1139,8 @@ func (r *Reconciler) groupKind() schema.GroupKind {
 // tagging reports whether ownership tags are maintained for the kind.
 func (r *Reconciler) tagging() bool { return reconcile.TaggingEnabled(r.tagger()) }
 
-// apiReader reads CloudflareAccounts uncached when a finalizer checks that one is gone.
+// apiReader reads uncached: the CloudflareAccount a finalizer checks is gone, and the
+// create-pending record where ownership is decided (freshPending).
 func (r *Reconciler) apiReader() client.Reader {
 	if r.APIReader != nil {
 		return r.APIReader

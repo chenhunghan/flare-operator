@@ -30,7 +30,7 @@ import (
 var env *testenv.Env
 
 // TestMain starts envtest and an in-process flarefake. Outside -short the fake also serves the
-// generic-profile kinds (VectorizeIndex, SecretsStore, AIGateway), which need the pinned spec.
+// generic-profile kinds (VectorizeIndex, SecretsStore, AIGateway, R2Bucket), which need the pinned spec.
 func TestMain(m *testing.M) {
 	flag.Parse()
 	generic.ReferrerRetry = 500 * time.Millisecond
@@ -198,14 +198,21 @@ var errCrashed = errors.New("simulated crash: the manager process is gone")
 // call fail, as if the process had died there. Crashed is closed at that moment.
 type crashClient struct {
 	client.Client
-	target  string
+	target string
+	// marker is the annotation whose patch is the crash point (default: the external-id one).
+	marker  string
 	mu      sync.Mutex
 	dead    bool
 	Crashed chan struct{}
 }
 
 func newCrashClient(c client.Client, target string) *crashClient {
-	return &crashClient{Client: c, target: target, Crashed: make(chan struct{})}
+	return newCrashClientAt(c, target, commonv1alpha1.AnnotationExternalID)
+}
+
+// newCrashClientAt crashes at the first patch of target that writes the annotation marker.
+func newCrashClientAt(c client.Client, target, marker string) *crashClient {
+	return &crashClient{Client: c, target: target, marker: marker, Crashed: make(chan struct{})}
 }
 
 func (c *crashClient) isDead() bool {
@@ -256,7 +263,7 @@ func (c *crashClient) Patch(ctx context.Context, obj client.Object, patch client
 		return errCrashed
 	}
 	if obj.GetName() == c.target {
-		if data, err := patch.Data(obj); err == nil && strings.Contains(string(data), commonv1alpha1.AnnotationExternalID) {
+		if data, err := patch.Data(obj); err == nil && strings.Contains(string(data), c.marker) {
 			c.dead = true
 			close(c.Crashed)
 			c.mu.Unlock()

@@ -15,6 +15,8 @@ type client struct {
 	t    *testing.T
 	base string
 	tok  string
+	// hdr is sent with every request (e.g. R2's cf-r2-jurisdiction).
+	hdr http.Header
 }
 
 func newClient(t *testing.T, s *Server) *client {
@@ -44,6 +46,9 @@ func (c *client) do(method, path string, body any) (int, testEnv, http.Header) {
 		req.Header.Set("Authorization", "Bearer "+c.tok)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range c.hdr {
+		req.Header[k] = v
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		c.t.Fatal(err)

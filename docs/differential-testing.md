@@ -15,6 +15,7 @@ Each mismatch is recorded as a **known discrepancy**. It becomes a skipped subte
 |---|---|
 | `test/differential/harness/` | In-process flarefake on a random port (`harness.Start`). It captures every request (method, path, query, Content-Type, User-Agent, body prefix, status, envelope error codes). It also holds `Discrepancy`, `KnownSpecDefects`, and shims (test-local answers for a route flarefake lacks, registered only together with the discrepancy they name; none is in use). There is no build tag, and its unit tests run in `make test`. |
 | `test/differential/wrangler_test.go` | wrangler scenario (build tag `differential`) |
+| `test/differential/wrangler_assets_test.go` | wrangler static-assets scenario (a Worker with assets, an assets-only site) |
 | `test/differential/cloudflared_test.go` | cloudflared management-API scenario |
 | `test/differential/go/` | A **separate Go module** (its own `go.mod`, with `replace flare.dev/operator => ../../..`) that pins cloudflare-go. The operator's `go.mod` stays free of the SDK. |
 | `test/differential/npm/` | `package.json` and `package-lock.json` that pin wrangler and its dependency tree |
@@ -70,6 +71,19 @@ A client that is not installed is skipped with a hint. You can override where a 
   - workers.dev off and back on (`triggers deploy`)
   - a redeploy of the existing Worker, which goes through the versions API: `POST …/versions`, `POST …/deployments` at 100%, `PATCH …/script-settings`
   - `delete` (`DELETE …/workers/services/{name}?force=true`)
+- R2 (the generic profile's R2Bucket extensions, 2026-09-30):
+  - `r2 bucket create`, one bucket in the default jurisdiction (`--storage-class`) and one in the EU (`-J eu`: the `cf-r2-jurisdiction` header)
+  - `r2 bucket list`, with and without `-J eu`: each jurisdiction lists only its own bucket
+  - `r2 bucket update storage-class` (a bodiless `PATCH` with `cf-r2-storage-class`)
+  - `r2 bucket cors set/list/delete` in the EU jurisdiction
+  - `r2 bucket delete` of both buckets
+
+  The first run found a discrepancy: `r2 bucket create` sends its JSON body with no Content-Type (text/plain). flarefake now validates that body as JSON, as it already did for `queues create` (`internal/fake/spec.go` `plainTextBodies`, SOURCED). `r2 bucket info` is not run: it also queries the GraphQL analytics API, which flarefake does not emulate.
+- Workers static assets (`wrangler_assets_test.go`, `TestWranglerAssets`):
+  - `deploy` of a Worker with an assets directory (an `ASSETS` binding, `html_handling`, `not_found_handling`, `run_worker_first` rules, `_headers`, `_redirects` and an `.assetsignore`), with flarefake set to two files per bucket so the upload takes a 202 and a 201. flarefake's stored manifest, files and config are checked against the directory.
+  - a redeploy with unchanged assets opens one session and uploads nothing; one changed file is one bucket with one part.
+  - `deploy` and an unchanged redeploy of an assets-only site (no `main`), then `delete` of both.
+  - No discrepancy was found: wrangler's hashes pass flarefake's hash check, and every request matches the pinned spec (the assets upload's undeclared `assets_jwt` security scheme is skipped, `spec.go` `withoutUndeclaredSecurity`).
 
   The test also asserts that every request wrangler made either matches the pinned spec or is a known client-side spec violation, and that it hit only emulated routes. No route is shimmed any more.
 - Pages (`TestWranglerPages`, `pages_test.go`):
@@ -86,6 +100,7 @@ A client that is not installed is skipped with a hint. You can override where a 
 - KV namespaces: create/get/rename/list/delete, then a 404 after delete.
 - Queues: create/get/edit/list/delete, then a 404.
 - D1: create/get/list/delete, then a 404.
+- R2 buckets in the EU jurisdiction: create (with a storage class), get, a 404 without the jurisdiction header, edit (the storage class header), list, CORS update/get/delete, delete, then a 404.
 - Tunnels:
   - create/get/token/list/delete
   - connections, with a connector attached through `/_fake`
@@ -163,6 +178,7 @@ What wrangler sends that flarefake accepts, useful as SOURCED evidence:
 - workers.dev is toggled with `POST …/subdomain {"enabled":true|false}`.
 - `GET …/queues?name=` is used for lookups; the queue create body and KV values are sent as `text/plain`.
 - `GET …/versions?deployable=true`.
+- Static assets: `POST …/scripts/{name}/assets-upload-session` with `Content-Type: application/json` on every deploy, bucket uploads as `multipart/form-data` parts named and file-named by the hash with the base64 content and the served Content-Type, `Authorization: Bearer <session jwt>`; the upload metadata carries `assets: {jwt, config}` and, for an assets-only site, no `main_module` and no module part.
 
 A `FLARE_DIFF_CAPTURE_DIR` run gives the full request list.
 

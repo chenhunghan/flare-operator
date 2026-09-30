@@ -48,6 +48,9 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		opts.Fake.Spec = spec
+		// The generic profile serves the `emulate: generic` kinds (extension_test.go uses
+		// R2Bucket); it needs the spec, so those tests skip with -short.
+		opts.Fake.Generic = fake.GeneratedGenericKinds()
 	}
 	testenv.Main(m, &env, opts)
 }
@@ -64,6 +67,7 @@ type recorder struct {
 type request struct {
 	Method, Path string
 	Body         []byte
+	Header       http.Header
 }
 
 func (r *recorder) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -74,7 +78,7 @@ func (r *recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Body = io.NopCloser(bytes.NewReader(body))
 	}
 	r.mu.Lock()
-	r.reqs = append(r.reqs, request{Method: req.Method, Path: strings.TrimPrefix(req.URL.Path, "/client/v4"), Body: body})
+	r.reqs = append(r.reqs, request{Method: req.Method, Path: strings.TrimPrefix(req.URL.Path, "/client/v4"), Body: body, Header: req.Header.Clone()})
 	r.mu.Unlock()
 	return http.DefaultTransport.RoundTrip(req)
 }

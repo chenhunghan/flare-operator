@@ -79,6 +79,10 @@ type Server struct {
 	workerStartupMs int                 // startup_time_ms reported by script uploads (see SetWorkerStartupTime)
 	pagesJWTKey     []byte              // signs Pages upload tokens (pages_assets.go)
 	pagesFailNext   int                 // Pages deployments that will fail (FailPagesDeployments)
+
+	assetKey         []byte // signs the Workers assets upload JWTs (workers_assets_jwt.go)
+	assetBucketFiles int    // SetAssetBuckets; 0 = default
+	assetBucketBytes int64
 }
 
 // nextSeq returns a monotonically increasing creation number. Callers hold s.mu.
@@ -134,7 +138,8 @@ func New(opts Options) *Server {
 	if opts.PagesDeployDelay <= 0 {
 		opts.PagesDeployDelay = DefaultPagesDeployDelay
 	}
-	s := &Server{opts: opts, Clock: &Clock{}, accounts: map[string]*account{}, workerStartupMs: workerDefaultStartupMs, pagesJWTKey: randBytes(32)}
+	s := &Server{opts: opts, Clock: &Clock{}, accounts: map[string]*account{}, workerStartupMs: workerDefaultStartupMs,
+		pagesJWTKey: randBytes(32), assetKey: randBytes(32)}
 	s.limiter = newLimiter(opts.RateLimit, opts.RateWindow)
 	s.registerKV()
 	s.registerD1()
@@ -162,6 +167,7 @@ func (s *Server) Reset() {
 	s.tokens = nil
 	s.workerStartupMs = workerDefaultStartupMs
 	s.pagesFailNext = 0
+	s.assetBucketFiles, s.assetBucketBytes = 0, 0
 	s.generic.reset()
 	s.ids.reset()
 	s.limiter.reset()

@@ -1,8 +1,10 @@
 // Package workerscript implements the WorkerScript controller: a Cloudflare Workers script
-// uploaded from inline modules or a ConfigMap, with bindings that may reference KVNamespaces,
-// Queues, D1Databases, VPCServices and other WorkerScripts by name. It completes the
-// private-backend flow Worker → vpc_service binding → VPCService → Tunnel → Service
-// (docs/spike-results-2026-09-29.md §2).
+// uploaded from inline modules, a ConfigMap or an artifact (internal/artifact), optionally with
+// static assets (assets.go), with bindings that may reference KVNamespaces, Queues,
+// D1Databases, VPCServices and other WorkerScripts by name. It completes the private-backend
+// flow Worker → vpc_service binding → VPCService → Tunnel → Service
+// (docs/spike-results-2026-09-29.md §2) and the full-stack one: static assets in front of an
+// API Worker, or an assets-only site.
 //
 // Behavior (recordings cited in api.go):
 //
@@ -20,6 +22,11 @@
 //     bindings, observability, logpush, secret values) are a multipart PATCH …/settings instead:
 //     a change of forProvider (status.settingsHash, status.writeOnlyHash for secret values) or
 //     a difference GET …/settings shows.
+//   - Static assets (assets.go): the assets upload session runs before the upload whose
+//     metadata redeems its completion token, only when the manifest or config differs from
+//     status.assetsHash (or the deployed version is not this object's). A code change with
+//     unchanged assets uploads with keep_assets instead: no asset call. Files already uploaded
+//     are skipped by the session itself, so a retry after a failure or a crash re-sends none.
 //   - References resolve to Cloudflare IDs (queues bind by queue name, services by script
 //     name). A referenced object that is missing, deleting, on another account or not Ready,
 //     a missing Secret or ConfigMap: Synced=False, reason DependencyNotReady, nothing uploaded.
@@ -70,8 +77,10 @@ import (
 	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
+	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
 	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
+	"flare.dev/operator/internal/artifact"
 	"flare.dev/operator/internal/cfclient"
 	"flare.dev/operator/internal/controller"
 	"flare.dev/operator/internal/generic"
@@ -110,7 +119,8 @@ func init() {
 		AddToScheme: AddToScheme,
 		Setup: func(mgr ctrl.Manager, d controller.Deps) error {
 			return (&Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Tagger: d.Tagger, ClusterName: d.ClusterName,
-				Recorder: mgr.GetEventRecorder(Name), APIReader: mgr.GetAPIReader(), ResyncInterval: d.PollInterval}).SetupWithManager(mgr)
+				Recorder: mgr.GetEventRecorder(Name), APIReader: mgr.GetAPIReader(), ResyncInterval: d.PollInterval,
+				Artifacts: d.Artifacts}).SetupWithManager(mgr)
 		},
 	})
 }
@@ -143,6 +153,15 @@ type Reconciler struct {
 	// DependencyRetry re-checks unresolved references and name conflicts (default
 	// DefaultDependencyRetry).
 	DependencyRetry time.Duration
+	// Artifacts loads moduleSource and assets.source (default: a loader with the default
+	// limits).
+	Artifacts *artifact.Loader
+
+	defaultLoaderOnce sync.Once
+	defaultLoader     *artifact.Loader
+	defaultLoaderErr  error
+	// manifests caches asset manifests by artifact digest (assets.go).
+	manifests manifestCache
 
 	// createLocks serializes the existence check and first upload per "<account>/<script>"
 	// (a *sync.Mutex per key): the upload is an upsert, so two workers must not both create.
@@ -156,8 +175,8 @@ type Reconciler struct {
 
 // appliedState is what an object last applied to script name.
 type appliedState struct {
-	uid                                 types.UID
-	name, content, settings, secrets, v string
+	uid                                         types.UID
+	name, content, settings, secrets, assets, v string
 }
 
 // +kubebuilder:rbac:groups=workers.cloudflare.flare.dev,resources=workerscripts,verbs=get;list;watch;update;patch
@@ -247,7 +266,25 @@ func refKeys(o client.Object) []string {
 	if sr := ws.Spec.ForProvider.SourceRef; sr != nil {
 		keys = append(keys, keyConfigMap+sr.Name)
 	}
-	return keys
+	artifactKeys := func(src *sharedv1alpha1.ArtifactSource) {
+		if src == nil {
+			return
+		}
+		if src.ConfigMapRef != nil {
+			for _, cm := range src.ConfigMapRef.ConfigMaps {
+				keys = append(keys, keyConfigMap+cm.Name)
+			}
+		}
+		if src.OCIRef != nil && src.OCIRef.PullSecretRef != nil {
+			keys = append(keys, keySecret+src.OCIRef.PullSecretRef.Name)
+		}
+	}
+	artifactKeys(ws.Spec.ForProvider.ModuleSource)
+	if a := ws.Spec.ForProvider.Assets; a != nil {
+		artifactKeys(&a.Source)
+	}
+	slices.Sort(keys)
+	return slices.Compact(keys)
 }
 
 // SetupWithManager registers the controller. Changes of referenced objects (a new ID, readiness,
@@ -291,10 +328,14 @@ func managedChanged() predicate.Funcs {
 	}
 }
 
-// dataChanged passes Secret and ConfigMap changes of their data.
+// dataChanged passes Secret and ConfigMap changes of their data or labels (the opt-in labels
+// cloudflare.flare.dev/worker-binding and cloudflare.flare.dev/artifact).
 func dataChanged() predicate.Funcs {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
+			if !reflect.DeepEqual(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels()) {
+				return true
+			}
 			switch o := e.ObjectOld.(type) {
 			case *corev1.Secret:
 				n, ok := e.ObjectNew.(*corev1.Secret)
@@ -368,26 +409,28 @@ func (r *Reconciler) last(ws *workersv1alpha1.WorkerScript, name string) applied
 	if st.ID != "" && st.ID != name {
 		return appliedState{uid: ws.UID, name: name}
 	}
-	return appliedState{uid: ws.UID, name: name, content: st.ContentHash, settings: st.SettingsHash, secrets: st.WriteOnlyHash, v: st.AtProvider.VersionID}
+	return appliedState{uid: ws.UID, name: name, content: st.ContentHash, settings: st.SettingsHash, secrets: st.WriteOnlyHash,
+		assets: st.AssetsHash, v: st.AtProvider.VersionID}
 }
 
 // remember records a as applied, in status and in memory.
 func (r *Reconciler) remember(ws *workersv1alpha1.WorkerScript, a appliedState) {
 	a.uid = ws.UID
 	ws.Status.ContentHash, ws.Status.SettingsHash, ws.Status.WriteOnlyHash = a.content, a.settings, a.secrets
+	ws.Status.AssetsHash = a.assets
 	ws.Status.AtProvider.VersionID = a.v
 	r.applied.Store(client.ObjectKeyFromObject(ws), a)
 }
 
 func (r *Reconciler) forget(ws *workersv1alpha1.WorkerScript) {
 	r.applied.Delete(client.ObjectKeyFromObject(ws))
-	ws.Status.ContentHash, ws.Status.SettingsHash, ws.Status.WriteOnlyHash = "", "", ""
+	ws.Status.ContentHash, ws.Status.SettingsHash, ws.Status.WriteOnlyHash, ws.Status.AssetsHash = "", "", "", ""
 }
 
 // observeScript records an upload result or list item.
 func observeScript(ws *workersv1alpha1.WorkerScript, s *apiScript) {
 	a := &ws.Status.AtProvider
-	a.ID, a.Tag, a.Etag, a.CreatedOn, a.ModifiedOn = s.ID, s.Tag, s.Etag, s.CreatedOn, s.ModifiedOn
+	a.ID, a.Tag, a.Etag, a.CreatedOn, a.ModifiedOn, a.HasAssets = s.ID, s.Tag, s.Etag, s.CreatedOn, s.ModifiedOn, s.HasAssets
 	a.Handlers = nil
 	if len(s.Handlers) > 0 {
 		a.Handlers = append([]string(nil), s.Handlers...)
@@ -483,6 +526,7 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 		}
 		return ctrl.Result{}, nil
 	}
+	ws.Status.Artifacts = des.artifacts
 
 	if cur == nil && pol.CanCreate() {
 		// The upload is a PUT, which replaces a script someone else made in the meantime. Creates
@@ -506,12 +550,18 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 			return ctrl.Result{RequeueAfter: r.resync()}, nil
 		}
 		reconcile.MarkCreating(ws, "")
-		// Announce the upload first (pending.go), so a crash before RecordCreated neither turns
-		// the object's own script into a NameConflict nor uploads it twice.
+		// The static assets first: the upload redeems their completion token. A crash after
+		// them costs nothing but a new session, which finds them uploaded.
+		md, err := r.withAssets(ctx, cf, accountID, name, des, false)
+		if err != nil {
+			return r.fail(ws, err)
+		}
+		// Announce the upload (pending.go), so a crash before RecordCreated neither turns the
+		// object's own script into a NameConflict nor uploads it twice.
 		if err := reconcile.MarkCreatePending(ctx, r.Client, ws, pendingKey(name, des)); err != nil {
 			return r.fail(ws, fmt.Errorf("record the pending upload of %s: %w", name, err))
 		}
-		up, err := uploadScript(ctx, cf, accountID, name, des.metadata, des.modules)
+		up, err := uploadScript(ctx, cf, accountID, name, md, des.modules)
 		if err != nil {
 			if reconcile.IsPermanent(err) {
 				// The API refused the upload: nothing was made, so nothing may be adopted later.
@@ -523,7 +573,7 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 		}
 		log.FromContext(ctx).Info("created Worker script", "script", name, "tag", up.Tag)
 		observeScript(ws, up)
-		r.remember(ws, appliedState{name: name, content: des.contentHash, settings: des.settingsHash, secrets: des.secretsHash})
+		r.remember(ws, appliedState{name: name, content: des.contentHash, settings: des.settingsHash, secrets: des.secretsHash, assets: des.assetsHash})
 		// Tag first, then record: either proves ownership on the next reconcile if the other fails.
 		tagErr := r.tagger().EnsureOwner(ctx, cf, accountID, reconcile.TagTarget{Type: TagResourceType, ID: up.Tag}, r.owner(ws))
 		var oc *reconcile.OwnershipConflictError
@@ -585,7 +635,8 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 		prev := r.last(ws, name)
 		served := dep.servedVersion()
 		codeDrift := prev.v != "" && served != prev.v
-		needUpload := des.contentHash != prev.content || codeDrift
+		assetsChanged := des.assetsHash != prev.assets
+		needUpload := des.contentHash != prev.content || assetsChanged || codeDrift
 		var drift []string
 		if !needUpload {
 			drift = settingsDrift(des.metadata.apiSettingsBody, cur)
@@ -596,23 +647,32 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 			pending = "the Worker script differs from forProvider and managementPolicies do not allow Update"
 		case needUpload:
 			why := "content changed"
-			if codeDrift && des.contentHash == prev.content {
+			switch {
+			case codeDrift && des.contentHash == prev.content && !assetsChanged:
 				why = fmt.Sprintf("the active deployment serves version %q, not %q", served, prev.v)
+			case des.contentHash == prev.content:
+				why = "assets changed"
 			}
 			log.FromContext(ctx).Info("uploading Worker script", "script", name, "why", why)
-			up, err := uploadScript(ctx, cf, accountID, name, des.metadata, des.modules)
+			// Unchanged assets of the version this object deployed are kept (keep_assets), with no
+			// asset call; otherwise the upload session runs (and skips what is uploaded already).
+			md, err := r.withAssets(ctx, cf, accountID, name, des, !assetsChanged && !codeDrift)
+			if err != nil {
+				return r.fail(ws, err)
+			}
+			up, err := uploadScript(ctx, cf, accountID, name, md, des.modules)
 			if err != nil {
 				return r.fail(ws, fmt.Errorf("upload: %w", err))
 			}
 			observeScript(ws, up)
-			r.remember(ws, appliedState{name: name, content: des.contentHash, settings: des.settingsHash, secrets: des.secretsHash})
+			r.remember(ws, appliedState{name: name, content: des.contentHash, settings: des.settingsHash, secrets: des.secretsHash, assets: des.assetsHash})
 			wrote = true
 		case needSettings:
 			log.FromContext(ctx).Info("updating Worker script settings", "script", name, "drift", drift)
 			if err := patchSettings(ctx, cf, accountID, name, des.metadata.apiSettingsBody); err != nil {
 				return r.fail(ws, fmt.Errorf("settings: %w", err))
 			}
-			r.remember(ws, appliedState{name: name, content: prev.content, settings: des.settingsHash, secrets: des.secretsHash, v: prev.v})
+			r.remember(ws, appliedState{name: name, content: prev.content, settings: des.settingsHash, secrets: des.secretsHash, assets: prev.assets, v: prev.v})
 			wrote = true
 		}
 		if !wrote {
@@ -643,6 +703,29 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 		reconcile.MarkSynced(ws)
 	}
 	return ctrl.Result{RequeueAfter: r.resync()}, nil
+}
+
+// withAssets returns des's upload metadata with its static assets: keep_assets when keep (the
+// deployed version has exactly these assets), else the completion token of an upload session
+// (assets.go). Without assets it is des.metadata.
+func (r *Reconciler) withAssets(ctx context.Context, cf cfclient.Client, accountID, name string, des *desired, keep bool) (apiUploadMetadata, error) {
+	md := des.metadata
+	if des.assets == nil {
+		return md, nil
+	}
+	if keep {
+		yes := true
+		md.KeepAssets = &yes
+		return md, nil
+	}
+	jwt, buckets, err := uploadAssets(ctx, cf, accountID, name, des.assets)
+	if err != nil {
+		return md, fmt.Errorf("static assets: %w", err)
+	}
+	log.FromContext(ctx).Info("uploaded static assets", "script", name, "files", len(des.assets.files), "buckets", buckets)
+	cfg := des.assets.config
+	md.Assets = &apiAssets{JWT: jwt, Config: &cfg}
+	return md, nil
 }
 
 // readBack re-reads the settings and the active deployment after a write and records the

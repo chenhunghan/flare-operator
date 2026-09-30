@@ -101,7 +101,7 @@ func (s *Spec) ValidateRequest(r *http.Request, body []byte) error {
 	in := &openapi3filter.RequestValidationInput{
 		Request:    clone,
 		PathParams: params,
-		Route:      route,
+		Route:      withoutUndeclaredSecurity(s.Doc, route),
 		Options: &openapi3filter.Options{
 			// Auth is emulated separately; the spec's security schemes are not what we test here.
 			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
@@ -123,6 +123,35 @@ func (s *Spec) ValidateRequest(r *http.Request, body []byte) error {
 	return openapi3filter.ValidateRequest(context.Background(), in)
 }
 
+// withoutUndeclaredSecurity returns route with its operation's security requirements dropped
+// when one of them names a scheme the spec does not declare: kin-openapi then fails every
+// request ("security scheme %q is not declared") before the (no-op) authentication, so the
+// check says nothing about the request. The pinned spec does this for the Workers assets upload
+// (POST /accounts/{account_id}/workers/assets/upload requires "assets_jwt", which
+// components.securitySchemes lacks). Auth is emulated separately; the route is copied, not
+// modified.
+func withoutUndeclaredSecurity(doc *openapi3.T, route *routers.Route) *routers.Route {
+	if route == nil || route.Operation == nil || route.Operation.Security == nil {
+		return route
+	}
+	var declared openapi3.SecuritySchemes
+	if doc != nil && doc.Components != nil {
+		declared = doc.Components.SecuritySchemes
+	}
+	for _, req := range *route.Operation.Security {
+		for name := range req {
+			if declared[name] == nil {
+				op := *route.Operation
+				op.Security = &openapi3.SecurityRequirements{}
+				r := *route
+				r.Operation = &op
+				return &r
+			}
+		}
+	}
+	return route
+}
+
 // plainTextBodies are operations where the live API evidently accepts a text/plain body that
 // the spec does not declare: an official client sends it that way on every call, so the call
 // would fail in production otherwise. The body is then validated as the declared media type,
@@ -134,6 +163,10 @@ var plainTextBodies = map[string]string{
 	// cloudflare/workers-sdk@3bdcd0d:packages/wrangler/src/queues/client.ts#L55-L64 (and
 	// wrangler@4.143.0:wrangler-dist/cli.js#L56358-L56386 adds no Content-Type).
 	http.MethodPost + " /accounts/{account_id}/queues": "application/json",
+	// SOURCED (relies): `wrangler r2 bucket create` sends JSON.stringify({name, storageClass,
+	// locationHint}) with only the cf-r2-jurisdiction header, so text/plain;charset=UTF-8
+	// (createR2Bucket in src/r2/helpers/bucket.ts, wrangler@4.143.0:wrangler-dist/cli.js#L208160-L208178).
+	http.MethodPost + " /accounts/{account_id}/r2/buckets": "application/json",
 	// SOURCED (relies): `wrangler kv key put` sends a string value as the raw body with no
 	// Content-Type (text/plain;charset=UTF-8); the spec allows only octet-stream and multipart,
 	// cloudflare/workers-sdk@3bdcd0d:packages/wrangler/src/kv/helpers.ts#L247-L259.

@@ -17,6 +17,10 @@ type Entry struct {
 	// FernGroup is the x-fern-sdk-group-name the kind was generated from.
 	FernGroup string
 
+	// Extension is the per-kind behavior Descriptor cannot express (generator.yaml
+	// requestHeaders, observedAs, subResources; see generic.Extension).
+	Extension generic.Extension
+
 	// New returns an empty object of the kind; NewList an empty list.
 	New     func() commonv1alpha1.Managed
 	NewList func() runtime.Object

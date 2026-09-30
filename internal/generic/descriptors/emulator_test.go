@@ -19,6 +19,32 @@ const accountID = "0123456789abcdef0123456789abcdef"
 type apiClient struct {
 	t    *testing.T
 	base string
+	// hdr goes on every request: the kind's location headers (generic.Extension.Headers that
+	// are not Update headers, e.g. R2's cf-r2-jurisdiction), as the generic reconciler sends them.
+	hdr http.Header
+}
+
+// update sends the update body of fields the way the generic reconciler does: Update header
+// fields (e.g. R2's storage class) travel as headers, and a body they empty is not sent.
+func (c *apiClient) update(e descriptors.Entry, id string, fields map[string]any) (int, envelope) {
+	c.t.Helper()
+	saved := c.hdr
+	defer func() { c.hdr = saved }()
+	c.hdr = saved.Clone()
+	if c.hdr == nil {
+		c.hdr = http.Header{}
+	}
+	var body any = fields
+	for _, h := range e.Extension.Headers {
+		if v, ok := fields[h.Field].(string); ok && h.Update {
+			c.hdr.Set(h.Header, v)
+			delete(fields, h.Field)
+		}
+	}
+	if len(fields) == 0 {
+		body = nil
+	}
+	return c.do(e.UpdateMethod, path(e.ItemPath, id), body)
 }
 
 type envelope struct {
@@ -44,6 +70,9 @@ func (c *apiClient) do(method, path string, body any) (int, envelope) {
 	req.Header.Set("Authorization", "Bearer test-token")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range c.hdr {
+		req.Header[k] = v
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -153,6 +182,10 @@ func TestDescriptorsAgainstFlarefake(t *testing.T) {
 		"SecretsStore":   {`{"name":"flare-spike-store-1"}`, ""},
 		"AIGateway": {`{"id":"flare-spike-gw-1","cache_invalidate_on_update":false,"cache_ttl":60,"collect_logs":true,"rate_limiting_interval":0,"rate_limiting_limit":0}`,
 			`{"id":"flare-spike-gw-1","cache_invalidate_on_update":true,"cache_ttl":120,"collect_logs":false,"rate_limiting_interval":60,"rate_limiting_limit":10}`},
+		// jurisdiction travels in cf-r2-jurisdiction on every request, the storage class in the
+		// PATCH's cf-r2-storage-class (Extension.Headers); storageClass reads back as storage_class.
+		"R2Bucket": {`{"name":"flare-spike-r2-1","jurisdiction":"eu","locationHint":"weur","storageClass":"Standard"}`,
+			`{"name":"flare-spike-r2-1","jurisdiction":"eu","locationHint":"weur","storageClass":"InfrequentAccess"}`},
 	}
 	// Known spec defects: requests the real API accepts but the pinned spec rejects.
 	type violation struct{ kind, method, contains, why string }
@@ -184,6 +217,14 @@ func TestDescriptorsAgainstFlarefake(t *testing.T) {
 			}
 			d := e.Descriptor
 			desired := forProvider(t, e, sm.create)
+			for _, h := range e.Extension.Headers {
+				if v, ok := desired[h.Field].(string); ok && !h.Update {
+					if c.hdr == nil {
+						c.hdr = http.Header{}
+					}
+					c.hdr.Set(h.Header, v)
+				}
+			}
 
 			st, env := c.do(http.MethodPost, path(d.CreatePath, ""), pick(desired, d.CreateFields))
 			if st != http.StatusOK || !env.Success {
@@ -199,7 +240,7 @@ func TestDescriptorsAgainstFlarefake(t *testing.T) {
 
 			// Fields sent only on update (e.g. queue settings) need an update after create.
 			if extra := pick(desired, d.UpdateFields); len(extra) > 0 && d.UpdateMethod != "" {
-				if st, env := c.do(d.UpdateMethod, path(d.ItemPath, id), extra); st != http.StatusOK {
+				if st, env := c.update(e, id, extra); st != http.StatusOK {
 					t.Fatalf("post-create update: %d %+v", st, env.Errors)
 				}
 			}
@@ -220,7 +261,7 @@ func TestDescriptorsAgainstFlarefake(t *testing.T) {
 			}
 			if d.UpdateMethod != "" {
 				desired = forProvider(t, e, sm.update)
-				if st, env := c.do(d.UpdateMethod, path(d.ItemPath, id), pick(desired, d.UpdateFields)); st != http.StatusOK {
+				if st, env := c.update(e, id, pick(desired, d.UpdateFields)); st != http.StatusOK {
 					t.Fatalf("update: %d %+v", st, env.Errors)
 				}
 				checkObserved(t, c, e, id, desired)
@@ -268,7 +309,7 @@ func checkObserved(t *testing.T, c *apiClient, e descriptors.Entry, id string, d
 			}
 			continue
 		}
-		if !subset(v, obs[k]) {
+		if !subset(v, obs[e.Extension.ObservedName(k)]) {
 			t.Errorf("forProvider.%s = %v, atProvider has %v", k, v, obs[k])
 		}
 	}

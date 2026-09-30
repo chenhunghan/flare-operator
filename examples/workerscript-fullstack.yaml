@@ -1,0 +1,115 @@
+# Full-stack Workers: static assets served by Cloudflare in front of an API Worker, and an
+# assets-only site. The files come from an artifact (docs/artifacts.md): labelled ConfigMaps
+# here, an OCI image or an HTTPS archive for real sites. Only new and changed files are
+# uploaded; a code change with unchanged assets uploads no asset at all (status.assetsHash).
+#
+# As with wrangler, the root files _headers and _redirects become the custom headers and
+# redirect rules, and .assetsignore (gitignore syntax) leaves files out; none of the three is
+# served. The API token needs "Workers Scripts: Edit".
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shop-site
+  labels:
+    cloudflare.flare.dev/artifact: "true"   # opt-in: only labelled ConfigMaps are published
+data:
+  index.html: |
+    <!doctype html>
+    <title>Shop</title>
+    <link rel="stylesheet" href="/css/site.css">
+    <h1>Shop</h1>
+    <script>fetch("/api/items").then(r => r.json()).then(i => document.body.append(JSON.stringify(i)))</script>
+  404.html: <h1>Not found</h1>
+  site.css: "body { font-family: sans-serif }"
+  _headers: |
+    /*
+      X-Frame-Options: DENY
+---
+apiVersion: workers.cloudflare.flare.dev/v1alpha1
+kind: WorkerScript
+metadata:
+  name: shop
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    main_module: index.js
+    compatibility_date: "2026-09-01"
+    modules:
+      index.js:
+        content: |
+          export default {
+            async fetch(request, env) {
+              const url = new URL(request.url);
+              if (url.pathname === "/api/items") {
+                const list = await env.MEDIA.list({ limit: 10 });
+                return Response.json(list.objects.map(o => o.key));
+              }
+              return env.ASSETS.fetch(request);   // everything else: the static site
+            }
+          };
+    assets:
+      source:
+        configMapRef:
+          configMaps:
+            - name: shop-site
+              items:
+                - {key: index.html, path: index.html}
+                - {key: 404.html, path: 404.html}
+                - {key: site.css, path: css/site.css}
+                - {key: _headers, path: _headers}
+      config:
+        not_found_handling: 404-page
+        run_worker_first_paths: ["/api/*"]   # only /api/* runs the code first
+    bindings:
+      - name: ASSETS
+        type: assets
+      - name: MEDIA
+        type: r2_bucket
+        bucket_name: shop-media              # an existing R2 bucket (an R2Bucket reference is planned)
+      - name: ORDERS_MAIL
+        type: send_email                     # needs Email Routing on a zone of the account, with
+        destination_address: orders@example.com   # this destination address verified there
+    workersDev:
+      enabled: true
+---
+# An assets-only site (no main_module, no modules): a single-page app from a release archive.
+apiVersion: workers.cloudflare.flare.dev/v1alpha1
+kind: WorkerScript
+metadata:
+  name: docs-site
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    compatibility_date: "2026-09-01"
+    assets:
+      source:
+        url:
+          url: https://github.com/acme/docs/releases/download/v1.4.0/site.tar.gz
+          sha256: 3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e
+          path: dist
+      config:
+        html_handling: auto-trailing-slash
+        not_found_handling: single-page-application
+    workersDev:
+      enabled: true
+---
+# Worker modules from an OCI image built by CI (FROM scratch, COPY dist/ /worker/), pinned by
+# digest. Every file under path is a module; its type comes from the extension.
+apiVersion: workers.cloudflare.flare.dev/v1alpha1
+kind: WorkerScript
+metadata:
+  name: bundled-api
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    main_module: index.js
+    compatibility_date: "2026-09-01"
+    moduleSource:
+      ociRef:
+        image: ghcr.io/acme/api-worker@sha256:6c3c624b58dbbcd3c0dd82b4c53f04194d1247c6eebdaab7c610cf7d66709b3b
+        path: worker
+    moduleTypes:
+      schema.sql: text                       # an extension the controller cannot place

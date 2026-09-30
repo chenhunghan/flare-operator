@@ -14,6 +14,16 @@ Nothing has been released yet. This section collects what the first release will
 - Kinds: `CloudflareAccount` (token verification, rate-limit settings, usage protection),
   generated `KVNamespace`, `Queue` and `D1Database`, and hand-written `Tunnel` (with a managed
   `cloudflared` Deployment and an egress NetworkPolicy) and `VPCService`.
+- `WorkerScript` full-stack fields: static assets (`forProvider.assets`: files from an artifact,
+  `html_handling`, `not_found_handling`, `run_worker_first`, `base_path`, `_headers`,
+  `_redirects`, `.assetsignore`) uploaded with the Workers assets upload flow, only when they
+  change (`status.assetsHash`), with wrangler's manifest rules (`.assetsignore` matched
+  case-insensitively) and Content-Types (the pinned wrangler's mime table, `make asset-mime`);
+  assets-only Workers (no `main_module`); modules from an artifact (`forProvider.moduleSource`,
+  `moduleTypes`); `assets`, `r2_bucket` and `send_email` bindings. `main_module` is now optional (required unless the Worker is assets-only).
+- flarefake emulates the Workers assets upload session, the bucket uploads (session JWTs) and
+  `metadata.assets` / `keep_assets`; `wrangler deploy` of an assets site runs against it
+  (`make differential`).
 - Crossplane-style `deletionPolicy`, `managementPolicies` (including observe-only),
   adoption through `cloudflare.flare.dev/external-id`, and ownership tags
   (`flare.dev/owner=<clusterName>/<namespace>/<name>`).
@@ -38,6 +48,15 @@ Nothing has been released yet. This section collects what the first release will
 - `make lint-static` (staticcheck) and `make vulncheck` (govulncheck), in `make ci` and the CI
   workflow. `make crds-apply` and `make crds-diff` for CRD upgrades. `make e2e-upgrade` tests
   an upgrade from a previous git ref.
+- Generated kind `R2Bucket` (`r2.cloudflare.flare.dev`; default `deletionPolicy: Orphan`):
+  jurisdiction (the `cf-r2-jurisdiction` header, immutable), location hint, storage class and
+  CORS policy. It comes with three `generator.yaml` extensions for generated kinds:
+  `requestHeaders`, `observedAs` and `subResources` (docs/generator-scaleout.md). A refused
+  delete (an R2 bucket that is not empty) is reported as `Synced=False`, reason `DeleteFailed`.
+  `cors: {}` removes the bucket's CORS policy. A create that the API refuses for good (a 4xx
+  other than 400, 408, 409, 429; e.g. R2 not enabled) drops the object's create-pending record,
+  so a same-named bucket created later by someone else is a NameConflict, not adopted.
+  Emulated by flarefake's generic profile; not verified against the live API.
 - `SECURITY.md` and `docs/operations.md` (install, upgrade, uninstall semantics, metrics,
   leader election, network policy, rate limiting, troubleshooting, backup and restore,
   multi-account setup).

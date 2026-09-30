@@ -416,7 +416,7 @@ live: envtest    ## run test/live (skips unless FLARE_LIVE=1; see test/live/live
 ## (wrangler, cloudflared, cloudflare-go) against an in-process flarefake. No Cloudflare API calls.
 ## Known mismatches are skipped subtests named discrepancy/<ID>; a client that is not installed
 ## is skipped. The versions must match test/differential/versions.go (checked by make test).
-.PHONY: differential differential-tools
+.PHONY: differential differential-tools asset-mime
 DIFF_CACHE ?= $(HOME)/.cache/flare-operator/differential
 WRANGLER_VERSION ?= 4.143.0
 CLOUDFLARED_VERSION ?= 2026.9.3
@@ -425,6 +425,10 @@ FLARE_DIFF_CAPTURE_DIR ?=
 
 differential-tools: ## install the pinned wrangler (npm ci) and cloudflared (release binary, sha256-checked) into $(DIFF_CACHE)
 	DIFF_CACHE=$(DIFF_CACHE) WRANGLER_VERSION=$(WRANGLER_VERSION) CLOUDFLARED_VERSION=$(CLOUDFLARED_VERSION) hack/differential-tools.sh
+
+asset-mime:      ## regenerate the WorkerScript assets Content-Type table from the pinned wrangler's bundled mime (needs make differential-tools)
+	go run ./hack/assetmime -wrangler $(WRANGLER_VERSION) \
+		-cli $(DIFF_CACHE)/wrangler-$(WRANGLER_VERSION)/node_modules/wrangler/wrangler-dist/cli.js
 
 differential:    ## run wrangler + cloudflared (test/differential) and cloudflare-go (test/differential/go) against flarefake
 	FLARE_DIFF_CACHE=$(DIFF_CACHE) FLARE_DIFF_CAPTURE_DIR=$(FLARE_DIFF_CAPTURE_DIR) \

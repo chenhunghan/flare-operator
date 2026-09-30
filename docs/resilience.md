@@ -35,7 +35,21 @@ too). A create that Tunnel, VPCService or WorkerScript sees refused for good (a 
 clears the record, so a later same-named resource of someone else is not adopted; VPCService
 keeps it on a duplicate-name refusal (400/5101 "… already exists", 0059), which proves only that
 the name is taken, possibly by the object's own lost create that a lagging list missed. The
-generic reconciler keeps it on every refusal, since it adopts any same-named resource anyway.
+generic reconciler clears it on a permanent 4xx other than 400 (e.g. 403 when R2 is not enabled)
+and, on 400 and 409, the statuses of recorded duplicate-name refusals (0004 KV 400/10014, 0018
+D1 400/7502; its own emulator answers 409), keeps it only when the same record stood before
+this attempt: an earlier POST of the object (MarkCreatePending runs before every POST) may
+have created the resource. A duplicate-name refusal of a first attempt means another writer
+has the name (two clusters or objects applying it at once), so the record is cleared and the
+next reconcile reports NameConflict instead of adopting (and, with deletionPolicy Delete,
+deleting) the other writer's resource. Its watch ignores changes of the
+record alone, so writing and clearing it around a refused create does not retry the create at
+once. For the same reason (and because the error retry follows within milliseconds) the
+informer cache may not show those writes yet, so the generic reconciler reads the record
+uncached (the manager's API reader) where it decides with it: before each create (is this a
+retry?), before adopting a same-named resource as its own lost create, and in the finalizer
+before adopting a pending create. A cached copy that still showed a record a first-attempt
+refusal had cleared would otherwise adopt, and delete, the other writer's resource.
 WorkerScript's key also carries the hashes of the content, settings and secrets it uploaded, so
 the adopted script is not uploaded again. With tagging, a readable owner tag naming another
 object still wins (NameConflict).
@@ -88,6 +102,13 @@ cases fail. `TestCrashThenDeleteBeforeRestart` runs the same cases but deletes t
 no manager runs and checks that the restarted manager deletes the resource (none left, one
 create); without `AdoptPendingCreate` all 14 cases leak.
 
+A WorkerScript with static assets (case `WorkerScript/assets`) uploads its assets before the
+create-pending record: its record carries the assets hash too, so the adopted script is neither
+uploaded again nor are its assets. `TestCrashAfterAssetsBeforeScriptUpload` crashes at the
+create-pending record, after the bucket uploads and before the script upload: the restarted
+manager opens one new session, which finds every file uploaded (no bucket), and uploads the
+script once.
+
 ## 2. Faults
 
 Every fault test also checks the flarefake journal against a call budget: `kvCreateBudget`
@@ -118,8 +139,8 @@ fewer than one page of the kind, see the list-page cost below):
 | | calls |
 |---|---|
 | create of a tagged kind (KVNamespace, Queue, D1Database) | ≤ 11 (lookup list, POST, tag read of a never-tagged resource: 500, retry, tag index, tag PUT, GET, the sync's GET and tag read, and the re-reconcile the annotation write triggers) |
-| create of an untaggable generic kind (VectorizeIndex, SecretsStore, AIGateway) | ≤ 7 |
-| one drift poll of an in-sync object | 2 for tagged kinds (GET item, owner-tag read), 1 for untaggable ones; no write |
+| create of an untaggable generic kind (VectorizeIndex, SecretsStore, AIGateway, R2Bucket) | ≤ 7 (R2Bucket: the name lookup, POST, then GET of the bucket and its CORS policy, a PUT of the policy, and both GETs again) |
+| one drift poll of an in-sync object | 2 for tagged kinds (GET item, owner-tag read), 1 for untaggable ones, 2 for R2Bucket (GET item, GET cors); no write |
 
 Steady state per hour for N in-sync objects polled every P: `N × callsPerPoll × 3600 / P`.
 

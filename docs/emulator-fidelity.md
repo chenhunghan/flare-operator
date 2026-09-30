@@ -37,7 +37,7 @@ Pinned sources (shallow clones, never vendored into the repo):
 | Repo | Commit | Used for |
 |---|---|---|
 | cloudflare/workers-sdk | `485cfb3` | wrangler and deploy-helpers: Workers, Queues, D1, KV, tokens, errors |
-| cloudflare/workers-sdk | `3bdcd0d` (tag wrangler@4.143.0, the differential tests' pin) and its published bundle `wrangler@4.143.0:wrangler-dist/cli.js` | KV values and keys, D1 execute, the Workers versions API, services and Workers-resource reads, secrets list, 429 retries, text/plain bodies |
+| cloudflare/workers-sdk | `3bdcd0d` (tag wrangler@4.143.0, the differential tests' pin) and its published bundle `wrangler@4.143.0:wrangler-dist/cli.js` | KV values and keys, D1 execute, the Workers versions API, services and Workers-resource reads, secrets list, 429 retries, text/plain bodies, the Workers static assets upload (`deploy-helpers/src/deploy/helpers/assets.ts`, `hash.ts`, `jwt.ts`, `create-worker-upload-form.ts`, `workers-shared/utils/helpers.ts`, `constants.ts`) |
 | cloudflare/cloudflared | `ad3c6d1` | tunnel create, cleanup, credentials, virtual networks |
 | cloudflare/cloudflared | tag `2026.9.3` (the differential tests' pin) | tunnel IP routes (`cfapi/ip_route.go`, `cmd/cloudflared/tunnel/subcommand_context_teamnet.go`) |
 | cloudflare/terraform-provider-cloudflare | `65783c2` | read-after-write, 404 handling, sweepers |
@@ -112,6 +112,15 @@ rejects becomes the first zero value it accepts, for example Vectorize v2's dele
 `TestGenericCRUDStrictResponses` drives every generic kind, one create per oneOf branch where
 there are several, through its lifecycle under strict validation.
 
+R2Bucket (2026-09-30) uses the generic profile's per-kind extensions
+([generator-scaleout.md](generator-scaleout.md#per-kind-extensions)). All of it is spec-only
+(UNVERIFIED), and `TestGenericR2Bucket` checks it under strict validation: buckets partitioned
+by `cf-r2-jurisdiction`, the storage class set by the bodiless PATCH's `cf-r2-storage-class`,
+the `{"buckets": [...]}` list with cursor paging, and the CORS policy as a sub-resource document
+(404 with the generic code 7003 when absent, not the bucket's 10006). The one exception is the missing-bucket error code 10006, which is SOURCED
+(relies) from wrangler 4.143.0 (`generic_quirks.go`). Its HTTP status and message are
+UNVERIFIED.
+
 **Update 2026-09-30 (FX-emu).** The allowlist has 16 entries: 13 backed by recordings and 3
 unsatisfiable ones. The 971 field-report entry is gone. Two unsatisfiable entries are new, and
 both cover surfaces that no recording shows yet:
@@ -132,7 +141,7 @@ Marker counts are occurrences in the non-test source (SOURCED/DOCS count citatio
 behaviors). "Recordings" counts the distinct recordings cited. Of the 216 recordings,
 `TestConformance` replays 149; the rest hit surfaces that are not emulated yet (Workers
 observability, tails, Hyperdrive and others). Counts as of 2026-09-30 (FX-emu); the generic
-profile (`generic*.go`, 11 UNVERIFIED) is not in the table.
+profile (`generic*.go`, 13 UNVERIFIED markers; one SOURCED quirk, R2's 10006 "bucket not found" from wrangler 4.143.0) is not in the table.
 
 | Surface (file) | Routes | Recordings cited | SOURCED | DOCS | UNVERIFIED |
 |---|---|---|---|---|---|
@@ -143,8 +152,9 @@ profile (`generic*.go`, 11 UNVERIFIED) is not in the table.
 | Tunnels + virtual networks (`tunnels.go`) | 12 | 20 | 6 | 0 | 9 |
 | Tunnel IP routes (`teamnet_routes.go`) | 5 | 3 | 6 | 0 | 14 |
 | Workers VPC services (`vpc.go`) | 5 | 19 | 1 | 0 | 3 |
-| Workers scripts (`workers.go`) | 11 | 37 | 7 | 0 | 40 |
-| Workers versions API and wrangler's reads (`workers_versions.go`) | 9 | 8 | 13 | 0 | 25 |
+| Workers scripts (`workers.go`) | 11 | 37 | 7 | 0 | 42 |
+| Workers versions API and wrangler's reads (`workers_versions.go`) | 9 | 8 | 14 | 0 | 26 |
+| Workers static assets (`workers_assets.go`, `workers_assets_jwt.go`; FS-worker, 2026-09-30) | 2 | 0 | 10 | 10 | 28 |
 | Tokens / account (`tokens.go`) | 3 | 0 | 2 | 2 | 4 |
 | Resource Tagging (`tags.go`) | 4 | 0 | 0 | 8 | 8 |
 | Cross-cutting (`server.go`, `spec.go`, `envelope.go`, `state.go`) | — | 14 | 4 | 3 | 9 |
@@ -201,6 +211,8 @@ reasons:
 | Tags list: cursor pagination, fixed page size 100, `cursor: null` on the last page; more than 20 tag filters answer 1010 | DOCS Resource Tagging filter-resources |
 | VPC service host must be ipv4/ipv6 + network or hostname + resolver_network | spec (the rejection code is UNVERIFIED) |
 | `GET /accounts/{id}` omits the null `abuse_contact_email` | spec (response validation) |
+| Workers static assets: `POST …/scripts/{name}/assets-upload-session` (buckets of the hashes not uploaded yet; an all-uploaded manifest answers no bucket and a completion token), `POST …/workers/assets/upload?base64=true` with the session JWT (202 {} per bucket, 201 {jwt} for the last), `metadata.assets.jwt` / `keep_assets` in script and version uploads, assets-only Workers, one-hour JWTs, the asset hash (BLAKE3 of base64 + extension) checked on upload | DOCS direct-upload; SOURCED relies: wrangler `syncAssets`, `hashFile`, `isJwtExpired`, `createWorkerUploadForm`; proven by the differential test `TestWranglerAssets`. Bucket sizing, error codes, per-script scoping of uploaded files and the JWT claims are UNVERIFIED |
+| Request validation skips a security requirement that names a scheme the spec does not declare (`assets_jwt` of the assets upload) | spec (self-inconsistent: kin-openapi fails every such request before authentication) |
 
 ## 5. How to add evidence
 

@@ -61,6 +61,37 @@ good next candidate, but needs `writeOnly: [origin.password, origin.access_clien
 fixture for its `origin` union, and its create validates the origin database connection, which
 the generic profile cannot model.
 
+The full-stack slice (2026-09-30) added `R2Bucket`, the first kind that needs the per-kind
+extensions below: its jurisdiction is a request header, its storage class is updated through a
+header, the create body's `storageClass` reads back as `storage_class`, and its CORS policy is a
+sub-resource. No live recording exists; the only evidence besides the spec is wrangler 4.143.0's
+source (SOURCED: the 10006 "bucket not found" code, the headers it sends). R2 must be enabled on
+the account (possibly with a payment method) before the recording pass can create buckets.
+
+## Per-kind extensions
+
+Some resources need more than `generic.Descriptor` (a frozen contract) can say. Three
+`generator.yaml` options cover the cases found so far. flaregen resolves them against the spec
+into a `generic.Extension` on the kind's `descriptors.Entry`, which the generic reconciler
+applies, and into the same fields of `fake.GenericKind` for the generic profile. The zero value
+changes nothing, so kinds without them behave exactly as before.
+`TestDescriptorsMatchEmulator` pins them.
+
+| Option | What it means | Reconciler | Generic profile |
+|---|---|---|---|
+| `requestHeaders: [{header, field}]` (`sentOn: all`, the default) | A header parameter that the create operation declares carries a forProvider `field`. The field is added to forProvider with the header's schema, and is Immutable. | Sends the header on every request for the resource (create, get, list, update, delete, sub-resources), never on tag requests. Once the resource exists, a change is refused before any request: Synced=False, reason Immutable, compared with `status.atProvider`, because a GET with another value would not find the resource and the object would create a second one. The CRD gets a stricter CEL rule than other immutable fields: the *effective* value (unset = the header's spec default) cannot change, so setting, changing or removing it is refused. | The header partitions the collection (a resource made with one value is invisible with another) and is stored in the object's field when the item schema has one. |
+| `requestHeaders: [{header, field, sentOn: update}]` | The update operation takes `field` in this header instead of a body. The field becomes an UpdateField. | The update moves the field from the body into the header; a body left empty is not sent. | An update request's header sets the stored field (or its `observedAs` name). An update route whose spec has no request body ignores any body sent. |
+| `observedAs: {field: atProviderField}` | forProvider `field` is read back under another name. It is not derived write-only. | Drift, immutability and PUT bodies compare `field` with `atProvider.<atProviderField>`. | Create and update bodies store `field` under the other name. |
+| `subResources: [{field, path, serverSet}]` | A fixed sub-path of the item with GET and PUT, such as `/cors`. forProvider `field` takes the PUT body's schema, atProvider `field` the GET result's. `serverSet` lists dotted paths into the GET result (list elements traversed, e.g. `rules.id`) of members the API may assign itself; each must exist in the GET schema. | GETs it after the item, into `atProvider.<field>` (404 = not configured, absent). When `forProvider.<field>` is set and is not the same document as what was read (compared exactly once empty members are dropped, not with the Covers rule used for item fields: the PUT replaces the whole document, so a member left out, such as a CORS rule's `exposeHeaders`, is one the PUT removes; a `serverSet` member is compared only where forProvider sets it), it PUTs it (an update, so `Update` must be allowed). An empty value (`{}`, or one with only empty lists such as `{"rules": []}`, which the generated types turn into `{}`) clears it: DELETE when the spec has one at the path (`Delete` in the descriptor), else PUT of the empty value; an absent or empty observed value is in sync. Unset means unmanaged. Nothing is deleted separately. Observe-only objects only read. | A document stored with the item: GET (404 when absent), PUT, DELETE when the spec has it; it is deleted with the item. |
+
+A list result that is an object whose only member is the item array (R2's
+`{"buckets": [...]}`) needs no option. `cfclient.ListAll` pages it like an array, and the
+generic profile wraps its pages the way the spec's list result declares.
+
+R2Bucket's lifecycle rules (`/lifecycle`), bucket locks (`/lock`) and similar documents are
+further `subResources` with the same shape. Custom domains and event notifications have their own
+IDs and need nested-resource support (G-gen).
+
 ## How the generic profile behaves
 
 See the package comment in `internal/fake/generic.go`. In short: opt-in per kind
@@ -92,6 +123,10 @@ singletons start from a spec-derived default object. `New(Options{})` serves no 
 - **Side effects and relations.** Creating one resource never creates, updates or validates
   another (Tunnels auto-create a virtual network, 0160; Hyperdrive connects to the origin
   database, 0194; bindings reference other resources).
+- **Data inside a resource.** An R2 bucket holds no objects in the profile, so its delete is never
+  refused as "not empty". Tests inject that refusal as a fault (409/10008, UNVERIFIED) to check
+  the operator's `DeleteFailed` handling. Whether R2 is enabled on the account (a plan
+  entitlement) is not modeled either.
 - **Write-only fields** are dropped only when the spec marks them `writeOnly` or the descriptor
   lists them; a secret the spec forgets to mark is echoed back.
 - **Update semantics beyond replace/merge.** PATCH endpoints with append/remove bodies (Gateway
