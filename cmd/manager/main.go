@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"flare.dev/operator/internal/artifact"
 	"flare.dev/operator/internal/controller"
 	"flare.dev/operator/internal/reconcile"
 	"flare.dev/operator/internal/version"
@@ -49,6 +50,10 @@ type Options struct {
 	ReconcileTimeout time.Duration
 	// CloudflareTimeout bounds one Cloudflare HTTP request (connect to last body byte).
 	CloudflareTimeout time.Duration
+
+	// Artifacts are the limits and network policy of artifact sources (--artifact-* flags,
+	// internal/artifact): ConfigMaps, OCI images and HTTPS archives with deployable content.
+	Artifacts artifact.Options
 }
 
 // Defaults of the resilience flags.
@@ -72,7 +77,7 @@ func (o Options) Validate() error {
 	case o.ReconcileTimeout < 0 || o.CloudflareTimeout < 0:
 		return fmt.Errorf("timeouts must not be negative")
 	}
-	return nil
+	return o.Artifacts.Validate()
 }
 
 // HTTPClient is the HTTP client of every Cloudflare API client (CloudflareTimeout per request).
@@ -172,6 +177,7 @@ func main() {
 		"parallel reconciles per controller (Cloudflare calls still share each token's rate limit)")
 	flag.DurationVar(&o.ReconcileTimeout, "reconcile-timeout", DefaultReconcileTimeout, "context deadline of one reconcile (0 disables)")
 	flag.DurationVar(&o.CloudflareTimeout, "cloudflare-request-timeout", DefaultCloudflareTimeout, "timeout of one Cloudflare API HTTP request")
+	o.Artifacts.BindFlags(flag.CommandLine)
 	zo := zap.Options{Development: false}
 	zo.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -179,6 +185,7 @@ func main() {
 		fmt.Println(version.Get().String("flare-operator"))
 		return
 	}
+	o.Artifacts.UserAgent = o.UserAgent
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zo)))
 	setupLog := ctrl.Log.WithName("setup")
 	setupLog.Info("flare-operator", version.Get().KeysAndValues()...)
@@ -202,7 +209,12 @@ func run(o Options) error {
 	if err != nil {
 		return fmt.Errorf("create manager: %w", err)
 	}
+	artifacts, err := artifact.NewLoader(o.Artifacts)
+	if err != nil {
+		return fmt.Errorf("artifact loader: %w", err)
+	}
 	deps := controller.Deps{
+		Artifacts: artifacts,
 		Accounts: reconcile.NewAccounts(mgr.GetClient(), reconcile.WithUserAgent(o.UserAgent), reconcile.WithBaseURLPolicy(o.BaseURLPolicy()),
 			reconcile.WithHTTPClient(o.HTTPClient())),
 		Tagger:       o.Tagger(),

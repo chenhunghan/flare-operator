@@ -58,6 +58,32 @@ reconcile:
   # -- Timeout of one Cloudflare API HTTP request (--cloudflare-request-timeout).
   cloudflareRequestTimeout: 60s
 
+# Artifact sources: the ConfigMaps, OCI images and HTTPS archives that kinds deploying content
+# (Worker modules, static assets, Pages sites) read (--artifact-* flags, docs/artifacts.md). An
+# artifact is held in memory while it loads and loaded OCI and url artifacts are cached, so keep
+# resources.limits.memory above maxBytes x the parallel reconciles plus cacheBytes. Byte sizes
+# are Kubernetes quantities (64Mi). With networkPolicy.enabled, allow egress to your registries
+# and download hosts through networkPolicy.extraEgress.
+artifacts:
+  # -- Largest total size of one artifact's files (--artifact-max-bytes).
+  maxBytes: 64Mi
+  # -- Most files in one artifact (--artifact-max-files).
+  maxFiles: 20000
+  # -- Largest download of one artifact: a url archive, or an image's compressed layers
+  # (--artifact-max-archive-bytes).
+  maxArchiveBytes: 64Mi
+  # -- Most bytes decompressed from one archive or image (--artifact-max-expanded-bytes).
+  maxExpandedBytes: 256Mi
+  # -- Largest decompressed/compressed ratio of an archive or image (--artifact-max-compression-ratio).
+  maxCompressionRatio: 100
+  # -- Memory for cached OCI and url artifacts (--artifact-cache-bytes); "0" (quoted, or
+  # --set-string) disables the cache.
+  cacheBytes: 128Mi
+  # -- Non-public address ranges url and ociRef sources may connect to (--artifact-allowed-cidr,
+  # once per entry), e.g. an in-cluster registry. Loopback, private, link-local (cloud metadata)
+  # and other special-purpose addresses are refused otherwise.
+  allowedCIDRs: []
+
 logging:
   # -- zap log level: debug, info, error, or an integer verbosity.
   level: info

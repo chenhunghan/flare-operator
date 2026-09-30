@@ -95,6 +95,13 @@ be created (admission policy, or RBAC for tenants) limits what tenants can make 
 manager itself can reach. The cache drops managedFields and the data of Helm release and service
 account token Secrets; size the manager's memory for the remaining Secrets and ConfigMaps.
 
+Artifact sources (the deployable content of kinds that embed an `ArtifactSource`) are read only
+from ConfigMaps and pull Secrets labelled `cloudflare.flare.dev/artifact=true`, over HTTPS, and
+never from loopback, private, link-local (cloud metadata) or other non-public addresses unless
+`--artifact-allowed-cidr` lists them; archives and images are unpacked under size, file-count
+and compression-ratio limits with path-traversal and link checks. See
+[docs/artifacts.md](docs/artifacts.md).
+
 Pod hardening (chart defaults, checked by `test/chart`): non-root UID 65532, `runAsNonRoot`,
 seccomp `RuntimeDefault`, no privilege escalation, a read-only root filesystem, all
 capabilities dropped, and a distroless static base image. This meets the Kubernetes

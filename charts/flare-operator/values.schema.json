@@ -4,6 +4,11 @@
   "type": "object",
   "additionalProperties": false,
   "definitions": {
+    "byteQuantity": {
+      "description": "A byte size as a Kubernetes quantity string (64Mi, 1Gi, 1048576); empty keeps the manager default.",
+      "type": "string",
+      "pattern": "^([0-9]+(Ki|Mi|Gi|Ti|k|M|G|T)?)?$"
+    },
     "stringMap": {
       "type": "object",
       "additionalProperties": {
@@ -445,6 +450,40 @@
         },
         "affinity": {
           "type": "object"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Artifact source limits and network allowlist (manager flags --artifact-*).",
+      "properties": {
+        "maxBytes": {
+          "$ref": "#/definitions/byteQuantity"
+        },
+        "maxFiles": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxArchiveBytes": {
+          "$ref": "#/definitions/byteQuantity"
+        },
+        "maxExpandedBytes": {
+          "$ref": "#/definitions/byteQuantity"
+        },
+        "maxCompressionRatio": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cacheBytes": {
+          "$ref": "#/definitions/byteQuantity"
+        },
+        "allowedCIDRs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F.:]+(/[0-9]{1,3})?$"
+          }
         }
       }
     },

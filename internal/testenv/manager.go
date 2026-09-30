@@ -16,6 +16,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"flare.dev/operator/internal/artifact"
 	"flare.dev/operator/internal/controller"
 	"flare.dev/operator/internal/controller/account"
 	"flare.dev/operator/internal/reconcile"
@@ -51,6 +52,9 @@ type ManagerOptions struct {
 	ReconcileTimeout        time.Duration
 	// PollInterval is Deps.PollInterval (cmd/manager --poll-interval) for registered controllers.
 	PollInterval time.Duration
+	// Artifacts is Deps.Artifacts; nil gets a Loader with the default limits (which refuses
+	// loopback addresses: tests serving artifacts from httptest pass their own).
+	Artifacts *artifact.Loader
 	// Namespaces restricts the manager's cache (and so its controllers) to these existing
 	// namespaces, so tests with their own managers can run in parallel without reconciling
 	// each other's objects. Empty watches every namespace.
@@ -128,11 +132,17 @@ func (e *Env) StartManager(t testing.TB, o ManagerOptions) *Manager {
 	}
 	aopts := append([]reconcile.AccountsOption{reconcile.WithUserAgent("flare-operator-testenv"), reconcile.WithBaseURLPolicy(policy)},
 		o.AccountsOptions...)
+	if o.Artifacts == nil {
+		if o.Artifacts, err = artifact.NewLoader(artifact.Options{UserAgent: "flare-operator-testenv"}); err != nil {
+			t.Fatalf("artifact loader: %v", err)
+		}
+	}
 	deps := controller.Deps{
 		Accounts:     reconcile.NewAccounts(mgr.GetClient(), aopts...),
 		Tagger:       o.Tagger,
 		ClusterName:  o.ClusterName,
 		PollInterval: o.PollInterval,
+		Artifacts:    o.Artifacts,
 	}
 	ar := &account.Reconciler{Client: mgr.GetClient(), Accounts: deps.Accounts, VerifyInterval: o.AccountVerifyInterval,
 		DependencyRequeue: o.AccountDependencyRequeue}
