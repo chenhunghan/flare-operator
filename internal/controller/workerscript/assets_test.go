@@ -190,6 +190,17 @@ func TestStaticSiteWithAPIWorker(t *testing.T) {
 		t.Fatalf("assets not restored: %v", got)
 	}
 	h.assertNoWrites("web")
+
+	// Removing the assets uploads the script without them (neither a token nor keep_assets).
+	ws = step("assets removed", func() {
+		h.updateScript("web", func(ws *workersv1alpha1.WorkerScript) {
+			ws.Spec.ForProvider.Assets, ws.Spec.ForProvider.Bindings = nil, nil
+		})
+	}, 0, 0)
+	if _, _, has := h.e.Fake.WorkerAssets(h.acct.AccountID, "web"); has || ws.Status.AssetsHash != "" || ws.Status.Artifacts != nil || ws.Status.AtProvider.HasAssets {
+		t.Fatalf("after removing the assets: stored %v, assetsHash %q, artifacts %+v, has_assets %v", has, ws.Status.AssetsHash, ws.Status.Artifacts, ws.Status.AtProvider.HasAssets)
+	}
+	h.assertNoWrites("web")
 }
 
 // An assets-only Worker: no modules, no main_module; the upload carries only metadata.
