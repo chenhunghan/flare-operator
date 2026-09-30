@@ -62,7 +62,12 @@ the same Worker's code.
 - `run_worker_first_paths: ["/api/*"]` sends only the API's requests to the code
   (`worker/index.js`).
 - `not_found_handling: single-page-application` answers any other unknown path with
-  `index.html`, so the frontend's own routes work as deep links.
+  `index.html`, so the frontend's own routes work as deep links. A browser navigation
+  (`Sec-Fetch-Mode: navigate`) gets `index.html` from Cloudflare directly. Any other request
+  that matches no file (a `fetch()`, or `curl`) runs the Worker's code, which hands it to
+  `env.ASSETS`, and that returns `index.html`. So the `env.ASSETS.fetch` fallback in the code
+  is required. (This follows Cloudflare's documentation and was not checked against the live
+  API.)
 - Frontend and API share one origin, so there is no CORS setup, and the session cookie is
   first-party.
 
@@ -128,13 +133,25 @@ Before you deploy:
 ## Deploy
 
 1. Install the operator (main [README](../../README.md)).
-2. Fill in the placeholders. Better still, create the two Secrets with `kubectl create secret`
-   (the commands are in `account.yaml` and `secrets.yaml`) and remove the files from
-   `kustomization.yaml`, so no token or secret lands in Git.
+2. Fill in the placeholders:
    - `account.yaml`: `spec.accountID` and the token.
    - `secrets.yaml`: `session-secret`, a long random string (`openssl rand -base64 32`).
    - `pages/project.yaml`: `forProvider.name`. It becomes `<name>.pages.dev`, which must be
      free across all of Pages.
+
+   Better still, keep the token and the session secret out of Git. Create both Secrets
+   yourself. Then delete **only the `Secret` document** (the first one) from `account.yaml`
+   and keep `CloudflareAccount main`, because every object's `accountRef` names it. Also
+   remove `secrets.yaml` from `kustomization.yaml`. The namespace has to exist first:
+
+   ```sh
+   kubectl apply -f examples/fullstack/namespace.yaml
+   kubectl -n flare-fullstack create secret generic cloudflare-token --from-literal=token=...
+   kubectl -n flare-fullstack create secret generic notes-app-secrets \
+     --from-literal=session-secret="$(openssl rand -base64 32)"
+   kubectl -n flare-fullstack label secret notes-app-secrets cloudflare.flare.dev/worker-binding=true
+   ```
+
 3. Apply:
 
    ```sh
@@ -194,14 +211,14 @@ Other useful status fields:
 | `WorkerScript` | `status.atProvider.bindings` | The bindings as Cloudflare reports them (names and types) |
 | `WorkerScript` | `status.atProvider.has_assets`, `status.artifacts.assetFiles` | Static assets uploaded, and how many files |
 | `WorkerScript` | `status.atProvider.version_id` | The deployed version (it changes with every upload) |
-| `PagesDeployment` | `status.atProvider.latest_stage` | `deploy` / `success` once live |
+| `PagesDeployment` | `status.atProvider.latest_stage.name`, `status.atProvider.latest_stage.status` | `deploy` and `success` once live |
 
 Then try the app:
 
 ```sh
 URL=$(kubectl -n flare-fullstack get workerscript notes-app -o jsonpath='{.status.atProvider.url}')
 curl -s "$URL/api/health"                    # {"ok":true}
-curl -s "$URL/notes/1" | head -3             # index.html (single-page-application fallback)
+curl -s "$URL/notes/1" | head -3             # index.html (via the Worker's env.ASSETS fallback)
 ```
 
 Open `$URL` in a browser, add a note with an attachment, and open it.
@@ -263,6 +280,8 @@ An R2 bucket has no owner tag, so without the annotation a new `R2Bucket notes-f
   - The Worker in flarefake has the D1 database ID, R2 bucket name, KV namespace ID, the secret
     and the assets binding.
   - The Worker's assets manifest holds the three files, and the assets config is right.
+  - The Worker's main module is `index.js` with the bytes of `worker/index.js`, and that code
+    uses every binding under its manifest name (`env.DB` and so on).
   - The Pages project has the same bindings and exactly one deployment of the site and
     `_worker.js`.
   - Reconciling everything again makes no write.

@@ -5,6 +5,9 @@
 // (assets.config.run_worker_first_paths), so the pages of the site cost no Worker invocation.
 // Any other path that matches no file gets index.html (not_found_handling:
 // single-page-application), so the frontend's own routes such as /notes/42 work as deep links.
+// Cloudflare answers only browser navigations (Sec-Fetch-Mode: navigate) that way by itself.
+// Any other request that matches no file (a fetch(), curl) still runs this code, and the
+// env.ASSETS.fetch below is what returns index.html for it.
 //
 // The Pages variant (pages/) deploys this same file as its advanced-mode _worker.js, with the
 // same binding names.
@@ -24,7 +27,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/api/")) {
-      return env.ASSETS.fetch(request); // only reached if run_worker_first covers more paths
+      // Required: a non-navigation request that matches no asset lands here (see above), and
+      // ASSETS applies the single-page-application fallback to it.
+      return env.ASSETS.fetch(request);
     }
     try {
       return await api(request, env, url);

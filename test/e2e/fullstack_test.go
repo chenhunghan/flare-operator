@@ -129,6 +129,26 @@ func (s *suite) testFullStack(t *testing.T) {
 	if !strings.HasPrefix(url, "https://"+script+".") || !strings.HasSuffix(url, ".workers.dev") || !hasAssets || assetFiles != 3 || assetsHash == "" {
 		t.Errorf("WorkerScript status: url %q, has_assets %v, assetFiles %d (want 3), assetsHash %q", url, hasAssets, assetFiles, assetsHash)
 	}
+	// The assets as flarefake holds them (its control API; the API itself cannot read a
+	// deployed assets manifest back).
+	var assets struct {
+		Manifest map[string]string `json:"manifest"`
+		Config   map[string]any    `json:"config"`
+	}
+	if b, err := s.fake("GET", "/_fake/accounts/"+acct+"/workers/"+script+"/assets", nil); err != nil {
+		t.Errorf("Worker assets in flarefake: %v", err)
+	} else if err := json.Unmarshal(b, &assets); err != nil {
+		t.Errorf("decode Worker assets: %v", err)
+	}
+	var paths []string
+	for p := range assets.Manifest {
+		paths = append(paths, p)
+	}
+	slices.Sort(paths)
+	if fmt.Sprint(paths) != "[/app.js /index.html /style.css]" || assets.Config["not_found_handling"] != "single-page-application" ||
+		fmt.Sprint(assets.Config["run_worker_first"]) != "[/api/*]" {
+		t.Errorf("Worker assets in flarefake: manifest paths %v, config %v", paths, assets.Config)
+	}
 
 	// The Pages project: the same bindings, one deployment.
 	var pp struct {
@@ -186,8 +206,9 @@ func (s *suite) testFullStack(t *testing.T) {
 		}
 		return len(missing) == 0, "not yet read: " + strings.Join(missing, ", ")
 	})
-	time.Sleep(5 * time.Second) // let any follow-up write of those reconciles land
-	j := s.journalFor(acct)
+	// Let any follow-up write of those reconciles land: wait until the account's journal has had
+	// no new entry for 5s, which adapts to a slow cluster better than a fixed sleep.
+	j := s.waitJournalQuiet(t, acct, 5*time.Second, 2*time.Minute)
 	if w := writes(j); len(w) > 0 {
 		t.Errorf("%d Cloudflare write(s) in steady state: %v", len(w), w)
 	}
@@ -246,6 +267,24 @@ func (s *suite) waitReadySynced(t *testing.T, u *unstructured.Unstructured, time
 		return ok, fmt.Sprintf("generation %d observed %d: %s", cur.GetGeneration(), og, condString(conds))
 	})
 	return cur
+}
+
+// waitJournalQuiet waits until flarefake's journal for accountID has had no new entry for
+// quiet (at most timeout), and returns it.
+func (s *suite) waitJournalQuiet(t *testing.T, accountID string, quiet, timeout time.Duration) []journalEntry {
+	t.Helper()
+	j := s.journalFor(accountID)
+	last, deadline := time.Now(), time.Now().Add(timeout)
+	for time.Since(last) < quiet {
+		if time.Now().After(deadline) {
+			t.Fatalf("flarefake journal for %s not quiet for %s within %s (%d entries)", accountID, quiet, timeout, len(j))
+		}
+		time.Sleep(time.Second)
+		if cur := s.journalFor(accountID); len(cur) != len(j) {
+			j, last = cur, time.Now()
+		}
+	}
+	return j
 }
 
 // cleanupFullStack deletes the step's namespace if it is still there, and removes stuck

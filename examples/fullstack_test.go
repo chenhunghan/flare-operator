@@ -358,6 +358,16 @@ func TestFullStack(t *testing.T) {
 	if n, _, _ := unstructured.NestedInt64(ws.Object, "status", "artifacts", "modules", "files"); n != 1 {
 		t.Errorf("WorkerScript status.artifacts.modules.files = %d, want 1 (worker/index.js)", n)
 	}
+	workerJS := readFile(t, "fullstack/worker/index.js")
+	if mainModule, code, ok := e.Fake.WorkerMainModule(accountID, script); !ok || mainModule != "index.js" || !bytes.Equal(code, workerJS) {
+		t.Errorf("the Worker in flarefake: main_module %q, %d bytes of code (found %v), want index.js with worker/index.js (%d bytes)", mainModule, len(code), ok, len(workerJS))
+	}
+	// The code uses every binding under the name the manifest gives it.
+	for name := range want {
+		if !bytes.Contains(workerJS, []byte("env."+name)) {
+			t.Errorf("worker/index.js does not use binding %s (env.%s)", name, name)
+		}
+	}
 
 	// The Pages project in flarefake: bindings, and one deployment of the site and _worker.js.
 	cfg, ok := e.Fake.PagesProjectConfig(accountID, project, "production")

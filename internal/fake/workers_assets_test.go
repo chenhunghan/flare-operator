@@ -164,6 +164,22 @@ func TestAssetsUploadFlow(t *testing.T) {
 	if !has || len(m) != 3 || m["/css/site.css"] != f.manifest()["/css/site.css"].Hash || gotCfg["not_found_handling"] != "404-page" {
 		t.Fatalf("stored assets %v %v %v", m, gotCfg, has)
 	}
+	// The same through the control API (the e2e suite reads it from the in-cluster flarefake).
+	for script, wantStatus := range map[string]int{"site": 200, "nope": 404} {
+		resp, err := http.Get(f.c.base + "/_fake/accounts/" + acctID + "/workers/" + script + "/assets")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ctl struct {
+			Manifest map[string]string `json:"manifest"`
+			Config   map[string]any    `json:"config"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&ctl)
+		resp.Body.Close()
+		if resp.StatusCode != wantStatus || err != nil || (wantStatus == 200 && (fmt.Sprint(ctl.Manifest) != fmt.Sprint(m) || ctl.Config["not_found_handling"] != "404-page")) {
+			t.Errorf("GET /_fake/…/workers/%s/assets: %d (want %d) %v %+v", script, resp.StatusCode, wantStatus, err, ctl)
+		}
+	}
 	if af, ok := f.s.UploadedAsset(acctID, "site", m["/index.html"]); !ok || string(af.Content) != "<h1>home</h1>" || af.ContentType != "text/html; charset=utf-8" {
 		t.Errorf("stored file %+v %v", af, ok)
 	}

@@ -751,6 +751,7 @@ validated and what remains UNVERIFIED. In short:
 | `POST` / `DELETE /_fake/faults` | `{"method":"POST","path_regex":"/queues$","status":500,"code":10001,"message":"…","times":1}` fails matching requests (`times` ≤ 0: until cleared) |
 | `POST` / `DELETE /_fake/tokens` | Register tokens (`{"token":"…","kind":"account","account_id":"…"}`), which switches token checks to strict mode, or clear them |
 | `POST /_fake/accounts/{account}/tunnels/{id}/connect` / `…/disconnect` | Simulate `cloudflared` connecting (`{"replicas":1,"connections":4}`) or disconnecting |
+| `GET /_fake/accounts/{account}/workers/{script}/assets` | The deployed version's static-assets manifest (path to hash) and assets config, which the API cannot read back |
 
 ### Differential testing
 

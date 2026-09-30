@@ -18,6 +18,7 @@ import (
 //	POST   /_fake/accounts/{account}/tunnels/{id}/connect     {"replicas":1,"connections":4}
 //	POST   /_fake/accounts/{account}/tunnels/{id}/disconnect
 //	POST   /_fake/tokens  Token                DELETE /_fake/tokens   (tokens.go)
+//	GET    /_fake/accounts/{account}/workers/{script}/assets   {"manifest":{path:hash},"config":{…}}
 func (s *Server) serveControl(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/_fake/"), "/"), "/")
 	writeJSON := func(status int, v any) {
@@ -139,6 +140,14 @@ func (s *Server) serveControl(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(http.StatusOK, map[string]bool{"ok": true})
+
+	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "workers" && parts[4] == "assets" && r.Method == http.MethodGet:
+		manifest, config, found := s.WorkerAssets(parts[1], parts[3])
+		if !found {
+			writeJSON(http.StatusNotFound, map[string]string{"error": "no script with assets"})
+			return
+		}
+		writeJSON(http.StatusOK, map[string]any{"manifest": manifest, "config": config})
 
 	default:
 		writeJSON(http.StatusNotFound, map[string]string{"error": "unknown control endpoint"})

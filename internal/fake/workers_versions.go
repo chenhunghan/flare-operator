@@ -89,6 +89,7 @@ func parseScriptUpload(c *reqCtx, prev *workerScript) (*scriptUpload, *response)
 			r := fail(http.StatusBadRequest, 10021, fmt.Sprintf("No such module %q.", res.EntryPoint)) // UNVERIFIED
 			return nil, &r
 		}
+		res.MainCode = append([]byte(nil), u.code...)
 	}
 	var bindings []map[string]any
 	if md.Bindings != nil {
