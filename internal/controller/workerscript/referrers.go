@@ -9,6 +9,7 @@ import (
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
 	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
+	"flare.dev/operator/internal/controller/r2bind"
 	"flare.dev/operator/internal/generic"
 )
 
@@ -19,6 +20,7 @@ var (
 	D1DatabaseKind   = schema.GroupKind{Group: d1v1alpha1.GroupVersion.Group, Kind: "D1Database"}
 	VPCServiceKind   = schema.GroupKind{Group: workersvpcv1alpha1.GroupVersion.Group, Kind: "VPCService"}
 	WorkerScriptKind = schema.GroupKind{Group: workersv1alpha1.GroupVersion.Group, Kind: "WorkerScript"}
+	R2BucketKind     = r2bind.Kind
 )
 
 // refNames returns the names that ws's bindings reference through pick.
@@ -70,15 +72,22 @@ var (
 		}
 		return b.ServiceRef.Name
 	}
+	pickR2 = func(b workersv1alpha1.WorkerBinding) string {
+		if b.R2BucketRef == nil {
+			return ""
+		}
+		return b.R2BucketRef.Name
+	}
 )
 
-// Cloudflare deletes a KV namespace, queue, D1 database, VPC service or Worker while a Worker
-// still binds it (0091 shows a Worker keeping its vpc_service binding to a deleted service; the
-// other kinds are UNVERIFIED). WorkerScripts are registered as referrers of those kinds, so
-// their finalizers wait (DependencyNotReady) until no WorkerScript binds them.
+// Cloudflare deletes a KV namespace, queue, D1 database, VPC service, R2 bucket or Worker while
+// a Worker still binds it (0091 shows a Worker keeping its vpc_service binding to a deleted
+// service; the other kinds are UNVERIFIED). WorkerScripts are registered as referrers of those
+// kinds, so their finalizers wait (DependencyNotReady) until no WorkerScript binds them.
 func init() {
 	for gk, pick := range map[schema.GroupKind]func(workersv1alpha1.WorkerBinding) string{
 		KVNamespaceKind: pickKV, QueueKind: pickQueue, D1DatabaseKind: pickD1, VPCServiceKind: pickVPC, WorkerScriptKind: pickService,
+		R2BucketKind: pickR2,
 	} {
 		pick := pick
 		generic.RegisterReferrer(gk, generic.Referrer{

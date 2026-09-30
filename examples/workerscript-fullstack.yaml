@@ -66,12 +66,27 @@ spec:
         type: assets
       - name: MEDIA
         type: r2_bucket
-        bucket_name: shop-media              # an existing R2 bucket (an R2Bucket reference is planned)
+        r2BucketRef:                         # the R2Bucket below: its bucket name and jurisdiction
+          name: shop-media                   # (or bucket_name: plus jurisdiction: for any bucket)
       - name: ORDERS_MAIL
         type: send_email                     # needs Email Routing on a zone of the account, with
         destination_address: orders@example.com   # this destination address verified there
     workersDev:
       enabled: true
+---
+# The bucket the shop Worker binds as env.MEDIA. Until it is Ready, the WorkerScript waits
+# (Synced=False, DependencyNotReady) and uploads nothing; while the binding exists, deleting
+# this object (with deletionPolicy Delete) waits for the WorkerScript. See r2bucket.yaml.
+apiVersion: r2.cloudflare.flare.dev/v1alpha1
+kind: R2Bucket
+metadata:
+  name: shop-media
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    name: shop-media
+    jurisdiction: eu                         # bound too: the binding's jurisdiction is eu
 ---
 # An assets-only site (no main_module, no modules): a single-page app from a release archive.
 apiVersion: workers.cloudflare.flare.dev/v1alpha1

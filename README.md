@@ -227,7 +227,7 @@ against the CRDs on an envtest API server: schema, CEL rules and strict field va
 | [tunnel.yaml](examples/tunnel.yaml) | a `Tunnel` with its managed `cloudflared` Deployment and egress NetworkPolicy |
 | [vpcservice.yaml](examples/vpcservice.yaml) | two `VPCService`s behind the Tunnel: an HTTP Service by hostname, a TCP backend by IP |
 | [workerscript.yaml](examples/workerscript.yaml) | a `WorkerScript` with inline modules and `*Ref` bindings, one with modules from a ConfigMap, and an observe-only one |
-| [workerscript-fullstack.yaml](examples/workerscript-fullstack.yaml) | a static site with an API Worker (static assets, an `assets`, an `r2_bucket` and a `send_email` binding), an assets-only site from an archive, and modules from an OCI image |
+| [workerscript-fullstack.yaml](examples/workerscript-fullstack.yaml) | a static site with an API Worker (static assets, an `assets`, an `r2_bucket` and a `send_email` binding), an `R2Bucket` bound through `r2BucketRef`, an assets-only site from an archive, and modules from an OCI image |
 | [pagesproject.yaml](examples/pagesproject.yaml) | a `PagesProject` with environment variables (one from a Secret) and `*Ref` bindings, and an observe-only one |
 | [pagesdeployment.yaml](examples/pagesdeployment.yaml) | a production `PagesDeployment` from ConfigMaps, a preview one from an HTTPS archive, and one observing the live deployment |
 
@@ -505,8 +505,10 @@ Kubernetes Service.
   (`destination_address` or `allowed_destination_addresses`, `allowed_sender_addresses`; it
   needs Email Routing on a zone of the account, with the addresses verified there) and `assets`.
   Each takes either the raw API value (`namespace_id`,
-  `queue_name`, `database_id`, `service_id`, `service`) or a reference to an object in the same
-  namespace (`kvNamespaceRef`, `queueRef`, `d1DatabaseRef`, `vpcServiceRef`, `serviceRef`).
+  `queue_name`, `database_id`, `service_id`, `service`, `bucket_name`) or a reference to an object in the same
+  namespace (`kvNamespaceRef`, `queueRef`, `d1DatabaseRef`, `vpcServiceRef`, `serviceRef`,
+  `r2BucketRef`). An `r2BucketRef` binds the `R2Bucket`'s bucket name and its jurisdiction
+  (none for `default`), so it takes no `jurisdiction` of its own.
   Until every referenced object is Ready, nothing is uploaded and `Synced` is `False` with
   reason `DependencyNotReady`. A `secret_text` Secret must carry the label
   `cloudflare.flare.dev/worker-binding=true` and must not be a service account token: the
@@ -524,11 +526,12 @@ Kubernetes Service.
   created it, the external-id annotation pins it, or its `flare.dev/owner` tag names this object
   (Resource Tagging `resource_type` `worker`). Otherwise the object reports `NameConflict` and
   writes nothing, because an upload would replace someone else's code.
-- **Delete order.** Cloudflare lets you delete a KV namespace, queue, D1 database or VPC service
-  that a Worker still binds (recording 0091). The operator therefore makes a `KVNamespace`,
-  `Queue`, `D1Database` or `VPCService` that would delete its Cloudflare resource wait, with
-  `Ready=False` and reason `DependencyNotReady`, until no `WorkerScript` binds it. The same
-  applies to a `WorkerScript` bound by another script's `serviceRef`.
+- **Delete order.** Cloudflare lets you delete a VPC service that a Worker still binds
+  (recording 0091; for KV namespaces, queues, D1 databases and R2 buckets this is UNVERIFIED).
+  The operator therefore makes a `KVNamespace`, `Queue`, `D1Database`, `VPCService` or
+  `R2Bucket` that would delete its Cloudflare resource wait, with `Ready=False` and reason
+  `DependencyNotReady`, until no `WorkerScript` binds it. The same applies to a `WorkerScript`
+  bound by another script's `serviceRef`.
 
 ### Cloudflare Pages: PagesProject and PagesDeployment
 
@@ -546,9 +549,10 @@ to it with Pages Direct Upload.
   `deployment_configs.production` and `.preview` hold compatibility settings, environment
   variables (`plain_text`, or `secret_text` from a Secret labelled
   `cloudflare.flare.dev/worker-binding=true`, tracked in `status.writeOnlyHash`) and bindings:
-  `kv_namespaces`, `d1_databases`, `queue_producers` and `services`, each by raw value or by a
-  `kvNamespaceRef`, `d1DatabaseRef`, `queueRef` or `serviceRef` (a `WorkerScript`), and
-  `r2_buckets` by bucket name. A set config is authoritative for its variables and bindings:
+  `kv_namespaces`, `d1_databases`, `r2_buckets`, `queue_producers` and `services`, each by raw
+  value or by a `kvNamespaceRef`, `d1DatabaseRef`, `r2BucketRef` (its bucket name and
+  jurisdiction), `queueRef` or `serviceRef` (a `WorkerScript`); a referenced object waits for
+  the binding to go away before its own Cloudflare delete. A set config is authoritative for its variables and bindings:
   ones that Cloudflare has and the config lacks are removed. A change is one `PATCH`; an
   unchanged object makes no writes. `source` (a GitHub or GitLab repository) is passed through
   as it is: authorizing the repository is done in the dashboard.

@@ -3,6 +3,7 @@ package pagesproject_test
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
 	"testing"
@@ -32,7 +33,14 @@ var env *testenv.Env
 
 func TestMain(m *testing.M) {
 	generic.ReferrerRetry = 500 * time.Millisecond
-	testenv.Main(m, &env, testenv.Options{})
+	flag.Parse()
+	opts := testenv.Options{}
+	if !testing.Short() {
+		// R2 buckets (r2bucket_test.go) are served by the fake's generic profile, which loads
+		// the pinned spec; those tests skip with -short.
+		opts.Fake.Generic = fake.GeneratedGenericKinds()
+	}
+	testenv.Main(m, &env, opts)
 }
 
 type harness struct {

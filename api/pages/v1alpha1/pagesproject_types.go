@@ -87,19 +87,27 @@ type PagesD1Binding struct {
 }
 
 // PagesR2Binding binds an R2 bucket (r2_buckets).
+//
+// +kubebuilder:validation:XValidation:rule="has(self.bucket_name) != has(self.r2BucketRef)",message="set exactly one of bucket_name or r2BucketRef"
+// +kubebuilder:validation:XValidation:rule="!(has(self.r2BucketRef) && has(self.jurisdiction))",message="jurisdiction goes with bucket_name; an r2BucketRef binds the R2Bucket's own jurisdiction"
 type PagesR2Binding struct {
 	// Name of the binding.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=255
 	Name string `json:"name"`
 	// BucketName is the R2 bucket (the API's r2_buckets.<binding>.name).
+	// +optional
 	// +kubebuilder:validation:MinLength=3
 	// +kubebuilder:validation:MaxLength=63
-	BucketName string `json:"bucket_name"`
-	// Jurisdiction of the bucket (e.g. eu), when it has one.
+	BucketName *string `json:"bucket_name,omitempty"`
+	// Jurisdiction of the bucket (e.g. eu), when it has one. Only with bucket_name.
 	// +optional
 	// +kubebuilder:validation:MaxLength=32
 	Jurisdiction *string `json:"jurisdiction,omitempty"`
+	// R2BucketRef names an R2Bucket in this namespace whose bucket name (status.id) and
+	// jurisdiction are bound. The R2Bucket cannot finish deleting while this binding exists.
+	// +optional
+	R2BucketRef *commonv1alpha1.LocalRef `json:"r2BucketRef,omitempty"`
 }
 
 // PagesQueueBinding binds a queue producer (queue_producers).
@@ -194,7 +202,7 @@ type PagesDeploymentConfig struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=64
 	D1Databases []PagesD1Binding `json:"d1_databases,omitempty"`
-	// R2Buckets bound to Pages Functions (by bucket name).
+	// R2Buckets bound to Pages Functions (by bucket name or r2BucketRef).
 	// +optional
 	// +listType=map
 	// +listMapKey=name

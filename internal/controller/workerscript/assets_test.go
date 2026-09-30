@@ -384,7 +384,21 @@ func TestValidationAssets(t *testing.T) {
 		ModuleTypes: map[string]string{"index.js": "python"}}, "module types are esm, cjs, text, json or wasm")
 	try("r2 without bucket", withAssets(func(fp *workersv1alpha1.WorkerScriptParameters) {
 		fp.Bindings = []workersv1alpha1.WorkerBinding{{Name: "B", Type: "r2_bucket"}}
-	}), "type r2_bucket needs bucket_name")
+	}), "type r2_bucket needs exactly one of bucket_name or r2BucketRef")
+	try("r2 with bucket_name and r2BucketRef", withAssets(func(fp *workersv1alpha1.WorkerScriptParameters) {
+		fp.Bindings = []workersv1alpha1.WorkerBinding{{Name: "B", Type: "r2_bucket", BucketName: str("flare-spike-b"),
+			R2BucketRef: &commonv1alpha1.LocalRef{Name: "b"}}}
+	}), "type r2_bucket needs exactly one of bucket_name or r2BucketRef")
+	try("r2BucketRef with jurisdiction", withAssets(func(fp *workersv1alpha1.WorkerScriptParameters) {
+		eu := "eu"
+		fp.Bindings = []workersv1alpha1.WorkerBinding{{Name: "B", Type: "r2_bucket", R2BucketRef: &commonv1alpha1.LocalRef{Name: "b"}, Jurisdiction: &eu}}
+	}), "an r2BucketRef binds the R2Bucket's own jurisdiction")
+	try("r2BucketRef on kv", withAssets(func(fp *workersv1alpha1.WorkerScriptParameters) {
+		fp.Bindings = []workersv1alpha1.WorkerBinding{{Name: "K", Type: "kv_namespace", NamespaceID: str("x"), R2BucketRef: &commonv1alpha1.LocalRef{Name: "b"}}}
+	}), "only valid with that type")
+	try("r2BucketRef without name", withAssets(func(fp *workersv1alpha1.WorkerScriptParameters) {
+		fp.Bindings = []workersv1alpha1.WorkerBinding{{Name: "B", Type: "r2_bucket", R2BucketRef: &commonv1alpha1.LocalRef{}}}
+	}), "r2BucketRef needs a non-empty name")
 	try("jurisdiction on kv", withAssets(func(fp *workersv1alpha1.WorkerScriptParameters) {
 		eu := "eu"
 		fp.Bindings = []workersv1alpha1.WorkerBinding{{Name: "K", Type: "kv_namespace", NamespaceID: str("x"), Jurisdiction: &eu}}

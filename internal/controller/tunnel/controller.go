@@ -364,6 +364,15 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 		if tun, err = findTunnelByName(ctx, cf, accountID, t.TunnelName()); err != nil {
 			return syncErr(err)
 		}
+		if pol.CanCreate() {
+			// The create-pending record decides below whether a same-named tunnel is this
+			// object's own lost create, and MarkCreatePending writes it only when it is not
+			// there: read it uncached, as the cache may not show this object's latest write of
+			// it (reconcile.FreshCreatePending).
+			if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), t); err != nil {
+				return syncErr(err)
+			}
+		}
 		switch {
 		case tun != nil && !pol.CanWrite():
 			// Observe-only: a name match is only observed. Its ID goes to status.atProvider,
@@ -374,11 +383,13 @@ func (r *Reconciler) sync(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (ctrl.
 			reconcile.MarkAvailable(t)
 			reconcile.MarkSynced(t)
 			return ctrl.Result{RequeueAfter: r.resync()}, nil
-		case tun != nil && pol.CanCreate() && pendingName(t) == t.TunnelName():
+		case tun != nil && pol.CanCreate() && (pendingName(t) == t.TunnelName() || reconcile.HasOwnershipProof(t, tun.ID)):
 			// This object announced a create of this name (MarkCreatePending, after a lookup
 			// found none) and has no record of its result: the manager died, or the API server
 			// refused the write, between the create and RecordCreated. The tunnel is this
 			// object's own lost create; adopt it (docs/resilience.md). Its token is read below.
+			// (An ownership proof for this tunnel is its RecordCreated, whose status.id the
+			// cached copy did not have yet.)
 			// With tagging, the owner tag is claimed first: a tunnel another object has tagged
 			// in the meantime is not taken.
 			if tagging {
@@ -701,6 +712,14 @@ func (r *Reconciler) finalize(ctx context.Context, t *tunnelsv1alpha1.Tunnel) (c
 		reconcile.SetReady(t, metav1.ConditionFalse, commonv1alpha1.ReasonDependency,
 			fmt.Sprintf("waiting for %d VPCService(s) that reference this Tunnel to be deleted: %s", len(names), strings.Join(names, ", ")))
 		return ctrl.Result{RequeueAfter: DependencyRetry}, false, nil
+	}
+	if pendingName(t) != "" && reconcile.ShouldDeleteExternal(t, commonv1alpha1.DeletionDelete) {
+		// The record is confirmed uncached first: one that the cache still shows after a
+		// refused create dropped it would delete a same-named tunnel someone else made.
+		if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), t); err != nil {
+			res, err := reconcile.DeletionResult(t, err)
+			return res, false, err
+		}
 	}
 	if name := pendingName(t); name != "" && reconcile.ShouldDeleteExternal(t, commonv1alpha1.DeletionDelete) {
 		// A create was announced and its result never recorded: the manager may have died

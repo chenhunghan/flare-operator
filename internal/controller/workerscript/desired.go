@@ -23,10 +23,12 @@ import (
 	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
+	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
 	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
 	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
 	"flare.dev/operator/internal/artifact"
+	"flare.dev/operator/internal/controller/r2bind"
 	"flare.dev/operator/internal/reconcile"
 )
 
@@ -436,10 +438,17 @@ func (r *Reconciler) bindings(ctx context.Context, ws *workersv1alpha1.WorkerScr
 		case workersv1alpha1.BindingR2Bucket:
 			// {name, type, bucket_name[, jurisdiction]}: the spec's workers_binding_kind_r2_bucket,
 			// as wrangler sends it (create-worker-upload-form.ts#L294-L318 at workers-sdk@3bdcd0d).
-			// TODO(FS-r2): resolve an r2BucketRef once the R2Bucket kind exists.
-			m["bucket_name"] = deref(b.BucketName)
-			if b.Jurisdiction != nil {
-				m["jurisdiction"] = *b.Jurisdiction
+			// An r2BucketRef binds the R2Bucket's name and jurisdiction (r2bind.Of).
+			bucket, jurisdiction := deref(b.BucketName), deref(b.Jurisdiction)
+			if b.R2BucketRef != nil {
+				var rb r2v1alpha1.R2Bucket
+				if p, err = r.getRef(ctx, ws, "R2Bucket", b.R2BucketRef.Name, &rb); p == nil && err == nil {
+					bucket, jurisdiction = r2bind.Of(&rb)
+				}
+			}
+			m["bucket_name"] = bucket
+			if jurisdiction != "" {
+				m["jurisdiction"] = jurisdiction
 			}
 		case workersv1alpha1.BindingSendEmail:
 			// The spec's workers_binding_kind_send_email; wrangler sends destination_address or
@@ -470,7 +479,7 @@ func (r *Reconciler) bindings(ctx context.Context, ws *workersv1alpha1.WorkerScr
 			p.msg = "binding " + b.Name + ": " + p.msg
 			return nil, nil, p, nil
 		}
-		for _, k := range []string{"namespace_id", "queue_name", "database_id", "service_id", "service"} {
+		for _, k := range []string{"namespace_id", "queue_name", "database_id", "service_id", "service", "bucket_name"} {
 			if v, ok := m[k]; ok && v == "" {
 				return nil, nil, dependency("binding %s: the referenced object has no Cloudflare ID yet", b.Name), nil
 			}

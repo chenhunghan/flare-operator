@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"math/rand/v2"
 	"net/http"
 	"sort"
@@ -486,8 +485,9 @@ func (r *Reconciler) ownLostCreate(ctx context.Context, obj reconcile.ManagedObj
 	return ok && pending == key, nil
 }
 
-// freshPending reads obj from the API server, bypassing the informer cache, and replaces obj's
-// in-memory create-pending record with the stored one; it returns the uncached copy.
+// freshPending is reconcile.FreshCreatePending through the API reader: it reads obj from the
+// API server, bypassing the informer cache, replaces obj's in-memory create-pending record and
+// ownership proof with the stored ones, and returns the uncached copy.
 //
 // The record decides whether a same-named resource is obj's own lost create, so it is never
 // taken from the cache where that is decided. The cache can lag behind the reconciler's own
@@ -500,24 +500,7 @@ func (r *Reconciler) ownLostCreate(ctx context.Context, obj reconcile.ManagedObj
 //     refusal as if it were a first attempt, and lose the object's own create; a retry that
 //     still saw a dropped record would not write it again before the POST.
 func (r *Reconciler) freshPending(ctx context.Context, obj reconcile.ManagedObject) (reconcile.ManagedObject, error) {
-	cur := r.New()
-	if err := r.apiReader().Get(ctx, client.ObjectKeyFromObject(obj), cur); err != nil {
-		return nil, fmt.Errorf("read the create-pending record: %w", err)
-	}
-	if cur.GetUID() != obj.GetUID() {
-		return nil, fmt.Errorf("read the create-pending record: the object was replaced (UID %s, want %s)", cur.GetUID(), obj.GetUID())
-	}
-	a := maps.Clone(obj.GetAnnotations())
-	if a == nil {
-		a = map[string]string{}
-	}
-	if v, ok := cur.GetAnnotations()[reconcile.AnnotationCreatePending]; ok {
-		a[reconcile.AnnotationCreatePending] = v
-	} else {
-		delete(a, reconcile.AnnotationCreatePending)
-	}
-	obj.SetAnnotations(a)
-	return cur, nil
+	return reconcile.FreshCreatePending(ctx, r.apiReader(), obj)
 }
 
 // nameConflict reports that a resource with obj's name (or client-chosen ID) exists and obj

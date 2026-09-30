@@ -10,11 +10,12 @@ import (
 	pagesv1alpha1 "flare.dev/operator/api/pages/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
 	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
+	"flare.dev/operator/internal/controller/r2bind"
 	"flare.dev/operator/internal/generic"
 )
 
 // Cloudflare does not check a Pages project's bindings when the bound KV namespace, D1
-// database, queue or Worker is deleted (UNVERIFIED for Pages; recording 0091 shows the same for
+// database, R2 bucket, queue or Worker is deleted (UNVERIFIED for Pages; recording 0091 shows the same for
 // Workers bindings). PagesProjects are registered as referrers of those kinds, so their
 // finalizers wait (DependencyNotReady) until no PagesProject binds them.
 func init() {
@@ -47,6 +48,12 @@ func init() {
 		{Group: d1v1alpha1.GroupVersion.Group, Kind: "D1Database"}: pick(func(c *pagesv1alpha1.PagesDeploymentConfig) (out []*commonv1alpha1.LocalRef) {
 			for _, b := range c.D1Databases {
 				out = append(out, b.D1DatabaseRef)
+			}
+			return out
+		}),
+		r2bind.Kind: pick(func(c *pagesv1alpha1.PagesDeploymentConfig) (out []*commonv1alpha1.LocalRef) {
+			for _, b := range c.R2Buckets {
+				out = append(out, b.R2BucketRef)
 			}
 			return out
 		}),

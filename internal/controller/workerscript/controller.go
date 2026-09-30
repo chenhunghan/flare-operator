@@ -77,6 +77,7 @@ import (
 	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
+	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
 	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
 	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
@@ -128,7 +129,7 @@ func init() {
 // AddToScheme registers the API groups this controller reads.
 func AddToScheme(s *runtime.Scheme) error {
 	for _, add := range []func(*runtime.Scheme) error{workersv1alpha1.AddToScheme, kvv1alpha1.AddToScheme,
-		queuesv1alpha1.AddToScheme, d1v1alpha1.AddToScheme, workersvpcv1alpha1.AddToScheme} {
+		queuesv1alpha1.AddToScheme, d1v1alpha1.AddToScheme, workersvpcv1alpha1.AddToScheme, r2v1alpha1.AddToScheme} {
 		if err := add(s); err != nil {
 			return err
 		}
@@ -186,6 +187,7 @@ type appliedState struct {
 // +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=d1.cloudflare.flare.dev,resources=d1databases,verbs=get;list;watch
 // +kubebuilder:rbac:groups=workersvpc.cloudflare.flare.dev,resources=vpcservices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=r2.cloudflare.flare.dev,resources=r2buckets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps;secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
@@ -236,6 +238,7 @@ const (
 	keyQueue     = "queue/"
 	keyD1        = "d1/"
 	keyVPC       = "vpc/"
+	keyR2        = "r2/"
 	keyScript    = "script/"
 	keySecret    = "secret/"
 	keyConfigMap = "configmap/"
@@ -258,6 +261,7 @@ func refKeys(o client.Object) []string {
 		add(keyQueue, b.QueueRef)
 		add(keyD1, b.D1DatabaseRef)
 		add(keyVPC, b.VPCServiceRef)
+		add(keyR2, b.R2BucketRef)
 		add(keyScript, b.ServiceRef)
 		if b.SecretKeyRef != nil {
 			keys = append(keys, keySecret+b.SecretKeyRef.Name)
@@ -300,6 +304,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&queuesv1alpha1.Queue{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyQueue)), builder.WithPredicates(managedChanged())).
 		Watches(&d1v1alpha1.D1Database{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyD1)), builder.WithPredicates(managedChanged())).
 		Watches(&workersvpcv1alpha1.VPCService{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyVPC)), builder.WithPredicates(managedChanged())).
+		Watches(&r2v1alpha1.R2Bucket{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyR2)), builder.WithPredicates(managedChanged())).
 		Watches(&workersv1alpha1.WorkerScript{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyScript)), builder.WithPredicates(managedChanged())).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keySecret)), builder.WithPredicates(dataChanged())).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyConfigMap)), builder.WithPredicates(dataChanged()))
@@ -557,7 +562,12 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 			return r.fail(ws, err)
 		}
 		// Announce the upload (pending.go), so a crash before RecordCreated neither turns the
-		// object's own script into a NameConflict nor uploads it twice.
+		// object's own script into a NameConflict nor uploads it twice. MarkCreatePending writes
+		// the record only when it is not there: read it uncached first, as the cache may still
+		// show one that a refused upload dropped (reconcile.FreshCreatePending).
+		if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), ws); err != nil {
+			return r.fail(ws, err)
+		}
 		if err := reconcile.MarkCreatePending(ctx, r.Client, ws, pendingKey(name, des)); err != nil {
 			return r.fail(ws, fmt.Errorf("record the pending upload of %s: %w", name, err))
 		}
@@ -606,6 +616,15 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 			}
 			if item != nil {
 				observeScript(ws, item)
+			}
+		}
+		if pol.CanCreate() && !reconcile.HasOwnershipProof(ws, name) && ws.GetAnnotations()[commonv1alpha1.AnnotationExternalID] != name {
+			// Nothing in the cached copy proves that ws manages the script: the create-pending
+			// record may (its own interrupted upload), and so may a RecordCreated the cache does
+			// not show yet. Both are read uncached, as a record that a refused upload dropped
+			// would make ws adopt, and under deletionPolicy Delete delete, someone else's script.
+			if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), ws); err != nil {
+				return r.fail(ws, err)
 			}
 		}
 		lost, isLost := pendingUpload(ws, name)
@@ -920,6 +939,14 @@ func (r *Reconciler) finalize(ctx context.Context, ws *workersv1alpha1.WorkerScr
 		return ctrl.Result{}, true, nil
 	}
 	logger := log.FromContext(ctx)
+	if pendingScript(ws) != "" && reconcile.ShouldDeleteExternal(ws, commonv1alpha1.DeletionDelete) {
+		// The record is confirmed uncached first: one that the cache still shows after a
+		// refused upload dropped it would delete a script someone else made.
+		if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), ws); err != nil {
+			res, err := reconcile.DeletionResult(ws, err)
+			return res, false, err
+		}
+	}
 	if p := pendingScript(ws); p != "" && reconcile.ShouldDeleteExternal(ws, commonv1alpha1.DeletionDelete) {
 		// An upload was announced and its result never recorded: the manager may have died
 		// between the upload and RecordCreated. With no ID, or with the ID (script name) of a

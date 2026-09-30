@@ -554,11 +554,15 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.forProvider.deployment_configs.preview.env_vars[]` | a plain_text variable needs value, a secret_text variable needs secretKeyRef (and not value) | ` self.type == 'plain_text' ? (has(self.value) && !has(self.secretKeyRef)) : (has(self.secretKeyRef) && !has(self.value)) ` |
 | `spec.forProvider.deployment_configs.preview.kv_namespaces[]` | set exactly one of namespace_id or kvNamespaceRef | ` has(self.namespace_id) != has(self.kvNamespaceRef) ` |
 | `spec.forProvider.deployment_configs.preview.queue_producers[]` | set exactly one of queue_name or queueRef | ` has(self.queue_name) != has(self.queueRef) ` |
+| `spec.forProvider.deployment_configs.preview.r2_buckets[]` | set exactly one of bucket_name or r2BucketRef | ` has(self.bucket_name) != has(self.r2BucketRef) ` |
+| `spec.forProvider.deployment_configs.preview.r2_buckets[]` | jurisdiction goes with bucket_name; an r2BucketRef binds the R2Bucket's own jurisdiction | ` !(has(self.r2BucketRef) && has(self.jurisdiction)) ` |
 | `spec.forProvider.deployment_configs.preview.services[]` | set exactly one of service or serviceRef | ` has(self.service) != has(self.serviceRef) ` |
 | `spec.forProvider.deployment_configs.production.d1_databases[]` | set exactly one of id or d1DatabaseRef | ` has(self.id) != has(self.d1DatabaseRef) ` |
 | `spec.forProvider.deployment_configs.production.env_vars[]` | a plain_text variable needs value, a secret_text variable needs secretKeyRef (and not value) | ` self.type == 'plain_text' ? (has(self.value) && !has(self.secretKeyRef)) : (has(self.secretKeyRef) && !has(self.value)) ` |
 | `spec.forProvider.deployment_configs.production.kv_namespaces[]` | set exactly one of namespace_id or kvNamespaceRef | ` has(self.namespace_id) != has(self.kvNamespaceRef) ` |
 | `spec.forProvider.deployment_configs.production.queue_producers[]` | set exactly one of queue_name or queueRef | ` has(self.queue_name) != has(self.queueRef) ` |
+| `spec.forProvider.deployment_configs.production.r2_buckets[]` | set exactly one of bucket_name or r2BucketRef | ` has(self.bucket_name) != has(self.r2BucketRef) ` |
+| `spec.forProvider.deployment_configs.production.r2_buckets[]` | jurisdiction goes with bucket_name; an r2BucketRef binds the R2Bucket's own jurisdiction | ` !(has(self.r2BucketRef) && has(self.jurisdiction)) ` |
 | `spec.forProvider.deployment_configs.production.services[]` | set exactly one of service or serviceRef | ` has(self.service) != has(self.serviceRef) ` |
 | `spec.forProvider.name` | name is immutable | ` self == oldSelf ` |
 
@@ -608,10 +612,12 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.forProvider.deployment_configs.preview.queue_producers[].queueRef` | object | QueueRef names a Queue in this namespace whose queue name (status.atProvider.queue_name) is bound. |  |
 | `spec.forProvider.deployment_configs.preview.queue_producers[].queueRef.name` | string | **Required.** |  |
 | `spec.forProvider.deployment_configs.preview.queue_producers[].queue_name` | string | QueueName of the queue (the API's queue_producers.&lt;binding&gt;.name). |  |
-| `spec.forProvider.deployment_configs.preview.r2_buckets` | []object | R2Buckets bound to Pages Functions (by bucket name). | items ≤ 64; list type map (key name) |
-| `spec.forProvider.deployment_configs.preview.r2_buckets[].bucket_name` | string | **Required.** BucketName is the R2 bucket (the API's r2_buckets.&lt;binding&gt;.name). | length 3–63 |
-| `spec.forProvider.deployment_configs.preview.r2_buckets[].jurisdiction` | string | Jurisdiction of the bucket (e.g. eu), when it has one. | length ≤ 32 |
+| `spec.forProvider.deployment_configs.preview.r2_buckets` | []object | R2Buckets bound to Pages Functions (by bucket name or r2BucketRef). | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.preview.r2_buckets[].bucket_name` | string | BucketName is the R2 bucket (the API's r2_buckets.&lt;binding&gt;.name). | length 3–63 |
+| `spec.forProvider.deployment_configs.preview.r2_buckets[].jurisdiction` | string | Jurisdiction of the bucket (e.g. eu), when it has one. Only with bucket_name. | length ≤ 32 |
 | `spec.forProvider.deployment_configs.preview.r2_buckets[].name` | string | **Required.** Name of the binding. | length 1–255 |
+| `spec.forProvider.deployment_configs.preview.r2_buckets[].r2BucketRef` | object | R2BucketRef names an R2Bucket in this namespace whose bucket name (status.id) and jurisdiction are bound. The R2Bucket cannot finish deleting while this binding exists. |  |
+| `spec.forProvider.deployment_configs.preview.r2_buckets[].r2BucketRef.name` | string | **Required.** |  |
 | `spec.forProvider.deployment_configs.preview.services` | []object | Services (Workers) bound to Pages Functions. | items ≤ 64; list type map (key name) |
 | `spec.forProvider.deployment_configs.preview.services[].entrypoint` | string | Entrypoint of the bound Worker to invoke. |  |
 | `spec.forProvider.deployment_configs.preview.services[].environment` | string | Environment of the bound Worker. |  |
@@ -649,10 +655,12 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.forProvider.deployment_configs.production.queue_producers[].queueRef` | object | QueueRef names a Queue in this namespace whose queue name (status.atProvider.queue_name) is bound. |  |
 | `spec.forProvider.deployment_configs.production.queue_producers[].queueRef.name` | string | **Required.** |  |
 | `spec.forProvider.deployment_configs.production.queue_producers[].queue_name` | string | QueueName of the queue (the API's queue_producers.&lt;binding&gt;.name). |  |
-| `spec.forProvider.deployment_configs.production.r2_buckets` | []object | R2Buckets bound to Pages Functions (by bucket name). | items ≤ 64; list type map (key name) |
-| `spec.forProvider.deployment_configs.production.r2_buckets[].bucket_name` | string | **Required.** BucketName is the R2 bucket (the API's r2_buckets.&lt;binding&gt;.name). | length 3–63 |
-| `spec.forProvider.deployment_configs.production.r2_buckets[].jurisdiction` | string | Jurisdiction of the bucket (e.g. eu), when it has one. | length ≤ 32 |
+| `spec.forProvider.deployment_configs.production.r2_buckets` | []object | R2Buckets bound to Pages Functions (by bucket name or r2BucketRef). | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.production.r2_buckets[].bucket_name` | string | BucketName is the R2 bucket (the API's r2_buckets.&lt;binding&gt;.name). | length 3–63 |
+| `spec.forProvider.deployment_configs.production.r2_buckets[].jurisdiction` | string | Jurisdiction of the bucket (e.g. eu), when it has one. Only with bucket_name. | length ≤ 32 |
 | `spec.forProvider.deployment_configs.production.r2_buckets[].name` | string | **Required.** Name of the binding. | length 1–255 |
+| `spec.forProvider.deployment_configs.production.r2_buckets[].r2BucketRef` | object | R2BucketRef names an R2Bucket in this namespace whose bucket name (status.id) and jurisdiction are bound. The R2Bucket cannot finish deleting while this binding exists. |  |
+| `spec.forProvider.deployment_configs.production.r2_buckets[].r2BucketRef.name` | string | **Required.** |  |
 | `spec.forProvider.deployment_configs.production.services` | []object | Services (Workers) bound to Pages Functions. | items ≤ 64; list type map (key name) |
 | `spec.forProvider.deployment_configs.production.services[].entrypoint` | string | Entrypoint of the bound Worker to invoke. |  |
 | `spec.forProvider.deployment_configs.production.services[].environment` | string | Environment of the bound Worker. |  |
@@ -1128,7 +1136,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.forProvider.assets.config` | set run_worker_first or run_worker_first_paths, not both | ` !(has(self.run_worker_first) && has(self.run_worker_first_paths)) ` |
 | `spec.forProvider.assets.config.run_worker_first_paths` | run_worker_first_paths needs at least one rule that is not negative | ` self.exists(r, !r.startsWith('!')) ` |
 | `spec.forProvider.assets.source` | set exactly one of configMapRef, ociRef or url | ` (has(self.configMapRef) ? 1 : 0) + (has(self.ociRef) ? 1 : 0) + (has(self.url) ? 1 : 0) == 1 ` |
-| `spec.forProvider.bindings[]` | a kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef or serviceRef needs a non-empty name | ` (!has(self.kvNamespaceRef) \|\| size(self.kvNamespaceRef.name) > 0) && (!has(self.queueRef) \|\| size(self.queueRef.name) > 0) && (!has(self.d1DatabaseRef) \|\| size(self.d1DatabaseRef.name) > 0) && (!has(self.vpcServiceRef) \|\| size(self.vpcServiceRef.name) > 0) && (!has(self.serviceRef) \|\| size(self.serviceRef.name) > 0) ` |
+| `spec.forProvider.bindings[]` | a kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef, serviceRef or r2BucketRef needs a non-empty name | ` (!has(self.kvNamespaceRef) \|\| size(self.kvNamespaceRef.name) > 0) && (!has(self.queueRef) \|\| size(self.queueRef.name) > 0) && (!has(self.d1DatabaseRef) \|\| size(self.d1DatabaseRef.name) > 0) && (!has(self.vpcServiceRef) \|\| size(self.vpcServiceRef.name) > 0) && (!has(self.serviceRef) \|\| size(self.serviceRef.name) > 0) && (!has(self.r2BucketRef) \|\| size(self.r2BucketRef.name) > 0) ` |
 | `spec.forProvider.bindings[]` | text is required for (and only valid with) type plain_text | ` self.type == 'plain_text' ? has(self.text) : !has(self.text) ` |
 | `spec.forProvider.bindings[]` | secretKeyRef is required for (and only valid with) type secret_text | ` self.type == 'secret_text' ? has(self.secretKeyRef) : !has(self.secretKeyRef) ` |
 | `spec.forProvider.bindings[]` | type kv_namespace needs exactly one of namespace_id or kvNamespaceRef (only valid with that type) | ` self.type == 'kv_namespace' ? has(self.namespace_id) != has(self.kvNamespaceRef) : !has(self.namespace_id) && !has(self.kvNamespaceRef) ` |
@@ -1136,7 +1144,8 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.forProvider.bindings[]` | type d1 needs exactly one of database_id or d1DatabaseRef (only valid with that type) | ` self.type == 'd1' ? has(self.database_id) != has(self.d1DatabaseRef) : !has(self.database_id) && !has(self.d1DatabaseRef) ` |
 | `spec.forProvider.bindings[]` | type vpc_service needs exactly one of service_id or vpcServiceRef (only valid with that type) | ` self.type == 'vpc_service' ? has(self.service_id) != has(self.vpcServiceRef) : !has(self.service_id) && !has(self.vpcServiceRef) ` |
 | `spec.forProvider.bindings[]` | type service needs exactly one of service or serviceRef (only valid with that type, as are environment and entrypoint) | ` self.type == 'service' ? has(self.service) != has(self.serviceRef) : !has(self.service) && !has(self.serviceRef) && !has(self.environment) && !has(self.entrypoint) ` |
-| `spec.forProvider.bindings[]` | type r2_bucket needs bucket_name (only valid with that type, as is jurisdiction) | ` self.type == 'r2_bucket' ? has(self.bucket_name) : !has(self.bucket_name) && !has(self.jurisdiction) ` |
+| `spec.forProvider.bindings[]` | type r2_bucket needs exactly one of bucket_name or r2BucketRef (only valid with that type, as is jurisdiction) | ` self.type == 'r2_bucket' ? has(self.bucket_name) != has(self.r2BucketRef) : !has(self.bucket_name) && !has(self.r2BucketRef) && !has(self.jurisdiction) ` |
+| `spec.forProvider.bindings[]` | jurisdiction goes with bucket_name; an r2BucketRef binds the R2Bucket's own jurisdiction | ` !(has(self.r2BucketRef) && has(self.jurisdiction)) ` |
 | `spec.forProvider.bindings[]` | destination_address, allowed_destination_addresses and allowed_sender_addresses are only valid with type send_email | ` self.type == 'send_email' \|\| (!has(self.destination_address) && !has(self.allowed_destination_addresses) && !has(self.allowed_sender_addresses)) ` |
 | `spec.forProvider.bindings[]` | set destination_address or allowed_destination_addresses, not both | ` !(has(self.destination_address) && has(self.allowed_destination_addresses)) ` |
 | `spec.forProvider.moduleSource` | set exactly one of configMapRef, ociRef or url | ` (has(self.configMapRef) ? 1 : 0) + (has(self.ociRef) ? 1 : 0) + (has(self.url) ? 1 : 0) == 1 ` |
@@ -1189,7 +1198,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.forProvider.bindings[].entrypoint` | string | Entrypoint of the bound Worker to invoke (service bindings). |  |
 | `spec.forProvider.bindings[].environment` | string | Environment of the bound Worker (service bindings). |  |
 | `spec.forProvider.bindings[].json` | any | JSON value of a json binding (required for, and only valid with, type json; checked by the controller: CEL cannot see a schemaless field). |  |
-| `spec.forProvider.bindings[].jurisdiction` | string | Jurisdiction of the R2 bucket of an r2_bucket binding (a bucket made in a jurisdiction is found only with it). | one of `eu`, `fedramp`, `fedramp-high`, `us` |
+| `spec.forProvider.bindings[].jurisdiction` | string | Jurisdiction of the R2 bucket of an r2_bucket binding (a bucket made in a jurisdiction is found only with it). Only with bucket_name. | one of `eu`, `fedramp`, `fedramp-high`, `us` |
 | `spec.forProvider.bindings[].kvNamespaceRef` | object | KVNamespaceRef names a KVNamespace whose status.id is the namespace_id. |  |
 | `spec.forProvider.bindings[].kvNamespaceRef.name` | string | **Required.** |  |
 | `spec.forProvider.bindings[].name` | string | **Required.** Name is the JavaScript variable name of the binding (env.&lt;name&gt;). | length 1–255 |
@@ -1197,6 +1206,8 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.forProvider.bindings[].queueRef` | object | QueueRef names a Queue whose queue name (status.atProvider.queue_name) is bound. |  |
 | `spec.forProvider.bindings[].queueRef.name` | string | **Required.** |  |
 | `spec.forProvider.bindings[].queue_name` | string | QueueName of a queue binding (queues are bound by name). |  |
+| `spec.forProvider.bindings[].r2BucketRef` | object | R2BucketRef names an R2Bucket whose bucket name (status.id) and jurisdiction are bound. The R2Bucket cannot finish deleting while this binding exists. |  |
+| `spec.forProvider.bindings[].r2BucketRef.name` | string | **Required.** |  |
 | `spec.forProvider.bindings[].secretKeyRef` | object | SecretKeyRef is the value of a secret_text binding. It is write-only in Cloudflare: a change of the Secret's value is detected through status.writeOnlyHash. The Secret must carry the label cloudflare.flare.dev/worker-binding=true (and not be a service account token): the Worker's code can return the value, so only Secrets opted in for Workers are read. |  |
 | `spec.forProvider.bindings[].secretKeyRef.key` | string | **Required.** Key in the Secret's data. | length ≥ 1 |
 | `spec.forProvider.bindings[].secretKeyRef.name` | string | **Required.** Name of the Secret. | length ≥ 1 |

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"reflect"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -75,6 +77,55 @@ func PendingCreate(mg client.Object) (key string, ok bool) {
 		return "", false
 	}
 	return strings.TrimPrefix(v, uid+"/"), true
+}
+
+// FreshCreatePending reads mg through r, which must bypass the informer cache (the manager's
+// API reader), and replaces mg's in-memory create-pending record and ownership proof
+// (AnnotationCreatePending, AnnotationOwnershipProof) with the stored ones; it returns the
+// uncached copy. The stored object must still be mg (its UID).
+//
+// Call it wherever the record decides something: before MarkCreatePending (whose no-op check
+// reads it), where a same-named resource may be taken for the object's own lost create, and in
+// the finalizer before AdoptPendingCreate. The cache can lag behind the reconciler's own writes
+// of the record (the watches filter metadata-only changes out, and the retry after an error
+// runs within milliseconds):
+//   - A refused create drops the record. A retry that still saw it would take a same-named
+//     resource someone else made for its own lost create: adopt it, record an ownership proof,
+//     manage it and, under deletionPolicy Delete, delete it (its finalizer, too). It would also
+//     not write the record again before the next create (MarkCreatePending's no-op check), so
+//     a crash after that create would lose it.
+//   - A retry that missed the record of an earlier attempt would not recognize that attempt's
+//     create as its own (NameConflict).
+//   - A RecordCreated that the cache does not show yet leaves no record but an ownership proof,
+//     which the uncached copy has.
+func FreshCreatePending(ctx context.Context, r client.Reader, mg ManagedObject) (ManagedObject, error) {
+	t := reflect.TypeOf(mg)
+	if t == nil || t.Kind() != reflect.Pointer {
+		return nil, fmt.Errorf("read the create-pending record: %T is not a pointer", mg)
+	}
+	cur, ok := reflect.New(t.Elem()).Interface().(ManagedObject)
+	if !ok {
+		return nil, fmt.Errorf("read the create-pending record: %T is not a ManagedObject", reflect.New(t.Elem()).Interface())
+	}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(mg), cur); err != nil {
+		return nil, fmt.Errorf("read the create-pending record: %w", err)
+	}
+	if cur.GetUID() != mg.GetUID() {
+		return nil, fmt.Errorf("read the create-pending record: the object was replaced (UID %s, want %s)", cur.GetUID(), mg.GetUID())
+	}
+	a := maps.Clone(mg.GetAnnotations())
+	if a == nil {
+		a = map[string]string{}
+	}
+	for _, k := range []string{AnnotationCreatePending, AnnotationOwnershipProof} {
+		if v, ok := cur.GetAnnotations()[k]; ok {
+			a[k] = v
+		} else {
+			delete(a, k)
+		}
+	}
+	mg.SetAnnotations(a)
+	return cur, nil
 }
 
 // ErrAmbiguousName is wrapped by lookups that found several resources with the wanted name.

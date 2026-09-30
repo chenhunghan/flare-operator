@@ -39,7 +39,10 @@ spec:
               name: jobs
         r2_buckets:
           - name: FILES
-            bucket_name: acme-docs-files
+            bucket_name: acme-docs-files   # any bucket by name (jurisdiction: eu if it has one)
+          - name: ASSETS
+            r2BucketRef:                   # an R2Bucket in this namespace (r2bucket.yaml): its
+              name: assets                 # name and jurisdiction; it waits for this binding
       preview:
         env_vars:
           - name: SITE_ENV
