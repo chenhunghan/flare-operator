@@ -65,7 +65,7 @@ Open issues are tracked in [docs/STATUS.md](docs/STATUS.md).
 | `AIGateway` | `aigateway.cloudflare.flare.dev` | `cfaigw` | `COLLECT-LOGS`, *`CACHE-TTL`* | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
 | `Tunnel` | `tunnels.cloudflare.flare.dev` | `cftunnel`, `cftun` | `STATUS`, `CONNECTORS` | `Delete` | hand-written; also runs `cloudflared` and an egress NetworkPolicy |
 | `VPCService` | `workersvpc.cloudflare.flare.dev` | `cfvpcsvc`, `cfvpc` | `TYPE`, `TUNNEL` | `Delete` | hand-written (Workers VPC) |
-| `WorkerScript` | `workers.cloudflare.flare.dev` | `cfworker`, `cfscript` | `URL`, *`VERSION`* | `Delete` | hand-written (Workers scripts: modules, bindings, workers.dev) |
+| `WorkerScript` | `workers.cloudflare.flare.dev` | `cfworker`, `cfscript` | `URL`, *`VERSION`* | `Delete` | hand-written (Workers scripts: modules, static assets, bindings, workers.dev) |
 
 Every kind prints `READY`, `SYNCED` and `EXTERNAL-ID` (`status.id`) first, then its own
 columns, then `AGE`. Every kind is namespaced and belongs to the `cloudflare` category, so
@@ -203,6 +203,7 @@ against the CRDs on an envtest API server: schema, CEL rules and strict field va
 | [tunnel.yaml](examples/tunnel.yaml) | a `Tunnel` with its managed `cloudflared` Deployment and egress NetworkPolicy |
 | [vpcservice.yaml](examples/vpcservice.yaml) | two `VPCService`s behind the Tunnel: an HTTP Service by hostname, a TCP backend by IP |
 | [workerscript.yaml](examples/workerscript.yaml) | a `WorkerScript` with inline modules and `*Ref` bindings, one with modules from a ConfigMap, and an observe-only one |
+| [workerscript-fullstack.yaml](examples/workerscript-fullstack.yaml) | a static site with an API Worker (static assets, an `assets`, an `r2_bucket` and a `send_email` binding), an assets-only site from an archive, and modules from an OCI image |
 
 ### Trying it without a Cloudflare account
 
@@ -239,7 +240,7 @@ spec lists no group.
 | `SecretsStore` | `Secrets Store Write` (`Secrets Store Read`) | Secrets Store › Edit (Read) |
 | `AIGateway` | `AI Gateway Write` (`AI Gateway Read`) | AI Gateway › Edit (Read) |
 | `Tunnel` | `Cloudflare Tunnel Write` (`Cloudflare Tunnel Read`). The spec also accepts `Cloudflare One Connector: cloudflared Write`/`Read` and `Cloudflare One Connectors Write`/`Read`. Fetching the connector token for `cloudflared` needs Write. | Cloudflare One Connector: cloudflared › Edit (Read); formerly "Cloudflare Tunnel" |
-| `WorkerScript` | Legacy `Workers Scripts Write` (`Workers Scripts Read`). The spec also accepts `Workers Tail Read` for reading a script, its settings, deployments and subdomain, but not for `GET /accounts/{id}/workers/subdomain` (the workers.dev URL), so Observe needs `Workers Scripts Read`. | Legacy: Workers Scripts › Edit (Read). Granular roles: **Admin at Workers product scope** to create or delete scripts; per-Worker Editor only for an adopted Worker; Content Read-Only for Observe. See [below](#workers-roles-legacy-and-granular). |
+| `WorkerScript` | Legacy `Workers Scripts Write` (`Workers Scripts Read`). The spec also accepts `Workers Tail Read` for reading a script, its settings, deployments and subdomain, but not for `GET /accounts/{id}/workers/subdomain` (the workers.dev URL), so Observe needs `Workers Scripts Read`. Static assets: the upload session needs `Workers Scripts Write`; the file uploads authenticate with the session's JWT, not the token. Whether an `r2_bucket` or `send_email` binding also needs an R2 or Email Routing permission is UNVERIFIED. | Legacy: Workers Scripts › Edit (Read). Granular roles: **Admin at Workers product scope** to create or delete scripts; per-Worker Editor only for an adopted Worker; Content Read-Only for Observe. See [below](#workers-roles-legacy-and-granular). |
 | `VPCService` | UNVERIFIED: the spec lists no group for `/connectivity/directory/services`. | Connectivity Directory (UNVERIFIED) |
 | Ownership tags (on by default) | UNVERIFIED: the spec lists no group for `/accounts/{id}/tags`. Or install with `ownershipTags=false`. | Tag, formerly "Resource Tagging" (UNVERIFIED) |
 
@@ -446,12 +447,25 @@ A `WorkerScript` uploads a Cloudflare Workers script ([examples/workerscript.yam
 and completes the private-backend path Worker → `vpc_service` binding → `VPCService` → `Tunnel` →
 Kubernetes Service.
 
-- **Source.** Either inline `forProvider.modules` (module name → `type` `esm`, `cjs`, `text`,
-  `json` or `wasm-base64`, and `content`) or `forProvider.sourceRef`, a ConfigMap whose keys are
-  the modules. `main_module` names the entry module. The script name is `forProvider.script_name`
-  (immutable), else `metadata.name`.
+- **Source.** One of inline `forProvider.modules` (module name → `type` `esm`, `cjs`, `text`,
+  `json` or `wasm-base64`, and `content`), `forProvider.sourceRef`, a ConfigMap whose keys are
+  the modules, or `forProvider.moduleSource`, an [artifact](docs/artifacts.md) (labelled
+  ConfigMaps, an OCI image or an HTTPS archive) whose files are the modules, typed by extension
+  or `moduleTypes`. `main_module` names the entry module. The script name is
+  `forProvider.script_name` (immutable), else `metadata.name`.
+- **Static assets.** `forProvider.assets.source` is an artifact of files that Cloudflare serves
+  in front of the code, configured by `assets.config` (`html_handling`, `not_found_handling`,
+  `run_worker_first` or `run_worker_first_paths`, `base_path`). As with wrangler, the root
+  files `_headers` and `_redirects` become the header and redirect rules, and `.assetsignore`
+  leaves files out. An `assets` binding lets the code fetch them. Without `main_module` and
+  modules the Worker is assets-only. The operator uploads only new and changed files, and runs
+  the upload only when the files or the config change (`status.assetsHash`): a code change with
+  unchanged assets keeps them (`keep_assets`) without an asset call.
 - **Bindings.** `plain_text`, `secret_text` (`secretKeyRef`), `json`, `kv_namespace`, `queue`,
-  `d1`, `vpc_service` and `service`. Each takes either the raw API value (`namespace_id`,
+  `d1`, `vpc_service`, `service`, `r2_bucket` (`bucket_name`, `jurisdiction`), `send_email`
+  (`destination_address` or `allowed_destination_addresses`, `allowed_sender_addresses`; it
+  needs Email Routing on a zone of the account, with the addresses verified there) and `assets`.
+  Each takes either the raw API value (`namespace_id`,
   `queue_name`, `database_id`, `service_id`, `service`) or a reference to an object in the same
   namespace (`kvNamespaceRef`, `queueRef`, `d1DatabaseRef`, `vpcServiceRef`, `serviceRef`).
   Until every referenced object is Ready, nothing is uploaded and `Synced` is `False` with

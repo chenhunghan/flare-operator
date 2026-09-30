@@ -6,8 +6,9 @@ files from an `ArtifactSource` (`api/shared/v1alpha1`). The manager's loader
 bytes and a content type chosen by file extension. The tree also has a content digest, which
 kinds report as `status.…artifact.digest`.
 
-> Status: the API type and the loader exist, but no kind embeds an `ArtifactSource` yet. The
-> full-stack kinds (R2, Pages, Workers static assets) will add it.
+> Status: `WorkerScript` uses it for `forProvider.moduleSource` (Worker modules) and
+> `forProvider.assets.source` (static assets; `status.artifacts` reports what was loaded). The
+> other full-stack kinds (R2, Pages) will add it.
 
 ## Sources
 

@@ -14,6 +14,15 @@ Nothing has been released yet. This section collects what the first release will
 - Kinds: `CloudflareAccount` (token verification, rate-limit settings, usage protection),
   generated `KVNamespace`, `Queue` and `D1Database`, and hand-written `Tunnel` (with a managed
   `cloudflared` Deployment and an egress NetworkPolicy) and `VPCService`.
+- `WorkerScript` full-stack fields: static assets (`forProvider.assets`: files from an artifact,
+  `html_handling`, `not_found_handling`, `run_worker_first`, `base_path`, `_headers`,
+  `_redirects`, `.assetsignore`) uploaded with the Workers assets upload flow, only when they
+  change (`status.assetsHash`); assets-only Workers (no `main_module`); modules from an
+  artifact (`forProvider.moduleSource`, `moduleTypes`); `assets`, `r2_bucket` and `send_email`
+  bindings. `main_module` is now optional (required unless the Worker is assets-only).
+- flarefake emulates the Workers assets upload session, the bucket uploads (session JWTs) and
+  `metadata.assets` / `keep_assets`; `wrangler deploy` of an assets site runs against it
+  (`make differential`).
 - Crossplane-style `deletionPolicy`, `managementPolicies` (including observe-only),
   adoption through `cloudflare.flare.dev/external-id`, and ownership tags
   (`flare.dev/owner=<clusterName>/<namespace>/<name>`).

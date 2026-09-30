@@ -68,7 +68,7 @@ func startWith(t *testing.T, o testenv.ManagerOptions) *harness {
 		func(mgr ctrl.Manager, d controller.Deps) error {
 			return (&workerscript.Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts, Tagger: d.Tagger, ClusterName: d.ClusterName,
 				Recorder: mgr.GetEventRecorder(workerscript.Name), APIReader: mgr.GetAPIReader(),
-				DependencyRetry: 500 * time.Millisecond}).SetupWithManager(mgr)
+				DependencyRetry: 500 * time.Millisecond, Artifacts: d.Artifacts}).SetupWithManager(mgr)
 		},
 		func(mgr ctrl.Manager, d controller.Deps) error {
 			return (&vpcservice.Reconciler{Client: mgr.GetClient(), Accounts: d.Accounts,

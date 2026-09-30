@@ -454,7 +454,7 @@ func TestValidation(t *testing.T) {
 	}, "text is required for (and only valid with) type plain_text")
 	try("modules and sourceRef", func(ws *workersv1alpha1.WorkerScript) {
 		ws.Spec.ForProvider.SourceRef = &workersv1alpha1.WorkerSourceRef{Name: "cm"}
-	}, "exactly one of modules or sourceRef")
+	}, "exactly one of modules, sourceRef or moduleSource")
 	try("main module missing", func(ws *workersv1alpha1.WorkerScript) { ws.Spec.ForProvider.MainModule = "other.js" }, "main_module must name one of modules")
 	try("sampling rate", func(ws *workersv1alpha1.WorkerScript) {
 		r := intstr.FromString("1.5")

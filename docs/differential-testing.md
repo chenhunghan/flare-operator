@@ -70,6 +70,11 @@ A client that is not installed is skipped with a hint. You can override where a 
   - workers.dev off and back on (`triggers deploy`)
   - a redeploy of the existing Worker, which goes through the versions API: `POST …/versions`, `POST …/deployments` at 100%, `PATCH …/script-settings`
   - `delete` (`DELETE …/workers/services/{name}?force=true`)
+- Workers static assets (`wrangler_assets_test.go`, `TestWranglerAssets`):
+  - `deploy` of a Worker with an assets directory (an `ASSETS` binding, `html_handling`, `not_found_handling`, `run_worker_first` rules, `_headers`, `_redirects` and an `.assetsignore`), with flarefake set to two files per bucket so the upload takes a 202 and a 201. flarefake's stored manifest, files and config are checked against the directory.
+  - a redeploy with unchanged assets opens one session and uploads nothing; one changed file is one bucket with one part.
+  - `deploy` and an unchanged redeploy of an assets-only site (no `main`), then `delete` of both.
+  - No discrepancy was found: wrangler's hashes pass flarefake's hash check, and every request matches the pinned spec (the assets upload's undeclared `assets_jwt` security scheme is skipped, `spec.go` `withoutUndeclaredSecurity`).
 
   The test also asserts that every request wrangler made either matches the pinned spec or is a known client-side spec violation, and that it hit only emulated routes. No route is shimmed any more.
 
@@ -155,6 +160,7 @@ What wrangler sends that flarefake accepts, useful as SOURCED evidence:
 - workers.dev is toggled with `POST …/subdomain {"enabled":true|false}`.
 - `GET …/queues?name=` is used for lookups; the queue create body and KV values are sent as `text/plain`.
 - `GET …/versions?deployable=true`.
+- Static assets: `POST …/scripts/{name}/assets-upload-session` with `Content-Type: application/json` on every deploy, bucket uploads as `multipart/form-data` parts named and file-named by the hash with the base64 content and the served Content-Type, `Authorization: Bearer <session jwt>`; the upload metadata carries `assets: {jwt, config}` and, for an assets-only site, no `main_module` and no module part.
 
 A `FLARE_DIFF_CAPTURE_DIR` run gives the full request list.
 

@@ -65,6 +65,9 @@ func parseScriptUpload(c *reqCtx, prev *workerScript) (*scriptUpload, *response)
 		return nil, r
 	}
 	res := &u.res
+	if res.Assets, r = parseAssets(c, prev, md); r != nil {
+		return nil, r
+	}
 	switch {
 	case md.MainModule != nil && *md.MainModule != "":
 		res.MainModule, res.EntryPoint = *md.MainModule, *md.MainModule
@@ -73,13 +76,19 @@ func parseScriptUpload(c *reqCtx, prev *workerScript) (*scriptUpload, *response)
 		// SOURCED: cloudflare/workers-sdk@485cfb3:packages/wrangler/src/__tests__/helpers/mock-upload-worker.ts#L123
 		// (the fixture asserts wrangler's request); see has_modules for the response.
 		res.EntryPoint = *md.BodyPart
+	case res.Assets != nil:
+		// An assets-only Worker: metadata with assets and no module, as wrangler uploads a
+		// project without main, SOURCED cloudflare/workers-sdk@3bdcd0d:packages/deploy-helpers/src/deploy/helpers/create-worker-upload-form.ts#L99-L114.
+		// How the API reports it (entry_point, has_modules false) is UNVERIFIED.
 	default:
 		r := fail(http.StatusBadRequest, 10021, "Metadata must set main_module or body_part.") // UNVERIFIED
 		return nil, &r
 	}
-	if u.code, found = parts[res.EntryPoint]; !found {
-		r := fail(http.StatusBadRequest, 10021, fmt.Sprintf("No such module %q.", res.EntryPoint)) // UNVERIFIED
-		return nil, &r
+	if res.EntryPoint != "" {
+		if u.code, found = parts[res.EntryPoint]; !found {
+			r := fail(http.StatusBadRequest, 10021, fmt.Sprintf("No such module %q.", res.EntryPoint)) // UNVERIFIED
+			return nil, &r
+		}
 	}
 	var bindings []map[string]any
 	if md.Bindings != nil {
@@ -90,6 +99,9 @@ func parseScriptUpload(c *reqCtx, prev *workerScript) (*scriptUpload, *response)
 		return nil, r
 	}
 	if r := validateBindings(c.account, bindings); r != nil {
+		return nil, r
+	}
+	if r := validateAssetsBinding(bindings, res.Assets != nil); r != nil {
 		return nil, r
 	}
 	res.Bindings = bindings

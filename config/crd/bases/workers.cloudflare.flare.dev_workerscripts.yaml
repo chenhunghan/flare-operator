@@ -92,6 +92,208 @@ spec:
                 description: ForProvider is the script (optional for an observe-only
                   object).
                 properties:
+                  assets:
+                    description: |-
+                      Assets are static assets served with (or, without main_module, instead of) the Worker's
+                      code. An assets binding (type assets) lets the code fetch them.
+                    properties:
+                      config:
+                        description: Config of how the assets are served.
+                        properties:
+                          base_path:
+                            description: 'BasePath is the URL path prefix the assets
+                              are served under (Cloudflare''s default: /).'
+                            maxLength: 1024
+                            pattern: ^/
+                            type: string
+                          html_handling:
+                            description: |-
+                              HTMLHandling decides the redirects and rewrites of requests for HTML content (Cloudflare's
+                              default: auto-trailing-slash).
+                            enum:
+                            - auto-trailing-slash
+                            - force-trailing-slash
+                            - drop-trailing-slash
+                            - none
+                            type: string
+                          not_found_handling:
+                            description: |-
+                              NotFoundHandling decides the answer to a request that matches no asset when the Worker
+                              does not run (Cloudflare's default: none, a 404).
+                            enum:
+                            - none
+                            - 404-page
+                            - single-page-application
+                            type: string
+                          run_worker_first:
+                            description: |-
+                              RunWorkerFirst true runs the Worker's code before every request, even one that matches an
+                              asset (the code can serve assets through an assets binding). Needs modules.
+                            type: boolean
+                          run_worker_first_paths:
+                            description: |-
+                              RunWorkerFirstPaths runs the Worker's code first only for requests matching these rules
+                              (sent as run_worker_first's list form): each starts with "/" or "!/" (a negative rule,
+                              which wins), "*" is a glob, and at least one rule is not negative. Needs modules.
+                            items:
+                              maxLength: 1024
+                              pattern: ^!?/
+                              type: string
+                            maxItems: 100
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: atomic
+                            x-kubernetes-validations:
+                            - message: run_worker_first_paths needs at least one rule
+                                that is not negative
+                              rule: self.exists(r, !r.startsWith('!'))
+                        type: object
+                        x-kubernetes-validations:
+                        - message: set run_worker_first or run_worker_first_paths,
+                            not both
+                          rule: '!(has(self.run_worker_first) && has(self.run_worker_first_paths))'
+                      source:
+                        description: Source of the files. A change of their content
+                          uploads the new and changed files only.
+                        properties:
+                          configMapRef:
+                            description: |-
+                              ConfigMapRef takes the files from one or more ConfigMaps in the object's namespace. Each
+                              ConfigMap must carry the label cloudflare.flare.dev/artifact=true. A ConfigMap holds at
+                              most 1 MiB (data and binaryData together), so larger artifacts belong in ociRef or url.
+                            properties:
+                              configMaps:
+                                description: ConfigMaps in the object's namespace,
+                                  each labelled cloudflare.flare.dev/artifact=true.
+                                items:
+                                  description: |-
+                                    ConfigMapArtifact is one ConfigMap of an artifact. Every key of data and binaryData is a file
+                                    (text keys as their UTF-8 bytes, binaryData keys as their bytes). ConfigMap keys cannot hold
+                                    "/", so path places the keys in a directory and items maps single keys to nested paths.
+                                  properties:
+                                    items:
+                                      description: |-
+                                        Items selects keys and gives each its own path (relative to path). When set, only the
+                                        listed keys are used and each must exist; when empty, every key is a file named after it.
+                                      items:
+                                        description: ArtifactKeyToPath maps one ConfigMap
+                                          key to a file path.
+                                        properties:
+                                          key:
+                                            description: Key of the ConfigMap (data
+                                              or binaryData).
+                                            maxLength: 253
+                                            minLength: 1
+                                            type: string
+                                          path:
+                                            description: |-
+                                              Path of the file, relative to the ConfigMap's path. Slash-separated; no "." or ".."
+                                              segments, no leading "/".
+                                            maxLength: 1024
+                                            minLength: 1
+                                            pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                                            type: string
+                                        required:
+                                        - key
+                                        - path
+                                        type: object
+                                      maxItems: 256
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                    name:
+                                      description: Name of the ConfigMap.
+                                      maxLength: 253
+                                      minLength: 1
+                                      type: string
+                                    path:
+                                      description: |-
+                                        Path is the directory, relative to the artifact root, that this ConfigMap's files are
+                                        placed in (default: the root). Slash-separated; no "." or ".." segments, no leading "/".
+                                      maxLength: 1024
+                                      pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                                      type: string
+                                  required:
+                                  - name
+                                  type: object
+                                maxItems: 64
+                                minItems: 1
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            required:
+                            - configMaps
+                            type: object
+                          ociRef:
+                            description: |-
+                              OCIRef takes the files from the layers of an OCI image (e.g. one built FROM scratch with
+                              the site's files). Pin it by digest: a tag is resolved again on every sync, and the digest
+                              it resolved to is reported in status.
+                            properties:
+                              image:
+                                description: |-
+                                  Image is the reference: registry/repository[:tag][@sha256:<digest>]. Pinning by digest is
+                                  recommended: the content then cannot change under the object, and a cached pull needs one
+                                  manifest request per sync. The registry is always contacted over HTTPS.
+                                maxLength: 1024
+                                minLength: 1
+                                type: string
+                              path:
+                                description: |-
+                                  Path is the directory of the image's filesystem that becomes the artifact root (default:
+                                  the image root). Slash-separated; no "." or ".." segments, no leading "/".
+                                maxLength: 1024
+                                pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                                type: string
+                              pullSecretRef:
+                                description: |-
+                                  PullSecretRef names a kubernetes.io/dockerconfigjson Secret in the object's namespace
+                                  with the registry credentials. It must carry the label cloudflare.flare.dev/artifact=true.
+                                  Without it the image is pulled anonymously.
+                                properties:
+                                  name:
+                                    description: Name of the Secret.
+                                    maxLength: 253
+                                    minLength: 1
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - image
+                            type: object
+                          url:
+                            description: URL downloads a tar, tar.gz or zip archive
+                              over HTTPS and checks its SHA-256.
+                            properties:
+                              path:
+                                description: |-
+                                  Path is the directory inside the archive that becomes the artifact root (default: the
+                                  archive root). Slash-separated; no "." or ".." segments, no leading "/".
+                                maxLength: 1024
+                                pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                                type: string
+                              sha256:
+                                description: SHA256 of the archive, lowercase hex.
+                                  The download is rejected unless it matches.
+                                pattern: ^[a-f0-9]{64}$
+                                type: string
+                              url:
+                                description: URL of the archive (https only).
+                                maxLength: 2048
+                                minLength: 9
+                                pattern: ^https://[^\s]+$
+                                type: string
+                            required:
+                            - sha256
+                            - url
+                            type: object
+                        type: object
+                        x-kubernetes-validations:
+                        - message: set exactly one of configMapRef, ociRef or url
+                          rule: '(has(self.configMapRef) ? 1 : 0) + (has(self.ociRef)
+                            ? 1 : 0) + (has(self.url) ? 1 : 0) == 1'
+                    required:
+                    - source
+                    type: object
                   bindings:
                     description: Bindings of the script (env.<name>).
                     items:
@@ -102,6 +304,34 @@ spec:
                         is not Ready yet makes the WorkerScript Synced=False, reason DependencyNotReady, and nothing
                         is uploaded until it is.
                       properties:
+                        allowed_destination_addresses:
+                          description: |-
+                            AllowedDestinationAddresses restricts a send_email binding to these destination addresses
+                            (not together with destination_address).
+                          items:
+                            maxLength: 320
+                            pattern: ^[^@\s]+@[^@\s]+$
+                            type: string
+                          maxItems: 100
+                          type: array
+                          x-kubernetes-list-type: set
+                        allowed_sender_addresses:
+                          description: AllowedSenderAddresses restricts the sender
+                            addresses of a send_email binding.
+                          items:
+                            maxLength: 320
+                            pattern: ^[^@\s]+@[^@\s]+$
+                            type: string
+                          maxItems: 100
+                          type: array
+                          x-kubernetes-list-type: set
+                        bucket_name:
+                          description: BucketName of an r2_bucket binding (the R2
+                            bucket's name).
+                          maxLength: 63
+                          minLength: 3
+                          pattern: ^[a-z0-9][a-z0-9-]*[a-z0-9]$
+                          type: string
                         d1DatabaseRef:
                           description: D1DatabaseRef names a D1Database whose status.id
                             is the database_id.
@@ -113,6 +343,14 @@ spec:
                           type: object
                         database_id:
                           description: DatabaseID of a d1 binding.
+                          type: string
+                        destination_address:
+                          description: |-
+                            DestinationAddress restricts a send_email binding to this one destination address. A
+                            send_email binding needs Email Routing on a zone of the account, with the destination
+                            addresses verified there; the operator does not check that.
+                          maxLength: 320
+                          pattern: ^[^@\s]+@[^@\s]+$
                           type: string
                         entrypoint:
                           description: Entrypoint of the bound Worker to invoke (service
@@ -126,6 +364,16 @@ spec:
                             JSON value of a json binding (required for, and only valid with, type json; checked by
                             the controller: CEL cannot see a schemaless field).
                           x-kubernetes-preserve-unknown-fields: true
+                        jurisdiction:
+                          description: |-
+                            Jurisdiction of the R2 bucket of an r2_bucket binding (a bucket made in a jurisdiction is
+                            found only with it).
+                          enum:
+                          - eu
+                          - fedramp
+                          - fedramp-high
+                          - us
+                          type: string
                         kvNamespaceRef:
                           description: KVNamespaceRef names a KVNamespace whose status.id
                             is the namespace_id.
@@ -208,6 +456,9 @@ spec:
                           - d1
                           - vpc_service
                           - service
+                          - r2_bucket
+                          - send_email
+                          - assets
                           type: string
                         vpcServiceRef:
                           description: |-
@@ -260,6 +511,17 @@ spec:
                         rule: 'self.type == ''service'' ? has(self.service) != has(self.serviceRef)
                           : !has(self.service) && !has(self.serviceRef) && !has(self.environment)
                           && !has(self.entrypoint)'
+                      - message: type r2_bucket needs bucket_name (only valid with
+                          that type, as is jurisdiction)
+                        rule: 'self.type == ''r2_bucket'' ? has(self.bucket_name)
+                          : !has(self.bucket_name) && !has(self.jurisdiction)'
+                      - message: destination_address, allowed_destination_addresses
+                          and allowed_sender_addresses are only valid with type send_email
+                        rule: self.type == 'send_email' || (!has(self.destination_address)
+                          && !has(self.allowed_destination_addresses) && !has(self.allowed_sender_addresses))
+                      - message: set destination_address or allowed_destination_addresses,
+                          not both
+                        rule: '!(has(self.destination_address) && has(self.allowed_destination_addresses))'
                     maxItems: 64
                     type: array
                     x-kubernetes-list-map-keys:
@@ -280,10 +542,167 @@ spec:
                       the script.
                     type: boolean
                   main_module:
-                    description: MainModule is the module that exports the handlers
-                      (metadata.main_module).
+                    description: |-
+                      MainModule is the module that exports the handlers (metadata.main_module). Required
+                      unless the Worker is assets-only (assets, and no modules).
                     minLength: 1
                     type: string
+                  moduleSource:
+                    description: |-
+                      ModuleSource takes the modules from an artifact (labelled ConfigMaps, an OCI image or an
+                      HTTPS archive; docs/artifacts.md), for example a bundle built by CI. Every file is a
+                      module named by its path; its type comes from moduleTypes, else from its extension: .js
+                      and .mjs → esm, .cjs → cjs, .json → json, .wasm → wasm (raw bytes), .txt, .html, .htm,
+                      .css, .md, .csv and .svg → text. A file of any other type is an error. At most 64
+                      modules.
+                    properties:
+                      configMapRef:
+                        description: |-
+                          ConfigMapRef takes the files from one or more ConfigMaps in the object's namespace. Each
+                          ConfigMap must carry the label cloudflare.flare.dev/artifact=true. A ConfigMap holds at
+                          most 1 MiB (data and binaryData together), so larger artifacts belong in ociRef or url.
+                        properties:
+                          configMaps:
+                            description: ConfigMaps in the object's namespace, each
+                              labelled cloudflare.flare.dev/artifact=true.
+                            items:
+                              description: |-
+                                ConfigMapArtifact is one ConfigMap of an artifact. Every key of data and binaryData is a file
+                                (text keys as their UTF-8 bytes, binaryData keys as their bytes). ConfigMap keys cannot hold
+                                "/", so path places the keys in a directory and items maps single keys to nested paths.
+                              properties:
+                                items:
+                                  description: |-
+                                    Items selects keys and gives each its own path (relative to path). When set, only the
+                                    listed keys are used and each must exist; when empty, every key is a file named after it.
+                                  items:
+                                    description: ArtifactKeyToPath maps one ConfigMap
+                                      key to a file path.
+                                    properties:
+                                      key:
+                                        description: Key of the ConfigMap (data or
+                                          binaryData).
+                                        maxLength: 253
+                                        minLength: 1
+                                        type: string
+                                      path:
+                                        description: |-
+                                          Path of the file, relative to the ConfigMap's path. Slash-separated; no "." or ".."
+                                          segments, no leading "/".
+                                        maxLength: 1024
+                                        minLength: 1
+                                        pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                                        type: string
+                                    required:
+                                    - key
+                                    - path
+                                    type: object
+                                  maxItems: 256
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                                name:
+                                  description: Name of the ConfigMap.
+                                  maxLength: 253
+                                  minLength: 1
+                                  type: string
+                                path:
+                                  description: |-
+                                    Path is the directory, relative to the artifact root, that this ConfigMap's files are
+                                    placed in (default: the root). Slash-separated; no "." or ".." segments, no leading "/".
+                                  maxLength: 1024
+                                  pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            maxItems: 64
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        required:
+                        - configMaps
+                        type: object
+                      ociRef:
+                        description: |-
+                          OCIRef takes the files from the layers of an OCI image (e.g. one built FROM scratch with
+                          the site's files). Pin it by digest: a tag is resolved again on every sync, and the digest
+                          it resolved to is reported in status.
+                        properties:
+                          image:
+                            description: |-
+                              Image is the reference: registry/repository[:tag][@sha256:<digest>]. Pinning by digest is
+                              recommended: the content then cannot change under the object, and a cached pull needs one
+                              manifest request per sync. The registry is always contacted over HTTPS.
+                            maxLength: 1024
+                            minLength: 1
+                            type: string
+                          path:
+                            description: |-
+                              Path is the directory of the image's filesystem that becomes the artifact root (default:
+                              the image root). Slash-separated; no "." or ".." segments, no leading "/".
+                            maxLength: 1024
+                            pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                            type: string
+                          pullSecretRef:
+                            description: |-
+                              PullSecretRef names a kubernetes.io/dockerconfigjson Secret in the object's namespace
+                              with the registry credentials. It must carry the label cloudflare.flare.dev/artifact=true.
+                              Without it the image is pulled anonymously.
+                            properties:
+                              name:
+                                description: Name of the Secret.
+                                maxLength: 253
+                                minLength: 1
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        required:
+                        - image
+                        type: object
+                      url:
+                        description: URL downloads a tar, tar.gz or zip archive over
+                          HTTPS and checks its SHA-256.
+                        properties:
+                          path:
+                            description: |-
+                              Path is the directory inside the archive that becomes the artifact root (default: the
+                              archive root). Slash-separated; no "." or ".." segments, no leading "/".
+                            maxLength: 1024
+                            pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                            type: string
+                          sha256:
+                            description: SHA256 of the archive, lowercase hex. The
+                              download is rejected unless it matches.
+                            pattern: ^[a-f0-9]{64}$
+                            type: string
+                          url:
+                            description: URL of the archive (https only).
+                            maxLength: 2048
+                            minLength: 9
+                            pattern: ^https://[^\s]+$
+                            type: string
+                        required:
+                        - sha256
+                        - url
+                        type: object
+                    type: object
+                    x-kubernetes-validations:
+                    - message: set exactly one of configMapRef, ociRef or url
+                      rule: '(has(self.configMapRef) ? 1 : 0) + (has(self.ociRef)
+                        ? 1 : 0) + (has(self.url) ? 1 : 0) == 1'
+                  moduleTypes:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      ModuleTypes overrides the module type of moduleSource files by path (esm, cjs, text, json,
+                      wasm).
+                    maxProperties: 64
+                    type: object
+                    x-kubernetes-validations:
+                    - message: module types are esm, cjs, text, json or wasm
+                      rule: self.all(k, self[k] in ['esm', 'cjs', 'text', 'json',
+                        'wasm'])
                   modules:
                     additionalProperties:
                       description: WorkerModule is one module (one multipart part)
@@ -309,7 +728,7 @@ spec:
                       type: object
                     description: |-
                       Modules are the script's modules inline: module name (the part and file name, e.g.
-                      index.js) → content. Exactly one of modules or sourceRef.
+                      index.js) → content. Exactly one of modules, sourceRef or moduleSource.
                     maxProperties: 64
                     minProperties: 1
                     type: object
@@ -366,8 +785,9 @@ spec:
                     - message: script_name is immutable
                       rule: self == oldSelf
                   sourceRef:
-                    description: SourceRef takes the modules from a ConfigMap. Exactly
-                      one of modules or sourceRef.
+                    description: |-
+                      SourceRef takes the modules from a ConfigMap. Exactly one of modules, sourceRef or
+                      moduleSource.
                     properties:
                       name:
                         description: Name of the ConfigMap.
@@ -397,14 +817,30 @@ spec:
                     required:
                     - enabled
                     type: object
-                required:
-                - main_module
                 type: object
                 x-kubernetes-validations:
-                - message: set exactly one of modules or sourceRef
-                  rule: has(self.modules) != has(self.sourceRef)
+                - message: 'set exactly one of modules, sourceRef or moduleSource
+                    (none only for an assets-only Worker: assets without main_module)'
+                  rule: '(has(self.modules) ? 1 : 0) + (has(self.sourceRef) ? 1 :
+                    0) + (has(self.moduleSource) ? 1 : 0) == (has(self.assets) &&
+                    !has(self.main_module) ? 0 : 1)'
+                - message: main_module is required (unless the Worker is assets-only)
+                  rule: has(self.main_module) || has(self.assets)
                 - message: main_module must name one of modules
-                  rule: '!has(self.modules) || self.main_module in self.modules'
+                  rule: '!has(self.modules) || (has(self.main_module) && self.main_module
+                    in self.modules)'
+                - message: moduleTypes is only valid with moduleSource
+                  rule: '!has(self.moduleTypes) || has(self.moduleSource)'
+                - message: an assets-only Worker (no main_module) has no bindings
+                  rule: has(self.main_module) || !has(self.bindings) || size(self.bindings)
+                    == 0
+                - message: run_worker_first needs a Worker's code (main_module)
+                  rule: has(self.main_module) || !has(self.assets) || !has(self.assets.config)
+                    || (!has(self.assets.config.run_worker_first) && !has(self.assets.config.run_worker_first_paths))
+                - message: an assets binding needs forProvider.assets, and there is
+                    at most one
+                  rule: '!has(self.bindings) || self.bindings.filter(b, b.type ==
+                    ''assets'').size() <= (has(self.assets) ? 1 : 0)'
                 - message: script_name cannot be added or removed
                   rule: has(self.script_name) == has(oldSelf.script_name)
               managementPolicies:
@@ -449,6 +885,67 @@ spec:
           status:
             description: WorkerScriptStatus defines the observed state of a WorkerScript.
             properties:
+              artifacts:
+                description: Artifacts are the artifacts last loaded for moduleSource
+                  and assets.source.
+                properties:
+                  assetFiles:
+                    description: |-
+                      AssetFiles is the number of files in the asset manifest (the artifact's files without
+                      _headers, _redirects, .assetsignore and the files it ignores).
+                    format: int32
+                    type: integer
+                  assets:
+                    description: Assets is the artifact of forProvider.assets.source.
+                    properties:
+                      bytes:
+                        description: Bytes is the total size of the files.
+                        format: int64
+                        type: integer
+                      digest:
+                        description: |-
+                          Digest of the file tree ("sha256:<hex>" over the sorted paths and contents); the same
+                          files give the same digest whatever the source.
+                        type: string
+                      files:
+                        description: Files is the number of files in the tree.
+                        format: int32
+                        type: integer
+                      resolvedDigest:
+                        description: |-
+                          ResolvedDigest is the manifest digest an ociRef resolved to (the digest of its tag at the
+                          last sync, or the pinned digest).
+                        type: string
+                    type: object
+                  modules:
+                    description: Modules is the artifact of forProvider.moduleSource.
+                    properties:
+                      bytes:
+                        description: Bytes is the total size of the files.
+                        format: int64
+                        type: integer
+                      digest:
+                        description: |-
+                          Digest of the file tree ("sha256:<hex>" over the sorted paths and contents); the same
+                          files give the same digest whatever the source.
+                        type: string
+                      files:
+                        description: Files is the number of files in the tree.
+                        format: int32
+                        type: integer
+                      resolvedDigest:
+                        description: |-
+                          ResolvedDigest is the manifest digest an ociRef resolved to (the digest of its tag at the
+                          last sync, or the pinned digest).
+                        type: string
+                    type: object
+                type: object
+              assetsHash:
+                description: |-
+                  AssetsHash is a hash of the asset manifest (every served path with the hash and size of
+                  its file, as the upload session was sent it) and the assets config last uploaded. The
+                  assets upload flow runs only when it changes.
+                type: string
               atProvider:
                 description: AtProvider is the script as last read from Cloudflare.
                 properties:
@@ -489,6 +986,9 @@ spec:
                     items:
                       type: string
                     type: array
+                  has_assets:
+                    description: HasAssets reports that the script has static assets.
+                    type: boolean
                   id:
                     description: ID is the script name.
                     type: string

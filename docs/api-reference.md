@@ -52,7 +52,7 @@ Every kind reports two conditions. `Ready` says whether the Cloudflare resource 
 | `Unavailable` | Ready | False | every kind | The resource exists but is not usable yet (Tunnel: cloudflared replicas not ready or the tunnel not connected), or the first read failed transiently (CloudflareAccount: the first token verification got a 429, 5xx or transport error). |
 | `ExternalNotFound` | Ready, Synced | False | managed kinds | The Cloudflare resource does not exist and the object may not create it: managementPolicies exclude Create (an observe-only object with nothing to observe), or the external-id annotation pins a resource that was deleted (remove the annotation to create a new one). |
 | `AccountNotReady` | Ready, Synced | False | managed kinds | The CloudflareAccount named by spec.accountRef is missing or not Ready; nothing is sent to Cloudflare. |
-| `DependencyNotReady` | Ready, Synced | False | managed kinds, CloudflareAccount | A referenced object is not Ready yet (a WorkerScript binding's kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef or serviceRef; a VPCService's tunnelRef), so nothing is sent until it is; or deletion waits for referrers (a Tunnel or VPCService still used, a CloudflareAccount still used by managed objects). |
+| `DependencyNotReady` | Ready, Synced | False | managed kinds, CloudflareAccount | A referenced object is not Ready yet (a WorkerScript binding's kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef or serviceRef; a VPCService's tunnelRef; a ConfigMap or pull Secret of a WorkerScript's moduleSource or assets.source that is missing or lacks the label cloudflare.flare.dev/artifact=true), so nothing is sent until it is; or deletion waits for referrers (a Tunnel or VPCService still used, a CloudflareAccount still used by managed objects). |
 | `ReconcileSuccess` | Synced | True | every kind | The last reconcile applied spec to Cloudflare (or found nothing to change). |
 | `ObserveOnly` | Synced | True | managed kinds | managementPolicies is ["Observe"]; the resource was read and nothing is ever written. |
 | `ReconcileError` | Synced | False | every kind | The last reconcile failed (the message quotes the Cloudflare error, sanitized) or spec differs from Cloudflare in a way the policies or the API do not allow to fix (no update operation, Update not in managementPolicies). Transient errors are retried with backoff. |
@@ -60,7 +60,7 @@ Every kind reports two conditions. `Ready` says whether the Cloudflare resource 
 | `NameConflict` | Ready, Synced | False | Tunnel, VPCService, WorkerScript, generated kinds without an owner tag (VectorizeIndex, SecretsStore, AIGateway; every generated kind with --ownership-tags=false) | The Cloudflare name (or client-chosen ID) is taken by a resource this object cannot prove it owns: no owner tag names this object and it is not the object's own lost create. It is not adopted by name. Set the cloudflare.flare.dev/external-id annotation to adopt it. |
 | `InvalidHostname` | Ready, Synced | False | VPCService | host.hostname looks like a short in-cluster name; cloudflared never applies DNS search domains, so use the fully qualified name. |
 | `InvalidScriptName` | Ready, Synced | False | WorkerScript | The script name (forProvider.script_name, or metadata.name) is not a valid Workers script name. |
-| `InvalidSpec` | Ready, Synced | False | WorkerScript | forProvider cannot be uploaded (an invalid module name or type, wasm-base64 content that is not base64, a main_module that is not one of the modules, an unusable sourceRef ConfigMap, ...). |
+| `InvalidSpec` | Ready, Synced | False | WorkerScript | forProvider cannot be uploaded (an invalid module name or type, wasm-base64 content that is not base64, a main_module that is not one of the modules, an unusable sourceRef ConfigMap, a moduleSource file of unknown type, an artifact the loader refuses (limits, path safety, SHA-256 mismatch), a static asset over 25 MiB, a _worker.js asset without .assetsignore, ...). |
 | `SecretNotFound` | Ready | False | CloudflareAccount | The Secret named by spec.tokenSecretRef does not exist. |
 | `SecretKeyMissing` | Ready | False | CloudflareAccount | The token Secret has no (or an empty) spec.tokenSecretRef.key. |
 | `TokenInvalid` | Ready | False | CloudflareAccount | Cloudflare rejected the token, or reported an unexpected token status. |
@@ -790,9 +790,17 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
 | `spec.accountRef.name` | accountRef.name must name a CloudflareAccount in this namespace (1-253 characters) | ` size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253 ` |
 | `spec` | forProvider is required unless managementPolicies exclude Create and Update (e.g. ["Observe"]) | ` has(self.forProvider) \|\| (has(self.managementPolicies) && size(self.managementPolicies) > 0 && !('*' in self.managementPolicies) && !('Create' in self.managementPolicies) && !('Update' in self.managementPolicies)) ` |
-| `spec.forProvider` | set exactly one of modules or sourceRef | ` has(self.modules) != has(self.sourceRef) ` |
-| `spec.forProvider` | main_module must name one of modules | ` !has(self.modules) \|\| self.main_module in self.modules ` |
+| `spec.forProvider` | set exactly one of modules, sourceRef or moduleSource (none only for an assets-only Worker: assets without main_module) | ` (has(self.modules) ? 1 : 0) + (has(self.sourceRef) ? 1 : 0) + (has(self.moduleSource) ? 1 : 0) == (has(self.assets) && !has(self.main_module) ? 0 : 1) ` |
+| `spec.forProvider` | main_module is required (unless the Worker is assets-only) | ` has(self.main_module) \|\| has(self.assets) ` |
+| `spec.forProvider` | main_module must name one of modules | ` !has(self.modules) \|\| (has(self.main_module) && self.main_module in self.modules) ` |
+| `spec.forProvider` | moduleTypes is only valid with moduleSource | ` !has(self.moduleTypes) \|\| has(self.moduleSource) ` |
+| `spec.forProvider` | an assets-only Worker (no main_module) has no bindings | ` has(self.main_module) \|\| !has(self.bindings) \|\| size(self.bindings) == 0 ` |
+| `spec.forProvider` | run_worker_first needs a Worker's code (main_module) | ` has(self.main_module) \|\| !has(self.assets) \|\| !has(self.assets.config) \|\| (!has(self.assets.config.run_worker_first) && !has(self.assets.config.run_worker_first_paths)) ` |
+| `spec.forProvider` | an assets binding needs forProvider.assets, and there is at most one | ` !has(self.bindings) \|\| self.bindings.filter(b, b.type == 'assets').size() <= (has(self.assets) ? 1 : 0) ` |
 | `spec.forProvider` | script_name cannot be added or removed | ` has(self.script_name) == has(oldSelf.script_name) ` |
+| `spec.forProvider.assets.config` | set run_worker_first or run_worker_first_paths, not both | ` !(has(self.run_worker_first) && has(self.run_worker_first_paths)) ` |
+| `spec.forProvider.assets.config.run_worker_first_paths` | run_worker_first_paths needs at least one rule that is not negative | ` self.exists(r, !r.startsWith('!')) ` |
+| `spec.forProvider.assets.source` | set exactly one of configMapRef, ociRef or url | ` (has(self.configMapRef) ? 1 : 0) + (has(self.ociRef) ? 1 : 0) + (has(self.url) ? 1 : 0) == 1 ` |
 | `spec.forProvider.bindings[]` | a kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef or serviceRef needs a non-empty name | ` (!has(self.kvNamespaceRef) \|\| size(self.kvNamespaceRef.name) > 0) && (!has(self.queueRef) \|\| size(self.queueRef.name) > 0) && (!has(self.d1DatabaseRef) \|\| size(self.d1DatabaseRef.name) > 0) && (!has(self.vpcServiceRef) \|\| size(self.vpcServiceRef.name) > 0) && (!has(self.serviceRef) \|\| size(self.serviceRef.name) > 0) ` |
 | `spec.forProvider.bindings[]` | text is required for (and only valid with) type plain_text | ` self.type == 'plain_text' ? has(self.text) : !has(self.text) ` |
 | `spec.forProvider.bindings[]` | secretKeyRef is required for (and only valid with) type secret_text | ` self.type == 'secret_text' ? has(self.secretKeyRef) : !has(self.secretKeyRef) ` |
@@ -801,6 +809,11 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.forProvider.bindings[]` | type d1 needs exactly one of database_id or d1DatabaseRef (only valid with that type) | ` self.type == 'd1' ? has(self.database_id) != has(self.d1DatabaseRef) : !has(self.database_id) && !has(self.d1DatabaseRef) ` |
 | `spec.forProvider.bindings[]` | type vpc_service needs exactly one of service_id or vpcServiceRef (only valid with that type) | ` self.type == 'vpc_service' ? has(self.service_id) != has(self.vpcServiceRef) : !has(self.service_id) && !has(self.vpcServiceRef) ` |
 | `spec.forProvider.bindings[]` | type service needs exactly one of service or serviceRef (only valid with that type, as are environment and entrypoint) | ` self.type == 'service' ? has(self.service) != has(self.serviceRef) : !has(self.service) && !has(self.serviceRef) && !has(self.environment) && !has(self.entrypoint) ` |
+| `spec.forProvider.bindings[]` | type r2_bucket needs bucket_name (only valid with that type, as is jurisdiction) | ` self.type == 'r2_bucket' ? has(self.bucket_name) : !has(self.bucket_name) && !has(self.jurisdiction) ` |
+| `spec.forProvider.bindings[]` | destination_address, allowed_destination_addresses and allowed_sender_addresses are only valid with type send_email | ` self.type == 'send_email' \|\| (!has(self.destination_address) && !has(self.allowed_destination_addresses) && !has(self.allowed_sender_addresses)) ` |
+| `spec.forProvider.bindings[]` | set destination_address or allowed_destination_addresses, not both | ` !(has(self.destination_address) && has(self.allowed_destination_addresses)) ` |
+| `spec.forProvider.moduleSource` | set exactly one of configMapRef, ociRef or url | ` (has(self.configMapRef) ? 1 : 0) + (has(self.ociRef) ? 1 : 0) + (has(self.url) ? 1 : 0) == 1 ` |
+| `spec.forProvider.moduleTypes` | module types are esm, cjs, text, json or wasm | ` self.all(k, self[k] in ['esm', 'cjs', 'text', 'json', 'wasm']) ` |
 | `spec.forProvider.observability.head_sampling_rate` | must be between 0 and 1 | ` type(self) == int ? (self == 0 \|\| self == 1) : self.matches('^(0(\\.[0-9]{1,6})?\|1(\\.0{1,6})?)$') ` |
 | `spec.forProvider.observability.logs.head_sampling_rate` | must be between 0 and 1 | ` type(self) == int ? (self == 0 \|\| self == 1) : self.matches('^(0(\\.[0-9]{1,6})?\|1(\\.0{1,6})?)$') ` |
 | `spec.forProvider.script_name` | script_name is immutable | ` self == oldSelf ` |
@@ -814,13 +827,42 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.accountRef.name` | string | **Required.** |  |
 | `spec.deletionPolicy` | string | DeletionPolicy defaults per kind (Orphan for data-bearing kinds). | one of `Delete`, `Orphan` |
 | `spec.forProvider` | object | ForProvider is the script (optional for an observe-only object). | CEL rules: see above |
+| `spec.forProvider.assets` | object | Assets are static assets served with (or, without main_module, instead of) the Worker's code. An assets binding (type assets) lets the code fetch them. |  |
+| `spec.forProvider.assets.config` | object | Config of how the assets are served. | CEL rules: see above |
+| `spec.forProvider.assets.config.base_path` | string | BasePath is the URL path prefix the assets are served under (Cloudflare's default: /). | pattern ` ^/ `; length ≤ 1024 |
+| `spec.forProvider.assets.config.html_handling` | string | HTMLHandling decides the redirects and rewrites of requests for HTML content (Cloudflare's default: auto-trailing-slash). | one of `auto-trailing-slash`, `force-trailing-slash`, `drop-trailing-slash`, `none` |
+| `spec.forProvider.assets.config.not_found_handling` | string | NotFoundHandling decides the answer to a request that matches no asset when the Worker does not run (Cloudflare's default: none, a 404). | one of `none`, `404-page`, `single-page-application` |
+| `spec.forProvider.assets.config.run_worker_first` | boolean | RunWorkerFirst true runs the Worker's code before every request, even one that matches an asset (the code can serve assets through an assets binding). Needs modules. |  |
+| `spec.forProvider.assets.config.run_worker_first_paths` | []string | RunWorkerFirstPaths runs the Worker's code first only for requests matching these rules (sent as run_worker_first's list form): each starts with "/" or "!/" (a negative rule, which wins), "*" is a glob, and at least one rule is not negative. Needs modules. | items 1–100; each item: pattern ` ^!?/ `; length ≤ 1024; CEL rules: see above |
+| `spec.forProvider.assets.source` | object | **Required.** Source of the files. A change of their content uploads the new and changed files only. | CEL rules: see above |
+| `spec.forProvider.assets.source.configMapRef` | object | ConfigMapRef takes the files from one or more ConfigMaps in the object's namespace. Each ConfigMap must carry the label cloudflare.flare.dev/artifact=true. A ConfigMap holds at most 1 MiB (data and binaryData together), so larger artifacts belong in ociRef or url. |  |
+| `spec.forProvider.assets.source.configMapRef.configMaps` | []object | **Required.** ConfigMaps in the object's namespace, each labelled cloudflare.flare.dev/artifact=true. | items 1–64 |
+| `spec.forProvider.assets.source.configMapRef.configMaps[].items` | []object | Items selects keys and gives each its own path (relative to path). When set, only the listed keys are used and each must exist; when empty, every key is a file named after it. | items ≤ 256 |
+| `spec.forProvider.assets.source.configMapRef.configMaps[].items[].key` | string | **Required.** Key of the ConfigMap (data or binaryData). | length 1–253 |
+| `spec.forProvider.assets.source.configMapRef.configMaps[].items[].path` | string | **Required.** Path of the file, relative to the ConfigMap's path. Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length 1–1024 |
+| `spec.forProvider.assets.source.configMapRef.configMaps[].name` | string | **Required.** Name of the ConfigMap. | length 1–253 |
+| `spec.forProvider.assets.source.configMapRef.configMaps[].path` | string | Path is the directory, relative to the artifact root, that this ConfigMap's files are placed in (default: the root). Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length ≤ 1024 |
+| `spec.forProvider.assets.source.ociRef` | object | OCIRef takes the files from the layers of an OCI image (e.g. one built FROM scratch with the site's files). Pin it by digest: a tag is resolved again on every sync, and the digest it resolved to is reported in status. |  |
+| `spec.forProvider.assets.source.ociRef.image` | string | **Required.** Image is the reference: registry/repository[:tag][@sha256:&lt;digest&gt;]. Pinning by digest is recommended: the content then cannot change under the object, and a cached pull needs one manifest request per sync. The registry is always contacted over HTTPS. | length 1–1024 |
+| `spec.forProvider.assets.source.ociRef.path` | string | Path is the directory of the image's filesystem that becomes the artifact root (default: the image root). Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length ≤ 1024 |
+| `spec.forProvider.assets.source.ociRef.pullSecretRef` | object | PullSecretRef names a kubernetes.io/dockerconfigjson Secret in the object's namespace with the registry credentials. It must carry the label cloudflare.flare.dev/artifact=true. Without it the image is pulled anonymously. |  |
+| `spec.forProvider.assets.source.ociRef.pullSecretRef.name` | string | **Required.** Name of the Secret. | length 1–253 |
+| `spec.forProvider.assets.source.url` | object | URL downloads a tar, tar.gz or zip archive over HTTPS and checks its SHA-256. |  |
+| `spec.forProvider.assets.source.url.path` | string | Path is the directory inside the archive that becomes the artifact root (default: the archive root). Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length ≤ 1024 |
+| `spec.forProvider.assets.source.url.sha256` | string | **Required.** SHA256 of the archive, lowercase hex. The download is rejected unless it matches. | pattern ` ^[a-f0-9]{64}$ ` |
+| `spec.forProvider.assets.source.url.url` | string | **Required.** URL of the archive (https only). | pattern ` ^https://[^\s]+$ `; length 9–2048 |
 | `spec.forProvider.bindings` | []object | Bindings of the script (env.&lt;name&gt;). | items ≤ 64; list type map (key name) |
+| `spec.forProvider.bindings[].allowed_destination_addresses` | []string | AllowedDestinationAddresses restricts a send_email binding to these destination addresses (not together with destination_address). | items ≤ 100; each item: pattern ` ^[^@\s]+@[^@\s]+$ `; length ≤ 320; list type set |
+| `spec.forProvider.bindings[].allowed_sender_addresses` | []string | AllowedSenderAddresses restricts the sender addresses of a send_email binding. | items ≤ 100; each item: pattern ` ^[^@\s]+@[^@\s]+$ `; length ≤ 320; list type set |
+| `spec.forProvider.bindings[].bucket_name` | string | BucketName of an r2_bucket binding (the R2 bucket's name). | pattern ` ^[a-z0-9][a-z0-9-]*[a-z0-9]$ `; length 3–63 |
 | `spec.forProvider.bindings[].d1DatabaseRef` | object | D1DatabaseRef names a D1Database whose status.id is the database_id. |  |
 | `spec.forProvider.bindings[].d1DatabaseRef.name` | string | **Required.** |  |
 | `spec.forProvider.bindings[].database_id` | string | DatabaseID of a d1 binding. |  |
+| `spec.forProvider.bindings[].destination_address` | string | DestinationAddress restricts a send_email binding to this one destination address. A send_email binding needs Email Routing on a zone of the account, with the destination addresses verified there; the operator does not check that. | pattern ` ^[^@\s]+@[^@\s]+$ `; length ≤ 320 |
 | `spec.forProvider.bindings[].entrypoint` | string | Entrypoint of the bound Worker to invoke (service bindings). |  |
 | `spec.forProvider.bindings[].environment` | string | Environment of the bound Worker (service bindings). |  |
 | `spec.forProvider.bindings[].json` | any | JSON value of a json binding (required for, and only valid with, type json; checked by the controller: CEL cannot see a schemaless field). |  |
+| `spec.forProvider.bindings[].jurisdiction` | string | Jurisdiction of the R2 bucket of an r2_bucket binding (a bucket made in a jurisdiction is found only with it). | one of `eu`, `fedramp`, `fedramp-high`, `us` |
 | `spec.forProvider.bindings[].kvNamespaceRef` | object | KVNamespaceRef names a KVNamespace whose status.id is the namespace_id. |  |
 | `spec.forProvider.bindings[].kvNamespaceRef.name` | string | **Required.** |  |
 | `spec.forProvider.bindings[].name` | string | **Required.** Name is the JavaScript variable name of the binding (env.&lt;name&gt;). | length 1–255 |
@@ -836,14 +878,32 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.forProvider.bindings[].serviceRef.name` | string | **Required.** |  |
 | `spec.forProvider.bindings[].service_id` | string | ServiceID of a vpc_service binding (a Workers VPC service). |  |
 | `spec.forProvider.bindings[].text` | string | Text of a plain_text binding. |  |
-| `spec.forProvider.bindings[].type` | string | **Required.** Type of the binding. | one of `plain_text`, `secret_text`, `json`, `kv_namespace`, `queue`, `d1`, `vpc_service`, `service` |
+| `spec.forProvider.bindings[].type` | string | **Required.** Type of the binding. | one of `plain_text`, `secret_text`, `json`, `kv_namespace`, `queue`, `d1`, `vpc_service`, `service`, `r2_bucket`, `send_email`, `assets` |
 | `spec.forProvider.bindings[].vpcServiceRef` | object | VPCServiceRef names a VPCService whose status.id is the service_id. The VPCService cannot finish deleting while this binding exists (Cloudflare does not check, 0091). |  |
 | `spec.forProvider.bindings[].vpcServiceRef.name` | string | **Required.** |  |
 | `spec.forProvider.compatibility_date` | string | CompatibilityDate of the Workers runtime, e.g. 2026-09-01. | pattern ` ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ` |
 | `spec.forProvider.compatibility_flags` | []string | CompatibilityFlags of the Workers runtime, e.g. nodejs_compat. | list type set |
 | `spec.forProvider.logpush` | boolean | Logpush enables Workers Trace Events Logpush for the script. |  |
-| `spec.forProvider.main_module` | string | **Required.** MainModule is the module that exports the handlers (metadata.main_module). | length ≥ 1 |
-| `spec.forProvider.modules` | map[string]object | Modules are the script's modules inline: module name (the part and file name, e.g. index.js) → content. Exactly one of modules or sourceRef. | properties 1–64 |
+| `spec.forProvider.main_module` | string | MainModule is the module that exports the handlers (metadata.main_module). Required unless the Worker is assets-only (assets, and no modules). | length ≥ 1 |
+| `spec.forProvider.moduleSource` | object | ModuleSource takes the modules from an artifact (labelled ConfigMaps, an OCI image or an HTTPS archive; docs/artifacts.md), for example a bundle built by CI. Every file is a module named by its path; its type comes from moduleTypes, else from its extension: .js and .mjs → esm, .cjs → cjs, .json → json, .wasm → wasm (raw bytes), .txt, .html, .htm, .css, .md, .csv and .svg → text. A file of any other type is an error. At most 64 modules. | CEL rules: see above |
+| `spec.forProvider.moduleSource.configMapRef` | object | ConfigMapRef takes the files from one or more ConfigMaps in the object's namespace. Each ConfigMap must carry the label cloudflare.flare.dev/artifact=true. A ConfigMap holds at most 1 MiB (data and binaryData together), so larger artifacts belong in ociRef or url. |  |
+| `spec.forProvider.moduleSource.configMapRef.configMaps` | []object | **Required.** ConfigMaps in the object's namespace, each labelled cloudflare.flare.dev/artifact=true. | items 1–64 |
+| `spec.forProvider.moduleSource.configMapRef.configMaps[].items` | []object | Items selects keys and gives each its own path (relative to path). When set, only the listed keys are used and each must exist; when empty, every key is a file named after it. | items ≤ 256 |
+| `spec.forProvider.moduleSource.configMapRef.configMaps[].items[].key` | string | **Required.** Key of the ConfigMap (data or binaryData). | length 1–253 |
+| `spec.forProvider.moduleSource.configMapRef.configMaps[].items[].path` | string | **Required.** Path of the file, relative to the ConfigMap's path. Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length 1–1024 |
+| `spec.forProvider.moduleSource.configMapRef.configMaps[].name` | string | **Required.** Name of the ConfigMap. | length 1–253 |
+| `spec.forProvider.moduleSource.configMapRef.configMaps[].path` | string | Path is the directory, relative to the artifact root, that this ConfigMap's files are placed in (default: the root). Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length ≤ 1024 |
+| `spec.forProvider.moduleSource.ociRef` | object | OCIRef takes the files from the layers of an OCI image (e.g. one built FROM scratch with the site's files). Pin it by digest: a tag is resolved again on every sync, and the digest it resolved to is reported in status. |  |
+| `spec.forProvider.moduleSource.ociRef.image` | string | **Required.** Image is the reference: registry/repository[:tag][@sha256:&lt;digest&gt;]. Pinning by digest is recommended: the content then cannot change under the object, and a cached pull needs one manifest request per sync. The registry is always contacted over HTTPS. | length 1–1024 |
+| `spec.forProvider.moduleSource.ociRef.path` | string | Path is the directory of the image's filesystem that becomes the artifact root (default: the image root). Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length ≤ 1024 |
+| `spec.forProvider.moduleSource.ociRef.pullSecretRef` | object | PullSecretRef names a kubernetes.io/dockerconfigjson Secret in the object's namespace with the registry credentials. It must carry the label cloudflare.flare.dev/artifact=true. Without it the image is pulled anonymously. |  |
+| `spec.forProvider.moduleSource.ociRef.pullSecretRef.name` | string | **Required.** Name of the Secret. | length 1–253 |
+| `spec.forProvider.moduleSource.url` | object | URL downloads a tar, tar.gz or zip archive over HTTPS and checks its SHA-256. |  |
+| `spec.forProvider.moduleSource.url.path` | string | Path is the directory inside the archive that becomes the artifact root (default: the archive root). Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length ≤ 1024 |
+| `spec.forProvider.moduleSource.url.sha256` | string | **Required.** SHA256 of the archive, lowercase hex. The download is rejected unless it matches. | pattern ` ^[a-f0-9]{64}$ ` |
+| `spec.forProvider.moduleSource.url.url` | string | **Required.** URL of the archive (https only). | pattern ` ^https://[^\s]+$ `; length 9–2048 |
+| `spec.forProvider.moduleTypes` | map[string]string | ModuleTypes overrides the module type of moduleSource files by path (esm, cjs, text, json, wasm). | properties ≤ 64; CEL rules: see above |
+| `spec.forProvider.modules` | map[string]object | Modules are the script's modules inline: module name (the part and file name, e.g. index.js) → content. Exactly one of modules, sourceRef or moduleSource. | properties 1–64 |
 | `spec.forProvider.modules[key].content` | string | **Required.** Content of the module. |  |
 | `spec.forProvider.modules[key].type` | string | Type of the module: esm (default), cjs, text, json or wasm-base64 (content is base64 and is uploaded decoded as application/wasm). | one of `esm`, `cjs`, `text`, `json`, `wasm-base64`; default `"esm"` |
 | `spec.forProvider.observability` | object | Observability settings. |  |
@@ -854,7 +914,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.forProvider.observability.logs.head_sampling_rate` | int or string | HeadSamplingRate of logs, from 0 to 1 (a number, or a decimal string such as "0.1"). | CEL rules: see above |
 | `spec.forProvider.observability.logs.invocation_logs` | boolean | InvocationLogs adds one log per invocation. |  |
 | `spec.forProvider.script_name` | string | ScriptName is the Cloudflare script name. Defaults to metadata.name. Immutable. | pattern ` ^[a-z0-9_][a-z0-9-_]*$ `; length 1–63; CEL rules: see above |
-| `spec.forProvider.sourceRef` | object | SourceRef takes the modules from a ConfigMap. Exactly one of modules or sourceRef. |  |
+| `spec.forProvider.sourceRef` | object | SourceRef takes the modules from a ConfigMap. Exactly one of modules, sourceRef or moduleSource. |  |
 | `spec.forProvider.sourceRef.name` | string | **Required.** Name of the ConfigMap. | length ≥ 1 |
 | `spec.forProvider.sourceRef.types` | map[string]string | Types overrides the module type of individual keys (esm, cjs, text, json, wasm-base64). |  |
 | `spec.forProvider.workersDev` | object | WorkersDev enables or disables the script's workers.dev route. Unset leaves it as it is. |  |
@@ -865,6 +925,19 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.zoneRef.id` | string |  |  |
 | `spec.zoneRef.name` | string |  |  |
 | `status` | object | WorkerScriptStatus defines the observed state of a WorkerScript. |  |
+| `status.artifacts` | object | Artifacts are the artifacts last loaded for moduleSource and assets.source. |  |
+| `status.artifacts.assetFiles` | integer | AssetFiles is the number of files in the asset manifest (the artifact's files without _headers, _redirects, .assetsignore and the files it ignores). |  |
+| `status.artifacts.assets` | object | Assets is the artifact of forProvider.assets.source. |  |
+| `status.artifacts.assets.bytes` | integer | Bytes is the total size of the files. |  |
+| `status.artifacts.assets.digest` | string | Digest of the file tree ("sha256:&lt;hex&gt;" over the sorted paths and contents); the same files give the same digest whatever the source. |  |
+| `status.artifacts.assets.files` | integer | Files is the number of files in the tree. |  |
+| `status.artifacts.assets.resolvedDigest` | string | ResolvedDigest is the manifest digest an ociRef resolved to (the digest of its tag at the last sync, or the pinned digest). |  |
+| `status.artifacts.modules` | object | Modules is the artifact of forProvider.moduleSource. |  |
+| `status.artifacts.modules.bytes` | integer | Bytes is the total size of the files. |  |
+| `status.artifacts.modules.digest` | string | Digest of the file tree ("sha256:&lt;hex&gt;" over the sorted paths and contents); the same files give the same digest whatever the source. |  |
+| `status.artifacts.modules.files` | integer | Files is the number of files in the tree. |  |
+| `status.artifacts.modules.resolvedDigest` | string | ResolvedDigest is the manifest digest an ociRef resolved to (the digest of its tag at the last sync, or the pinned digest). |  |
+| `status.assetsHash` | string | AssetsHash is a hash of the asset manifest (every served path with the hash and size of its file, as the upload session was sent it) and the assets config last uploaded. The assets upload flow runs only when it changes. |  |
 | `status.atProvider` | object | AtProvider is the script as last read from Cloudflare. |  |
 | `status.atProvider.bindings` | []object | Bindings (names and types). |  |
 | `status.atProvider.bindings[].name` | string | **Required.** |  |
@@ -875,6 +948,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `status.atProvider.deployment_id` | string | DeploymentID is the active deployment (GET …/deployments; not the upload response's deployment_id, which is the version ID without dashes). |  |
 | `status.atProvider.etag` | string | Etag of the script content. |  |
 | `status.atProvider.handlers` | []string | Handlers the script exports (fetch, scheduled, ...). |  |
+| `status.atProvider.has_assets` | boolean | HasAssets reports that the script has static assets. |  |
 | `status.atProvider.id` | string | ID is the script name. |  |
 | `status.atProvider.logpush` | boolean |  |  |
 | `status.atProvider.modified_on` | string |  |  |

@@ -14,6 +14,10 @@ type account struct {
 	tags    map[string]*tagRecord // tags.go; created lazily
 	scripts map[string]*workerScript
 	routes  map[string]*ipRoute // teamnet_routes.go; created lazily
+	// Workers static assets (workers_assets.go; created lazily): what was uploaded per script
+	// name, and the upload sessions by ID.
+	assets        map[string]*assetStore
+	assetSessions map[string]*assetSession
 }
 
 func (s *Server) accountLocked(id string) *account {

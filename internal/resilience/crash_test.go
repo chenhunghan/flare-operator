@@ -77,7 +77,7 @@ func crashCases() []crashCase {
 		}
 	}
 	return append(cases, tunnelCrashCase(true), tunnelCrashCase(false), vpcCrashCase(),
-		workerCrashCase(true, false), workerCrashCase(true, true), workerCrashCase(false, false))
+		workerCrashCase(true, false), workerCrashCase(true, true), workerCrashCase(false, false), workerAssetsCrashCase())
 }
 
 // TestCrashBetweenCreateAndRecord kills the manager right after each kind's Cloudflare create,
@@ -537,7 +537,7 @@ func workerCrashCase(tagging, failTag bool) crashCase {
 			return func(mgr ctrl.Manager, d controller.Deps) error {
 				return (&workerscript.Reconciler{Client: c, Accounts: d.Accounts, Tagger: d.Tagger, ClusterName: d.ClusterName,
 					Recorder: mgr.GetEventRecorder(workerscript.Name), APIReader: mgr.GetAPIReader(), ResyncInterval: time.Hour,
-					DependencyRetry: 500 * time.Millisecond}).SetupWithManager(mgr)
+					DependencyRetry: 500 * time.Millisecond, Artifacts: d.Artifacts}).SetupWithManager(mgr)
 			}
 		},
 		object: func(t *testing.T, cx *crashCtx) reconcile.ManagedObject {
