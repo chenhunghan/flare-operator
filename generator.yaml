@@ -134,7 +134,7 @@ kinds:
     observedAs:
       storageClass: storage_class
     subResources:
-      - {field: cors, path: /cors}
+      - {field: cors, path: /cors, serverSet: [rules.id]}
     why:
       kind: '"Bucket" alone is too generic across groups'
       idField: "the item path takes {bucket_name}, and the bucket object has no other identifier than name (spec r2_bucket)"
@@ -154,6 +154,12 @@ kinds:
       locationHint: >-
         create-only and write-only: the hint is a request, the bucket's actual location is
         atProvider.location (its value format against the hint is UNVERIFIED)
-      subResources: "CORS policy at <bucket>/cors: GET/PUT/DELETE (spec; SOURCED: wrangler getCORSPolicy/putCORSPolicy)"
+      subResources: >-
+        CORS policy at <bucket>/cors: GET/PUT/DELETE (spec; SOURCED: wrangler getCORSPolicy/putCORSPolicy).
+        serverSet rules.id: the spec's rule id is optional ("Identifier for this rule") and cloudflare-go
+        knows it (the differential lists rules[0].id); whether the live GET assigns one to a rule PUT
+        without it, or otherwise normalizes the policy, is UNVERIFIED (no recording). A rule id that
+        forProvider leaves out is therefore not compared, so a server-assigned id cannot make every
+        reconcile PUT the policy again; the emulator echoes the PUT body
       tagResourceType: "not set: r2_bucket is in the spec's tags resource_type enum, but live support is UNVERIFIED (as for vectorize_index and ai_gateway), and a bucket name is unique only per jurisdiction, which a tag's resource_id cannot express (UNVERIFIED). So a same-named bucket is a NameConflict unless pinned by the external-id annotation or the object's own lost create (create-pending record)"
       account: "R2 must be enabled on the account (a payment method may be required); otherwise the create fails and the API error is shown as Synced=False (UNVERIFIED error code)"

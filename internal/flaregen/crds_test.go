@@ -341,7 +341,7 @@ func TestDescriptorsMatchEmulator(t *testing.T) {
 				{Header: "cf-r2-storage-class", Field: "storageClass", Update: true},
 			},
 			ObservedAs:   map[string]string{"storageClass": "storage_class"},
-			SubResources: []generic.SubResource{{Field: "cors", Path: "/cors", Delete: true}},
+			SubResources: []generic.SubResource{{Field: "cors", Path: "/cors", Delete: true, ServerSet: []string{"rules.id"}}},
 		},
 	}
 	for _, e := range descriptors.Entries() {
@@ -360,7 +360,14 @@ func TestDescriptorsMatchEmulator(t *testing.T) {
 			for _, s := range k.SubResources {
 				ss = append(ss, generic.SubResource{Field: s.Field, Path: s.Path, Delete: s.Delete})
 			}
-			if got := (generic.Extension{Headers: hs, ObservedAs: k.ObservedAs, SubResources: ss}); !reflect.DeepEqual(got, e.Extension) {
+			// ServerSet is the reconciler's alone (the emulator stores what is PUT).
+			de := e.Extension
+			de.SubResources = nil
+			for _, s := range e.Extension.SubResources {
+				s.ServerSet = nil
+				de.SubResources = append(de.SubResources, s)
+			}
+			if got := (generic.Extension{Headers: hs, ObservedAs: k.ObservedAs, SubResources: ss}); !reflect.DeepEqual(got, de) {
 				t.Errorf("%s: emulator extension %+v, descriptor %+v", e.Kind, got, e.Extension)
 			}
 		}

@@ -1,8 +1,10 @@
 package generic_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -247,5 +249,129 @@ func TestR2BucketFinalizerJurisdiction(t *testing.T) {
 	}
 	if _, err := x.bucketAPI(http.MethodGet, x.path(x.en.ItemPath, name), "", nil); !cfclient.IsNotFound(err) {
 		t.Errorf("the bucket after the object's deletion: %v, want 404", err)
+	}
+}
+
+// laggingCache is the reconciler's client with a Get that serves a stale view of the object:
+// lag edits every copy it returns, as an informer cache that has not seen the reconciler's
+// latest writes yet would. Writes (and the APIReader) go to the API server.
+type laggingCache struct {
+	client.Client
+	lag func(client.Object)
+}
+
+func (c *laggingCache) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := c.Client.Get(ctx, key, obj, opts...); err != nil {
+		return err
+	}
+	if c.lag != nil {
+		c.lag(obj)
+	}
+	return nil
+}
+
+// setAnnotation sets (v != "") or removes annotation k.
+func setAnnotation(o client.Object, k, v string) {
+	a := maps.Clone(o.GetAnnotations())
+	if a == nil {
+		a = map[string]string{}
+	}
+	if v == "" {
+		delete(a, k)
+	} else {
+		a[k] = v
+	}
+	o.SetAnnotations(a)
+}
+
+// TestR2BucketStaleCacheKeepsDroppedRecord: a first-attempt duplicate-name refusal drops the
+// create-pending record, and a retry whose cached copy still has it (the cache saw the record
+// written but not dropped; the watch filters both writes out, and the error retry follows in
+// milliseconds) does not take the other writer's bucket for its own lost create: NameConflict,
+// no ownership proof, and the object's deletion (deletionPolicy Delete) leaves the bucket alone.
+func TestR2BucketStaleCacheKeepsDroppedRecord(t *testing.T) {
+	x := newExtHarness(t, "R2Bucket")
+	cache := &laggingCache{Client: x.e.Client}
+	x.r.Client, x.r.APIReader = cache, x.e.Client
+	create := "^" + regexp.QuoteMeta(x.path(x.en.CreatePath, "")) + "$"
+	name := randName("flare-spike")
+	obj := x.newObj(x.en, "bucket", fmt.Sprintf(`{"deletionPolicy":"Delete","forProvider":{"name":%q}}`, name))
+	x.create(obj)
+	if err := x.e.Fake.InjectFault(fake.Fault{Method: http.MethodPost, PathRegex: create, Status: http.StatusConflict, Code: 10004,
+		Message: "The bucket you tried to create already exists, and you own it.", Times: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.reconcile(obj, 1); err == nil {
+		t.Fatal("the refused create returned no error")
+	}
+	if _, pending := reconcile.PendingCreate(obj); pending {
+		t.Fatalf("first-attempt 409: create-pending record kept")
+	}
+	// The other writer's bucket, and a cache that still shows the dropped record.
+	if _, err := x.bucketAPI(http.MethodPost, x.path(x.en.CreatePath, ""), "", map[string]any{"name": name}); err != nil {
+		t.Fatal(err)
+	}
+	record := string(obj.GetUID()) + "/" + name
+	cache.lag = func(o client.Object) { setAnnotation(o, reconcile.AnnotationCreatePending, record) }
+
+	mark := x.rec.mark()
+	x.mustReconcile(obj, 1)
+	a := obj.GetAnnotations()
+	if !condIs(obj, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, reconcile.ReasonNameConflict) || obj.GetResourceStatus().ID != "" ||
+		a[commonv1alpha1.AnnotationExternalID] != "" || a[reconcile.AnnotationOwnershipProof] != "" {
+		t.Errorf("stale-cache reconcile adopted the foreign bucket: status.id %q annotations %v\n%s", obj.GetResourceStatus().ID, a, conditions(obj))
+	}
+	x.delete(obj)
+	x.mustReconcile(obj, 1)
+	x.waitGone(obj)
+	if w := writesOf(x.rec.since(mark)); len(w) != 0 {
+		t.Errorf("wrote to the foreign bucket:\n%s", summary(w))
+	}
+	if _, err := x.bucketAPI(http.MethodGet, x.path(x.en.ItemPath, name), "", nil); err != nil {
+		t.Errorf("the foreign bucket after the object's deletion (stale cache): %v", err)
+	}
+}
+
+// TestR2BucketStaleCacheMissesRecord is the inverse lag: the cached copy lacks the record of an
+// earlier attempt (answered 500, so it may have created the bucket). The retry's 409 is still a
+// retry's refusal and keeps the record, and the bucket that shows up is adopted as the object's
+// own lost create and deleted with it.
+func TestR2BucketStaleCacheMissesRecord(t *testing.T) {
+	x := newExtHarness(t, "R2Bucket")
+	cache := &laggingCache{Client: x.e.Client}
+	x.r.Client, x.r.APIReader = cache, x.e.Client
+	create := "^" + regexp.QuoteMeta(x.path(x.en.CreatePath, "")) + "$"
+	name := randName("flare-spike")
+	obj := x.newObj(x.en, "bucket", fmt.Sprintf(`{"deletionPolicy":"Delete","forProvider":{"name":%q}}`, name))
+	x.create(obj)
+	for i, f := range []fake.Fault{
+		{Method: http.MethodPost, PathRegex: create, Status: http.StatusInternalServerError, Code: 10001, Message: "Internal error", Times: 1},
+		{Method: http.MethodPost, PathRegex: create, Status: http.StatusConflict, Code: 10004, Message: "The bucket you tried to create already exists, and you own it.", Times: 1},
+	} {
+		if err := x.e.Fake.InjectFault(f); err != nil {
+			t.Fatal(err)
+		}
+		if err := x.reconcile(obj, 1); err == nil {
+			t.Fatalf("%d: the failed create returned no error", f.Status)
+		}
+		if key, pending := reconcile.PendingCreate(obj); !pending || key != name {
+			t.Fatalf("after %d: create-pending record %q/%v, want %q kept", f.Status, key, pending, name)
+		}
+		if i == 0 { // from now on the cache has not seen the record
+			cache.lag = func(o client.Object) { setAnnotation(o, reconcile.AnnotationCreatePending, "") }
+		}
+	}
+	if _, err := x.bucketAPI(http.MethodPost, x.path(x.en.CreatePath, ""), "", map[string]any{"name": name}); err != nil {
+		t.Fatal(err)
+	}
+	x.mustReconcile(obj, 1)
+	if obj.GetResourceStatus().ID != name || !reconcile.HasOwnershipProof(obj, name) {
+		t.Fatalf("own lost create not adopted (stale cache): status.id %q annotations %v\n%s", obj.GetResourceStatus().ID, obj.GetAnnotations(), conditions(obj))
+	}
+	x.delete(obj)
+	x.mustReconcile(obj, 1)
+	x.waitGone(obj)
+	if _, err := x.bucketAPI(http.MethodGet, x.path(x.en.ItemPath, name), "", nil); !cfclient.IsNotFound(err) {
+		t.Errorf("own lost create after the object's deletion (deletionPolicy Delete): %v, want 404", err)
 	}
 }

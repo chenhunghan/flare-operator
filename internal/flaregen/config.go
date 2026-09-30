@@ -103,6 +103,10 @@ type SubResourceConfig struct {
 	// Path is appended to the item path, e.g. /cors. The spec must define GET and PUT there:
 	// forProvider.<field> takes the PUT body's schema, atProvider.<field> the GET result's.
 	Path string `json:"path"`
+	// ServerSet are dotted paths into the GET result (list elements traversed, e.g. rules.id)
+	// of members the API may assign itself: compared only where forProvider sets them (see
+	// generic.SubResource.ServerSet). Each path must exist in the GET result's schema.
+	ServerSet []string `json:"serverSet,omitempty"`
 }
 
 // PrintColumn is one additional kubectl printer column.

@@ -121,7 +121,7 @@ var generated = []Entry{
 			},
 			ObservedAs: map[string]string{"storageClass": "storage_class"},
 			SubResources: []generic.SubResource{
-				{Field: "cors", Path: "/cors", Delete: true},
+				{Field: "cors", Path: "/cors", Delete: true, ServerSet: []string{"rules.id"}},
 			},
 		},
 		New:     func() commonv1alpha1.Managed { return &r2v1alpha1.R2Bucket{} },

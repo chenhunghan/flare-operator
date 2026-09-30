@@ -680,6 +680,11 @@ func buildExtension(r *Resource, kc KindConfig, upd *Operation, createT, params,
 		if in == nil || out == nil {
 			return ext, fmt.Errorf("subResources %s: no JSON PUT body or GET result at %s", sr.Field, p)
 		}
+		for _, sp := range sr.ServerSet {
+			if !hasPath(out, strings.Split(sp, ".")) {
+				return ext, fmt.Errorf("subResources %s: serverSet %q is not a member of the GET result at %s", sr.Field, sp, p)
+			}
+		}
 		del := findPath(r.all, p, http.MethodDelete) != nil
 		clear := "an empty value ({}) is PUT to clear it"
 		if del {
@@ -687,9 +692,23 @@ func buildExtension(r *Resource, kc KindConfig, upd *Operation, createT, params,
 		}
 		addField(params, sr.Field, in, fmt.Sprintf("%s is managed through %s %s (and read with GET); unset leaves it as it is; %s.", sr.Field, put.Method, p, clear))
 		addField(obs, sr.Field, out, fmt.Sprintf("%s as returned by GET %s (absent when not configured).", sr.Field, p))
-		ext.SubResources = append(ext.SubResources, generic.SubResource{Field: sr.Field, Path: sr.Path, Delete: del})
+		ext.SubResources = append(ext.SubResources, generic.SubResource{Field: sr.Field, Path: sr.Path, Delete: del,
+			ServerSet: append([]string(nil), sr.ServerSet...)})
 	}
 	return ext, nil
+}
+
+// hasPath reports whether t has the member at the dotted path segs, walking through list
+// elements (a SubResource.ServerSet path).
+func hasPath(t *Type, segs []string) bool {
+	for t != nil && t.Kind == KArray {
+		t = t.Elem
+	}
+	if len(segs) == 0 {
+		return t != nil
+	}
+	f := t.Field(segs[0])
+	return f != nil && hasPath(f.Type, segs[1:])
 }
 
 // headerDoc describes a forProvider field that travels in a header.

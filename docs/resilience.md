@@ -44,7 +44,12 @@ has the name (two clusters or objects applying it at once), so the record is cle
 next reconcile reports NameConflict instead of adopting (and, with deletionPolicy Delete,
 deleting) the other writer's resource. Its watch ignores changes of the
 record alone, so writing and clearing it around a refused create does not retry the create at
-once.
+once. For the same reason (and because the error retry follows within milliseconds) the
+informer cache may not show those writes yet, so the generic reconciler reads the record
+uncached (the manager's API reader) where it decides with it: before each create (is this a
+retry?), before adopting a same-named resource as its own lost create, and in the finalizer
+before adopting a pending create. A cached copy that still showed a record a first-attempt
+refusal had cleared would otherwise adopt, and delete, the other writer's resource.
 WorkerScript's key also carries the hashes of the content, settings and secrets it uploaded, so
 the adopted script is not uploaded again. With tagging, a readable owner tag naming another
 object still wins (NameConflict).

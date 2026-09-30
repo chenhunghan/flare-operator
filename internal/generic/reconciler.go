@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"net/http"
 	"sort"
@@ -104,7 +105,8 @@ type Reconciler struct {
 	// deletion). SetupWithManager sets it; nil disables events.
 	Recorder events.EventRecorder
 	// APIReader confirms, uncached, that a CloudflareAccount is gone before a finalizer gives
-	// up on its Cloudflare resource (SetupWithManager sets it; default: Client).
+	// up on its Cloudflare resource, and reads the create-pending record where ownership is
+	// decided (freshPending). SetupWithManager sets it; default: Client.
 	APIReader client.Reader
 
 	// applied remembers the write-only hash last applied per object (namespace/name →
@@ -420,12 +422,19 @@ func (r *Reconciler) observe(ctx context.Context, obj reconcile.ManagedObject) (
 				return errResult(obj, err)
 			}
 		}
-		if foundID != "" && pol.CanWrite() && !r.tagging() && !r.ownLostCreate(obj, desired) {
-			// No ownership tag can prove that this object owns a same-named resource (the kind
-			// cannot be tagged, or tagging is off): it may be another object's or another
-			// tool's, and managing it would let this object's deletion delete it. Adoption is
-			// explicit, through the external-id annotation (as for VPCService and Tunnel).
-			return r.nameConflict(obj, desired, foundID)
+		if foundID != "" && pol.CanWrite() && !r.tagging() {
+			own, err := r.ownLostCreate(ctx, obj, desired, foundID)
+			if err != nil {
+				return errResult(obj, err)
+			}
+			if !own {
+				// No ownership tag can prove that this object owns a same-named resource (the
+				// kind cannot be tagged, or tagging is off): it may be another object's or
+				// another tool's, and managing it would let this object's deletion delete it.
+				// Adoption is explicit, through the external-id annotation (as for VPCService
+				// and Tunnel).
+				return r.nameConflict(obj, desired, foundID)
+			}
 		}
 		if foundID != "" {
 			if observed, err = r.get(ctx, sc, foundID); err != nil {
@@ -455,14 +464,60 @@ func (r *Reconciler) observe(ctx context.Context, obj reconcile.ManagedObject) (
 	return r.sync(ctx, obj, sc, desired, id, observed, adopted)
 }
 
-// ownLostCreate reports whether obj's create-pending record names the resource desired
-// describes (pendingKey): obj announced that create and never recorded its result, so a
-// resource found by that name or client-chosen ID is obj's own lost create
-// (docs/resilience.md).
-func (r *Reconciler) ownLostCreate(obj reconcile.ManagedObject, desired map[string]any) bool {
+// ownLostCreate reports whether foundID, the resource found by desired's name or client-chosen
+// ID, is obj's own lost create (docs/resilience.md): obj's create-pending record names it
+// (pendingKey), since obj announced that create and never recorded its result, or obj already
+// records foundID as its own create (a RecordCreated that the cached copy does not show yet).
+// Both are read uncached (freshPending): this is the only proof of ownership, and a stale
+// record would adopt, and under deletionPolicy Delete delete, another writer's resource.
+func (r *Reconciler) ownLostCreate(ctx context.Context, obj reconcile.ManagedObject, desired map[string]any, foundID string) (bool, error) {
 	key := r.pendingKey(desired)
-	pending, ok := reconcile.PendingCreate(obj)
-	return ok && key != "" && pending == key
+	if key == "" {
+		return false, nil
+	}
+	cur, err := r.freshPending(ctx, obj)
+	if err != nil {
+		return false, err
+	}
+	if reconcile.HasOwnershipProof(cur, foundID) {
+		return true, nil
+	}
+	pending, ok := reconcile.PendingCreate(cur)
+	return ok && pending == key, nil
+}
+
+// freshPending reads obj from the API server, bypassing the informer cache, and replaces obj's
+// in-memory create-pending record with the stored one; it returns the uncached copy.
+//
+// The record decides whether a same-named resource is obj's own lost create, so it is never
+// taken from the cache where that is decided. The cache can lag behind the reconciler's own
+// writes of the record, which the watch filters out (annotationsChanged), while the retry after
+// an error runs within milliseconds:
+//   - A first-attempt duplicate-name refusal drops the record (create). A retry that still saw
+//     it would take the other writer's resource for its own lost create: adopt it, record an
+//     ownership proof, manage it and, under deletionPolicy Delete, delete it.
+//   - A retry that missed the record of the earlier attempt would drop it on a duplicate-name
+//     refusal as if it were a first attempt, and lose the object's own create; a retry that
+//     still saw a dropped record would not write it again before the POST.
+func (r *Reconciler) freshPending(ctx context.Context, obj reconcile.ManagedObject) (reconcile.ManagedObject, error) {
+	cur := r.New()
+	if err := r.apiReader().Get(ctx, client.ObjectKeyFromObject(obj), cur); err != nil {
+		return nil, fmt.Errorf("read the create-pending record: %w", err)
+	}
+	if cur.GetUID() != obj.GetUID() {
+		return nil, fmt.Errorf("read the create-pending record: the object was replaced (UID %s, want %s)", cur.GetUID(), obj.GetUID())
+	}
+	a := maps.Clone(obj.GetAnnotations())
+	if a == nil {
+		a = map[string]string{}
+	}
+	if v, ok := cur.GetAnnotations()[reconcile.AnnotationCreatePending]; ok {
+		a[reconcile.AnnotationCreatePending] = v
+	} else {
+		delete(a, reconcile.AnnotationCreatePending)
+	}
+	obj.SetAnnotations(a)
+	return cur, nil
 }
 
 // nameConflict reports that a resource with obj's name (or client-chosen ID) exists and obj
@@ -590,10 +645,15 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 	// finalizer finds the resource through this record (reconcile.AdoptPendingCreate).
 	key := r.pendingKey(desired)
 	// retry: a record for this key stood before this attempt, so an earlier POST of this object
-	// may have created the resource (MarkCreatePending runs before every POST).
-	prior, hadPrior := reconcile.PendingCreate(obj)
-	retry := hadPrior && prior == key
+	// may have created the resource (MarkCreatePending runs before every POST). The record is
+	// read uncached (freshPending): it decides whether a duplicate-name refusal drops it.
+	var retry bool
 	if key != "" {
+		if _, err := r.freshPending(ctx, obj); err != nil {
+			return errResult(obj, err)
+		}
+		prior, hadPrior := reconcile.PendingCreate(obj)
+		retry = hadPrior && prior == key
 		if err := reconcile.MarkCreatePending(ctx, r.Client, obj, key); err != nil {
 			return errResult(obj, fmt.Errorf("record the pending create: %w", err))
 		}
@@ -921,10 +981,17 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 		// A create was announced and its result never recorded: the manager may have died
 		// between the create and RecordCreated. With no ID, or with the ID of a resource that
 		// was found gone (the create recreated it), find the resource the record names and
-		// record it, so it is deleted rather than leaked.
-		var err error
-		if id, err = r.adoptPendingCreate(ctx, obj); err != nil {
+		// record it, so it is deleted rather than leaked. The record is confirmed uncached
+		// first (freshPending): one that the cache still shows after a refused create dropped
+		// it would delete a resource someone else made.
+		if _, err := r.freshPending(ctx, obj); err != nil {
 			return reconcile.DeletionResult(obj, err)
+		}
+		if _, pending := reconcile.PendingCreate(obj); pending {
+			var err error
+			if id, err = r.adoptPendingCreate(ctx, obj); err != nil {
+				return reconcile.DeletionResult(obj, err)
+			}
 		}
 	}
 	release := id != "" && !deleteExternal && reconcile.PoliciesOf(obj).CanWrite() && r.tagging()
@@ -1072,7 +1139,8 @@ func (r *Reconciler) groupKind() schema.GroupKind {
 // tagging reports whether ownership tags are maintained for the kind.
 func (r *Reconciler) tagging() bool { return reconcile.TaggingEnabled(r.tagger()) }
 
-// apiReader reads CloudflareAccounts uncached when a finalizer checks that one is gone.
+// apiReader reads uncached: the CloudflareAccount a finalizer checks is gone, and the
+// create-pending record where ownership is decided (freshPending).
 func (r *Reconciler) apiReader() client.Reader {
 	if r.APIReader != nil {
 		return r.APIReader

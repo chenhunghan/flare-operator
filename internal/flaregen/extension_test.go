@@ -17,7 +17,7 @@ func r2Config() KindConfig {
 			{Header: "cf-r2-storage-class", Field: "storageClass", SentOn: "update"},
 		},
 		ObservedAs:   map[string]string{"storageClass": "storage_class"},
-		SubResources: []SubResourceConfig{{Field: "cors", Path: "/cors"}},
+		SubResources: []SubResourceConfig{{Field: "cors", Path: "/cors", ServerSet: []string{"rules.id"}}},
 	}
 }
 
@@ -43,7 +43,7 @@ func TestExtensionsR2(t *testing.T) {
 			{Header: "cf-r2-storage-class", Field: "storageClass", Update: true},
 		},
 		ObservedAs:   map[string]string{"storageClass": "storage_class"},
-		SubResources: []generic.SubResource{{Field: "cors", Path: "/cors", Delete: true}},
+		SubResources: []generic.SubResource{{Field: "cors", Path: "/cors", Delete: true, ServerSet: []string{"rules.id"}}},
 	}
 	if !reflect.DeepEqual(m.Extension, want) {
 		t.Errorf("Extension %+v\nwant %+v", m.Extension, want)
@@ -108,6 +108,9 @@ func TestExtensionErrors(t *testing.T) {
 		},
 		"subResource over an existing field": func(kc *KindConfig) {
 			kc.SubResources = []SubResourceConfig{{Field: "name", Path: "/cors"}}
+		},
+		"serverSet not in the GET result": func(kc *KindConfig) {
+			kc.SubResources = []SubResourceConfig{{Field: "cors", Path: "/cors", ServerSet: []string{"rules.nope"}}}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -53,12 +53,12 @@ type HeaderField struct {
 //     one (sameDocument: equal once empty members are dropped) → PUT <item><Path> with it as the
 //     body. The PUT replaces the whole document, so the comparison is exact, not Covers: a member
 //     the desired value leaves out (e.g. a CORS rule's allowed.headers, exposeHeaders or
-//     maxAgeSeconds) is one the write removes, and a narrowed policy must be written. This
-//     assumes the API reads the document back as it was PUT, with no server-set members
-//     (UNVERIFIED for R2 CORS: the spec's optional rule id is not known to be assigned by the
-//     server; the emulator echoes the PUT body). A server-set member would make every reconcile
-//     PUT the same document again, which is harmless but noisy. This is an update: managementPolicies must allow
-//     Update, otherwise Synced=False names the field. Observe-only objects only read.
+//     maxAgeSeconds) is one the write removes, and a narrowed policy must be written. Members the
+//     API may fill in itself (ServerSet, e.g. an R2 CORS rule's id) are compared only where the
+//     desired value sets them; any other member the API adds to what was PUT would make every
+//     reconcile PUT the same document again (harmless, but not the zero-writes steady state).
+//     This is an update: managementPolicies must allow Update, otherwise Synced=False names the
+//     field. Observe-only objects only read.
 //   - forProvider.<Field> set to an empty value (isEmptyValue: {} or, since the generated types
 //     drop empty lists, {"rules": []} for R2 CORS) → clear it: when Cloudflare has a non-empty
 //     value, DELETE <item><Path> if the spec has that operation (Delete), else PUT the empty
@@ -73,6 +73,10 @@ type SubResource struct {
 	Path  string // appended to ItemPath, e.g. "/cors"
 	// Delete: the spec has a DELETE at <item><Path>; an empty desired value is applied with it.
 	Delete bool
+	// ServerSet are dotted paths of members of the GET result that the API may assign itself
+	// (list elements are traversed, e.g. "rules.id"): where the desired value leaves such a
+	// member out, the observed one is not compared (see sameDocument).
+	ServerSet []string
 }
 
 // ObservedName is the atProvider field that reads back forProvider field f.
@@ -227,7 +231,7 @@ func (r *Reconciler) changedSubResources(desired, obs map[string]any) []SubResou
 			if !isEmptyValue(obs[s.Field]) {
 				out = append(out, s)
 			}
-		case !sameDocument(v, obs[s.Field]):
+		case !sameDocument(v, obs[s.Field], s.ServerSet):
 			out = append(out, s)
 		}
 	}
@@ -277,9 +281,39 @@ func isEmptyValue(v any) bool {
 // sameDocument reports whether two JSON documents are equal once their empty members
 // (isEmptyValue: null, empty lists, objects with only empty members) are dropped. The generated
 // types omit empty lists and unset fields, so a desired value that leaves a member out and an
-// observed one that holds it empty are the same document.
-func sameDocument(want, got any) bool {
-	return reflect.DeepEqual(pruneEmpty(want), pruneEmpty(got))
+// observed one that holds it empty are the same document. A member at one of the serverSet
+// paths (SubResource.ServerSet) that want does not set is dropped from got first.
+func sameDocument(want, got any, serverSet []string) bool {
+	w, g := pruneEmpty(want), pruneEmpty(got)
+	for _, p := range serverSet {
+		dropUnset(g, w, strings.Split(p, "."))
+	}
+	return reflect.DeepEqual(w, g)
+}
+
+// dropUnset deletes the member at path segs from got wherever want does not set it; lists are
+// walked element by element (want's element at the same index). got is modified in place.
+func dropUnset(got, want any, segs []string) {
+	switch g := got.(type) {
+	case []any:
+		w, _ := want.([]any)
+		for i := range g {
+			var we any
+			if i < len(w) {
+				we = w[i]
+			}
+			dropUnset(g[i], we, segs)
+		}
+	case map[string]any:
+		w, _ := want.(map[string]any)
+		wv, set := w[segs[0]]
+		switch {
+		case len(segs) == 1 && !set:
+			delete(g, segs[0])
+		case len(segs) > 1:
+			dropUnset(g[segs[0]], wv, segs[1:])
+		}
+	}
 }
 
 // pruneEmpty returns v without its empty members (see sameDocument); list elements are kept in

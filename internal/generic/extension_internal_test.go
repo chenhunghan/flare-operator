@@ -3,6 +3,7 @@ package generic
 import (
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +33,40 @@ func TestChangedSubResources(t *testing.T) {
 		obs, _ := jsonValue(t, c.observed).(map[string]any)
 		if got := len(r.changedSubResources(desired, obs)) > 0; got != c.changed {
 			t.Errorf("desired %s, observed %s: changed %v, want %v", c.desired, c.observed, got, c.changed)
+		}
+	}
+}
+
+// TestChangedSubResourcesServerSet: a member at a ServerSet path (R2 CORS rules.id) that
+// forProvider leaves out is not compared, so a server-assigned rule id is in sync; one that
+// forProvider sets is, and every other member still counts.
+func TestChangedSubResourcesServerSet(t *testing.T) {
+	r := &Reconciler{Extension: Extension{SubResources: []SubResource{{Field: "cors", Path: "/cors", Delete: true, ServerSet: []string{"rules.id"}}}}}
+	rule := func(extra string) string {
+		return `{"cors":{"rules":[{` + extra + `"allowed":{"methods":["GET"],"origins":["https://example.com"]}}]}}`
+	}
+	two := `{"cors":{"rules":[{"allowed":{"methods":["GET"],"origins":["https://a.example"]}},{"id":"mine","allowed":{"methods":["GET"],"origins":["https://b.example"]}}]}}`
+	for _, c := range []struct {
+		desired, observed string
+		changed           bool
+	}{
+		{rule(``), rule(`"id":"server-1",`), false},            // id assigned by the server
+		{rule(`"id":"mine",`), rule(`"id":"mine",`), false},    // id set and kept
+		{rule(`"id":"mine",`), rule(`"id":"server-1",`), true}, // id set and different
+		{rule(`"id":"mine",`), rule(``), true},                 // id set and missing
+		{rule(``), rule(`"id":"x","maxAgeSeconds":60,`), true}, // other members still count
+		{two, `{"cors":{"rules":[{"id":"s","allowed":{"methods":["GET"],"origins":["https://a.example"]}},` +
+			`{"id":"mine","allowed":{"methods":["GET"],"origins":["https://b.example"]}}]}}`, false}, // per element
+		{two, `{"cors":{"rules":[{"id":"s","allowed":{"methods":["GET"],"origins":["https://a.example"]}},` +
+			`{"id":"s2","allowed":{"methods":["GET"],"origins":["https://b.example"]}}]}}`, true},
+	} {
+		desired, _ := jsonValue(t, c.desired).(map[string]any)
+		obs, _ := jsonValue(t, c.observed).(map[string]any)
+		if got := len(r.changedSubResources(desired, obs)) > 0; got != c.changed {
+			t.Errorf("desired %s, observed %s: changed %v, want %v", c.desired, c.observed, got, c.changed)
+		}
+		if _, ok := obs["cors"]; ok && !reflect.DeepEqual(obs, jsonValue(t, c.observed)) {
+			t.Errorf("the comparison modified the observed value: %v", obs)
 		}
 	}
 }
