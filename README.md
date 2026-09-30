@@ -561,8 +561,10 @@ to it with Pages Direct Upload.
   Pages serves) is the one wrangler sends: the `mime` 3.0.0 type of its extension, else
   `application/octet-stream`. Root files `_headers`, `_redirects` and
   `_routes.json` go as the deployment's routing files and `_worker.js` as its advanced-mode
-  Worker (not bundled; a `_worker.js` directory or a Pages Functions `functions` directory is
-  not supported). A new deployment is made only when the artifact's digest or the branch
+  Worker (not bundled). An artifact with a `_worker.js` directory is refused with
+  `InvalidArtifact`, and so is one with a Pages Functions `functions` directory but no
+  `_worker.js` file (compile the Functions into `_worker.js`; like wrangler, a `_worker.js`
+  file wins and the directory is ignored). A new deployment is made only when the artifact's digest or the branch
   changes (`status.deployedHash`). The object is `Ready` once the deploy stage succeeds
   (`Deploying` until then; `DeploymentFailed`, not retried, when it fails).
   `status.atProvider` has the deployment's `url`, `aliases` (a preview's branch alias), stage

@@ -22,8 +22,9 @@ type PagesDeploymentParameters struct {
 	Branch string `json:"branch,omitempty"`
 	// Source of the site's files. Files at the root named _headers, _redirects and _routes.json
 	// are sent as the deployment's routing files and _worker.js as its advanced-mode Worker (as
-	// is: the operator does not bundle); a _worker.js directory and a functions directory are not
-	// supported. Every other file is uploaded as an asset. A deployment is made when the
+	// is: the operator does not bundle). A _worker.js directory is refused with InvalidArtifact,
+	// and so is a top-level functions directory (Pages Functions, which need compiling) unless a
+	// _worker.js file is given, which takes its place as wrangler does. Every other file is uploaded as an asset. A deployment is made when the
 	// artifact's content digest or branch changes (status.deployedHash).
 	// +optional
 	Source *sharedv1alpha1.ArtifactSource `json:"source,omitempty"`

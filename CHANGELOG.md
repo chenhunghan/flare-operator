@@ -21,6 +21,12 @@ Nothing has been released yet. This section collects what the first release will
   case-insensitively) and Content-Types (the pinned wrangler's mime table, `make asset-mime`);
   assets-only Workers (no `main_module`); modules from an artifact (`forProvider.moduleSource`,
   `moduleTypes`); `assets`, `r2_bucket` and `send_email` bindings. `main_module` is now optional (required unless the Worker is assets-only).
+- Kinds: hand-written `PagesProject` (deployment configs, environment variables, bindings) and
+  `PagesDeployment` (Direct Upload of an artifact with wrangler's hashing, bucketing and
+  Content-Types; artifacts needing a build, a `_worker.js` directory or a Pages Functions
+  `functions` directory without `_worker.js`, are refused with `InvalidArtifact`). flarefake
+  emulates the Pages projects, deployments and asset upload API; `wrangler pages deploy` runs
+  against it (`make differential`).
 - flarefake emulates the Workers assets upload session, the bucket uploads (session JWTs) and
   `metadata.assets` / `keep_assets`; `wrangler deploy` of an assets site runs against it
   (`make differential`).

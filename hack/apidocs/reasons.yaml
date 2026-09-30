@@ -158,8 +158,9 @@ conditions:
     meaning: >-
       The artifact cannot be deployed: an invalid source (reference, URL, path), content that
       breaks a limit or safety rule of the loader (--artifact-max-*), a file larger than
-      Pages' 25 MiB, more files than the upload token allows, or a _worker.js directory (which
-      needs bundling). Only a change of the source or its content fixes it.
+      Pages' 25 MiB, more files than the upload token allows, a _worker.js directory (which
+      needs bundling), or a top-level functions directory (Pages Functions, which need
+      compiling) without a _worker.js file. Only a change of the source or its content fixes it.
   - reason: ArtifactUnavailable
     condition: Synced
     status: "False"

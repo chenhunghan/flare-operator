@@ -105,12 +105,21 @@ type plan struct {
 }
 
 // planTree splits t into assets and routing files. A _worker.js directory (which wrangler
-// bundles) cannot be deployed as is.
+// bundles) cannot be deployed as is. Neither can a top-level functions directory without a
+// _worker.js file: wrangler compiles Pages Functions into the deployment's Worker unless
+// _worker.js is given, and only then ignores the directory (SOURCED, relies:
+// wrangler@4.143.0:wrangler-dist/cli.js#L299030-L299058, `if (!_workerJS &&
+// fs.existsSync(functionsDirectory))` → buildFunctions). It is refused rather than dropped,
+// which would deploy the site without its Functions.
 func planTree(t *artifact.Tree, maxFiles int) (*plan, error) {
 	p := &plan{form: deployForm{manifest: map[string]string{}, files: map[string][]byte{}}}
+	_, workerJS := t.File("_worker.js")
 	for _, f := range t.Files() {
 		if strings.HasPrefix(f.Path, "_worker.js/") {
 			return nil, fmt.Errorf("the artifact has a _worker.js directory, which needs bundling (wrangler pages deploy); provide a single bundled _worker.js file instead")
+		}
+		if strings.HasPrefix(f.Path, "functions/") && !workerJS {
+			return nil, fmt.Errorf("the artifact has a functions directory (Pages Functions), which needs compiling (wrangler pages functions build); provide the compiled Worker as a single _worker.js file instead (with it, the functions directory is ignored)")
 		}
 		if routingFiles[f.Path] {
 			p.form.files[f.Path] = f.Content
