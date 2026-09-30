@@ -10,6 +10,7 @@ import (
 	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
+	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
 	secretsstorev1alpha1 "flare.dev/operator/api/secretsstore/v1alpha1"
 	vectorizev1alpha1 "flare.dev/operator/api/vectorize/v1alpha1"
 	"flare.dev/operator/internal/generic"
@@ -99,6 +100,35 @@ var generated = []Entry{
 	},
 	{
 		Descriptor: generic.Descriptor{
+			Group: "r2.cloudflare.flare.dev", Version: "v1alpha1", Kind: "R2Bucket",
+			Scope:                 "account",
+			CreatePath:            "/accounts/{account_id}/r2/buckets",
+			ItemPath:              "/accounts/{account_id}/r2/buckets/{id}",
+			ListPath:              "/accounts/{account_id}/r2/buckets",
+			IDField:               "name",
+			UpdateMethod:          "PATCH",
+			Immutable:             []string{"jurisdiction", "locationHint", "name"},
+			WriteOnly:             []string{"locationHint"},
+			CreateFields:          []string{"locationHint", "name", "storageClass"},
+			UpdateFields:          []string{"storageClass"},
+			DefaultDeletionPolicy: "Orphan",
+		},
+		FernGroup: "r2.buckets",
+		Extension: generic.Extension{
+			Headers: []generic.HeaderField{
+				{Header: "cf-r2-jurisdiction", Field: "jurisdiction", Update: false, Default: "default"},
+				{Header: "cf-r2-storage-class", Field: "storageClass", Update: true, Default: ""},
+			},
+			ObservedAs: map[string]string{"storageClass": "storage_class"},
+			SubResources: []generic.SubResource{
+				{Field: "cors", Path: "/cors"},
+			},
+		},
+		New:     func() commonv1alpha1.Managed { return &r2v1alpha1.R2Bucket{} },
+		NewList: func() runtime.Object { return &r2v1alpha1.R2BucketList{} },
+	},
+	{
+		Descriptor: generic.Descriptor{
 			Group: "secretsstore.cloudflare.flare.dev", Version: "v1alpha1", Kind: "SecretsStore",
 			Scope:                 "account",
 			CreatePath:            "/accounts/{account_id}/secrets_store/stores",
@@ -139,6 +169,7 @@ var schemeBuilder = runtime.SchemeBuilder{
 	d1v1alpha1.AddToScheme,
 	kvv1alpha1.AddToScheme,
 	queuesv1alpha1.AddToScheme,
+	r2v1alpha1.AddToScheme,
 	secretsstorev1alpha1.AddToScheme,
 	vectorizev1alpha1.AddToScheme,
 }

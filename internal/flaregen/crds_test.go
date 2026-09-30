@@ -23,7 +23,9 @@ import (
 	"sigs.k8s.io/randfill"
 	"sigs.k8s.io/yaml"
 
+	"flare.dev/operator/internal/fake"
 	"flare.dev/operator/internal/flaregen"
+	"flare.dev/operator/internal/generic"
 	"flare.dev/operator/internal/generic/descriptors"
 )
 
@@ -247,7 +249,7 @@ func TestRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := descriptors.All()
-	if len(all) != 6 {
+	if len(all) != 7 {
 		t.Errorf("%d descriptors", len(all))
 	}
 	for _, d := range all {
@@ -311,6 +313,11 @@ func TestDescriptorsMatchEmulator(t *testing.T) {
 		// The client chooses the gateway id; PUT is the only update.
 		"AIGateway": {"/accounts/{account_id}/ai-gateway/gateways", "/accounts/{account_id}/ai-gateway/gateways/{id}", "id", "", "PUT",
 			[]string{"id"}, nil, "Delete"},
+		// The bucket name is the ID (client-chosen; no adoption by listing: the list wraps its
+		// items). jurisdiction travels in a header on every request, the storage class in the
+		// PATCH header (Extension, pinned below); the location hint is never read back.
+		"R2Bucket": {"/accounts/{account_id}/r2/buckets", "/accounts/{account_id}/r2/buckets/{id}", "name", "", "PATCH",
+			[]string{"jurisdiction", "locationHint", "name"}, []string{"locationHint"}, "Orphan"},
 	}
 	for _, d := range descriptors.All() {
 		w, ok := want[d.Kind]
@@ -322,6 +329,40 @@ func TestDescriptorsMatchEmulator(t *testing.T) {
 		exp := []any{w.create, w.item, w.create, w.idField, w.nameField, w.update, w.immutable, w.writeOnly, w.deletion, "account", false}
 		if !reflect.DeepEqual(got, exp) {
 			t.Errorf("%s:\n got %v\nwant %v", d.Kind, got, exp)
+		}
+	}
+
+	// Per-kind extensions (generator.yaml requestHeaders, observedAs, subResources): pinned for
+	// R2Bucket, absent elsewhere, and the emulator's copy (zz_generated_generic.go) agrees.
+	wantExt := map[string]generic.Extension{
+		"R2Bucket": {
+			Headers: []generic.HeaderField{
+				{Header: "cf-r2-jurisdiction", Field: "jurisdiction", Default: "default"},
+				{Header: "cf-r2-storage-class", Field: "storageClass", Update: true},
+			},
+			ObservedAs:   map[string]string{"storageClass": "storage_class"},
+			SubResources: []generic.SubResource{{Field: "cors", Path: "/cors"}},
+		},
+	}
+	for _, e := range descriptors.Entries() {
+		if !reflect.DeepEqual(e.Extension, wantExt[e.Kind]) {
+			t.Errorf("%s: Extension %+v, want %+v", e.Kind, e.Extension, wantExt[e.Kind])
+		}
+		for _, k := range fake.GeneratedGenericKinds() {
+			if k.Kind != e.Kind {
+				continue
+			}
+			var hs []generic.HeaderField
+			for _, h := range k.Headers {
+				hs = append(hs, generic.HeaderField{Header: h.Header, Field: h.Field, Update: h.Update, Default: h.Default})
+			}
+			var ss []generic.SubResource
+			for _, s := range k.SubResources {
+				ss = append(ss, generic.SubResource{Field: s.Field, Path: s.Path})
+			}
+			if got := (generic.Extension{Headers: hs, ObservedAs: k.ObservedAs, SubResources: ss}); !reflect.DeepEqual(got, e.Extension) {
+				t.Errorf("%s: emulator extension %+v, descriptor %+v", e.Kind, got, e.Extension)
+			}
 		}
 	}
 }

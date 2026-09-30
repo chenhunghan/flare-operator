@@ -114,3 +114,46 @@ kinds:
       group: '"ai-gateway" is not a valid Go package name'
       emulate: "no hand-written profile and no recordings yet"
       derived: "the client chooses the id (create body); PUT is the only update, so id is create-only (immutable); no name field, so no adoption by name"
+
+  # Full-stack slice: object storage. Emulated by the generic profile plus its per-kind
+  # extensions (requestHeaders, observedAs, subResources; docs/generator-scaleout.md).
+  - fernGroup: r2.buckets
+    kind: R2Bucket
+    shortNames: [cfr2, cfbucket]
+    printColumns:
+      - {name: LOCATION, type: string, jsonPath: .status.atProvider.location}
+      - {name: STORAGE-CLASS, type: string, jsonPath: .status.atProvider.storage_class}
+      - {name: JURISDICTION, type: string, jsonPath: .status.atProvider.jurisdiction, priority: 1}
+    idField: name
+    nameField: "-"
+    defaultDeletionPolicy: Orphan
+    emulate: generic
+    requestHeaders:
+      - {header: cf-r2-jurisdiction, field: jurisdiction}
+      - {header: cf-r2-storage-class, field: storageClass, sentOn: update}
+    observedAs:
+      storageClass: storage_class
+    subResources:
+      - {field: cors, path: /cors}
+    why:
+      kind: '"Bucket" alone is too generic across groups'
+      idField: "the item path takes {bucket_name}, and the bucket object has no other identifier than name (spec r2_bucket)"
+      nameField: >-
+        disabled: the client chooses the ID (the name), so a lost create is found by GET on the name
+        (findByClientID), and the list result is {buckets: [...]}, not an array (spec), which
+        adoption by listing cannot read
+      defaultDeletionPolicy: data-bearing (objects)
+      requestHeaders: >-
+        every R2 bucket operation declares the cf-r2-jurisdiction header (spec; SOURCED: wrangler
+        4.143.0 src/r2/helpers/bucket.ts sends it on create, get, list, PATCH, delete and CORS
+        calls when a jurisdiction is set). A bucket in a jurisdiction is only reachable with that
+        header, so jurisdiction is immutable (CEL rule also refuses setting or removing it). The
+        PATCH has no body: the storage class travels in cf-r2-storage-class (spec; SOURCED:
+        wrangler updateR2BucketStorageClass)
+      observedAs: "the create body's storageClass is read back as storage_class (spec r2_bucket; UNVERIFIED against the live API)"
+      locationHint: >-
+        create-only and write-only: the hint is a request, the bucket's actual location is
+        atProvider.location (its value format against the hint is UNVERIFIED)
+      subResources: "CORS policy at <bucket>/cors: GET/PUT/DELETE (spec; SOURCED: wrangler getCORSPolicy/putCORSPolicy)"
+      tagResourceType: "not set: r2_bucket is in the spec's tags resource_type enum, but live support is UNVERIFIED (as for vectorize_index and ai_gateway), and a bucket name is unique only per jurisdiction, which a tag's resource_id cannot express (UNVERIFIED). So a same-named bucket is a NameConflict unless pinned by the external-id annotation or the object's own lost create (create-pending record)"
+      account: "R2 must be enabled on the account (a payment method may be required); otherwise the create fails and the API error is shown as Synced=False (UNVERIFIED error code)"

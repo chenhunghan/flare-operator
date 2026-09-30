@@ -203,6 +203,30 @@ rules:
   - patch
   - update
 - apiGroups:
+  - r2.cloudflare.flare.dev
+  resources:
+  - r2buckets
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - r2.cloudflare.flare.dev
+  resources:
+  - r2buckets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - r2.cloudflare.flare.dev
+  resources:
+  - r2buckets/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - secretsstore.cloudflare.flare.dev
   resources:
   - secretsstores

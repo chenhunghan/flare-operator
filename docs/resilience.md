@@ -118,8 +118,8 @@ fewer than one page of the kind, see the list-page cost below):
 | | calls |
 |---|---|
 | create of a tagged kind (KVNamespace, Queue, D1Database) | ≤ 11 (lookup list, POST, tag read of a never-tagged resource: 500, retry, tag index, tag PUT, GET, the sync's GET and tag read, and the re-reconcile the annotation write triggers) |
-| create of an untaggable generic kind (VectorizeIndex, SecretsStore, AIGateway) | ≤ 7 |
-| one drift poll of an in-sync object | 2 for tagged kinds (GET item, owner-tag read), 1 for untaggable ones; no write |
+| create of an untaggable generic kind (VectorizeIndex, SecretsStore, AIGateway, R2Bucket) | ≤ 7 (R2Bucket: the name lookup, POST, then GET of the bucket and its CORS policy, a PUT of the policy, and both GETs again) |
+| one drift poll of an in-sync object | 2 for tagged kinds (GET item, owner-tag read), 1 for untaggable ones, 2 for R2Bucket (GET item, GET cors); no write |
 
 Steady state per hour for N in-sync objects polled every P: `N × callsPerPoll × 3600 / P`.
 

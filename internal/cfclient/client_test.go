@@ -551,6 +551,39 @@ func TestListAllCursorBased(t *testing.T) {
 	}
 }
 
+// A result object whose only member is the item array (R2's list buckets, spec
+// r2-list-buckets: {"buckets": [...]}) is paged like an array; an object with several members
+// is not a list.
+func TestListAllWrappedResult(t *testing.T) {
+	pages := map[string]string{
+		"":   `{"success":true,"errors":[],"messages":[],"result":{"buckets":[{"name":"a"},{"name":"b"}]},"result_info":{"cursor":"c1","per_page":2}}`,
+		"c1": `{"success":true,"errors":[],"messages":[],"result":{"buckets":[{"name":"c"}]},"result_info":{"cursor":"","per_page":2}}`,
+		"x":  `{"success":true,"errors":[],"messages":[],"result":{"buckets":[],"other":[]}}`,
+		"n":  `{"success":true,"errors":[],"messages":[],"result":{"buckets":null}}`,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("cursor")
+		for _, p := range []string{"x", "n"} {
+			if strings.HasSuffix(r.URL.Path, "/"+p) {
+				key = p
+			}
+		}
+		writeEnv(w, 200, pages[key])
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv.URL, nil)
+	got, err := ListAllInto[map[string]string](context.Background(), c, Request{Path: "/buckets"})
+	if err != nil || len(got) != 3 || got[2]["name"] != "c" {
+		t.Fatalf("%v %v", got, err)
+	}
+	if _, err := ListAll(context.Background(), c, Request{Path: "/x"}); err == nil {
+		t.Error("an object with two members accepted as a list")
+	}
+	if got, err := ListAll(context.Background(), c, Request{Path: "/n"}); err != nil || len(got) != 0 {
+		t.Errorf("null wrapped list: %v %v", got, err)
+	}
+}
+
 func TestListAllNoResultInfoAndErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/bad") {

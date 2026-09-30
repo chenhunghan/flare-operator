@@ -72,6 +72,12 @@ const accountRefIndex = ".spec.accountRef.name"
 //     Both cases emit a Warning event. Singletons are never created or deleted. Before a delete,
 //     objects of registered referrer kinds (referrers.go, e.g. WorkerScript bindings) that still
 //     name the object block it: Ready=False, reason DependencyNotReady, until they are gone.
+//     A DELETE the API refuses (e.g. a non-empty R2 bucket) keeps the finalizer and sets
+//     Synced=False, reason DeleteFailed, with the API error.
+//   - Extension (extension.go) adds what the Descriptor cannot say: request headers (on every
+//     request, e.g. R2's jurisdiction, immutable and checked against atProvider before any
+//     request; or carrying an update field), forProvider fields read back under another name,
+//     and sub-resources (GET into atProvider, PUT when they differ).
 //
 // Unchanged objects cost reads only: a reconcile of an in-sync object makes no Cloudflare write.
 type Reconciler struct {
@@ -83,6 +89,9 @@ type Reconciler struct {
 	ClusterName string
 
 	Descriptor Descriptor
+	// Extension carries what Descriptor cannot express (request headers, fields read back under
+	// another name, sub-resources); the zero value adds nothing. See extension.go.
+	Extension Extension
 	// New returns an empty object of the kind; NewList an empty list (optional: without it,
 	// CloudflareAccount changes do not wake the kind's objects).
 	New     func() reconcile.ManagedObject
@@ -259,6 +268,21 @@ type scope struct {
 	cf        cfclient.Client
 	accountID string
 	zoneID    string
+	// header goes on every request for the object's resource (Extension.Headers that are not
+	// Update headers, e.g. R2's cf-r2-jurisdiction). Tag requests do not carry it.
+	header http.Header
+}
+
+// do sends a request for the object's resource, with the scope's headers.
+func (s scope) do(ctx context.Context, req cfclient.Request) (*cfclient.Response, error) {
+	if len(s.header) > 0 {
+		h := s.header.Clone()
+		for k, v := range req.Header {
+			h[k] = v
+		}
+		req.Header = h
+	}
+	return s.cf.Do(ctx, req)
 }
 
 func (s scope) path(p, id string) string {
@@ -267,6 +291,13 @@ func (s scope) path(p, id string) string {
 
 func (r *Reconciler) scopeFor(obj reconcile.ManagedObject, acct *reconcile.Resolved) (scope, error) {
 	s := scope{cf: acct.Client, accountID: acct.AccountID}
+	if len(r.Extension.Headers) > 0 {
+		desired, err := ForProvider(obj)
+		if err != nil {
+			return s, err
+		}
+		s.header = r.Extension.scopeHeader(desired)
+	}
 	if r.Descriptor.Scope == "zone" {
 		z := obj.GetResourceSpec().ZoneRef
 		switch {
@@ -328,6 +359,13 @@ func (r *Reconciler) observe(ctx context.Context, obj reconcile.ManagedObject) (
 	}
 
 	id := reconcile.ExternalID(obj)
+	if hc := r.Extension.headerChanges(desired, lastObserved(obj)); id != "" && len(hc) > 0 && pol.CanWrite() {
+		// A request header selects where the resource lives (e.g. its R2 jurisdiction): with the
+		// new value a GET would not find it and the object would create a second resource.
+		reconcile.MarkImmutable(obj, fmt.Sprintf("immutable fields cannot be changed after creation: %s (they select where the resource lives; "+
+			"status.atProvider shows the current value; recreate the object to change them)", joinFields(hc)))
+		return ctrl.Result{RequeueAfter: r.poll()}, nil
+	}
 	var observed json.RawMessage
 	if id != "" {
 		observed, err = r.get(ctx, sc, id)
@@ -419,7 +457,7 @@ func (r *Reconciler) nameConflict(obj reconcile.ManagedObject, desired map[strin
 }
 
 func (r *Reconciler) get(ctx context.Context, sc scope, id string) (json.RawMessage, error) {
-	resp, err := sc.cf.Do(ctx, cfclient.Request{Method: http.MethodGet, Path: sc.path(r.Descriptor.ItemPath, id)})
+	resp, err := sc.do(ctx, cfclient.Request{Method: http.MethodGet, Path: sc.path(r.Descriptor.ItemPath, id)})
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +475,7 @@ func (r *Reconciler) findByName(ctx context.Context, sc scope, desired map[strin
 	if d.NameField == "" || d.ListPath == "" || !ok || want == "" {
 		return "", nil
 	}
-	items, err := cfclient.ListAll(ctx, sc.cf, cfclient.Request{Path: sc.path(d.ListPath, "")})
+	items, err := cfclient.ListAll(ctx, sc.cf, cfclient.Request{Path: sc.path(d.ListPath, ""), Header: sc.header})
 	if err != nil {
 		return "", fmt.Errorf("list for adoption by %s: %w", d.NameField, err)
 	}
@@ -526,7 +564,7 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 			return errResult(obj, fmt.Errorf("record the pending create: %w", err))
 		}
 	}
-	resp, err := sc.cf.Do(ctx, cfclient.Request{Method: http.MethodPost, Path: sc.path(d.CreatePath, ""), Body: pick(desired, d.CreateFields)})
+	resp, err := sc.do(ctx, cfclient.Request{Method: http.MethodPost, Path: sc.path(d.CreatePath, ""), Body: pick(desired, d.CreateFields)})
 	if err != nil {
 		return errResult(obj, fmt.Errorf("create: %w", err))
 	}
@@ -595,6 +633,9 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 	if err != nil {
 		return errResult(obj, err)
 	}
+	if observed, err = r.withSubResources(ctx, sc, id, observed, obs); err != nil {
+		return errResult(obj, err)
+	}
 	// Ownership: never touch (or pin) a resource another object owns.
 	if id != "" && pol.CanWrite() {
 		if err := r.tagger().EnsureOwner(ctx, sc.cf, sc.accountID, r.tagTarget(id), r.owner(obj)); err != nil {
@@ -656,21 +697,33 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 			changed = append(changed, f)
 		}
 	}
-	if len(changed) > 0 {
-		if d.UpdateMethod == "" || !pol.CanUpdate() {
+	subChanged := r.changedSubResources(desired, obs)
+	if len(changed) > 0 || len(subChanged) > 0 {
+		if (len(changed) > 0 && d.UpdateMethod == "") || !pol.CanUpdate() {
 			why := "managementPolicies do not allow Update"
-			if d.UpdateMethod == "" {
+			if len(changed) > 0 && d.UpdateMethod == "" {
 				why = "the API has no update operation"
 			}
 			reconcile.SetSynced(obj, metav1.ConditionFalse, commonv1alpha1.ReasonReconcileError,
-				fmt.Sprintf("forProvider differs from Cloudflare in %s, but %s", strings.Join(changed, ", "), why))
+				fmt.Sprintf("forProvider differs from Cloudflare in %s, but %s", strings.Join(append(changed, subFields(subChanged)...), ", "), why))
 			return ctrl.Result{RequeueAfter: r.poll()}, nil
 		}
-		log.FromContext(ctx).Info("updating", "id", id, "fields", changed)
-		if err := r.update(ctx, sc, id, pick(desired, changed), desired, obs); err != nil {
-			return errResult(obj, fmt.Errorf("update: %w", err))
+		if len(changed) > 0 {
+			log.FromContext(ctx).Info("updating", "id", id, "fields", changed)
+			if err := r.update(ctx, sc, id, pick(desired, changed), desired, obs); err != nil {
+				return errResult(obj, fmt.Errorf("update: %w", err))
+			}
+		}
+		for _, s := range subChanged {
+			log.FromContext(ctx).Info("updating", "id", id, "fields", []string{s.Field})
+			if err := r.putSubResource(ctx, sc, id, s, desired); err != nil {
+				return errResult(obj, err)
+			}
 		}
 		if observed, err = r.get(ctx, sc, id); err != nil {
+			return errResult(obj, err)
+		}
+		if observed, err = r.withSubResources(ctx, sc, id, observed, nil); err != nil {
 			return errResult(obj, err)
 		}
 		if err := SetAtProvider(obj, observed); err != nil {
@@ -723,11 +776,32 @@ func (r *Reconciler) differs(f string, v any, desired, obs map[string]any, prevW
 			return true
 		}
 	}
-	return !Covers(without(v, sub), obs[f])
+	return !Covers(without(v, sub), obs[r.Extension.ObservedName(f)])
+}
+
+// withSubResources adds the kind's sub-resources (Extension.SubResources) of id to the observed
+// item: obs (the decoded item, or nil to decode observed) gets them, and the returned raw
+// result carries them into status.atProvider. Without sub-resources (or for a singleton) the
+// item is returned unchanged.
+func (r *Reconciler) withSubResources(ctx context.Context, sc scope, id string, observed json.RawMessage, obs map[string]any) (json.RawMessage, error) {
+	if len(r.Extension.SubResources) == 0 || id == "" {
+		return observed, nil
+	}
+	if obs == nil {
+		var err error
+		if obs, err = decodeObject(observed); err != nil {
+			return nil, err
+		}
+	}
+	if err := r.observeSubResources(ctx, sc, id, obs); err != nil {
+		return nil, err
+	}
+	return json.Marshal(obs)
 }
 
 // update sends UpdateMethod to the item. PATCH carries only the changed fields; PUT replaces
 // the object, so it carries every UpdateField: desired where set, else the observed value.
+// Update header fields (Extension.Headers) travel as headers; a body they empty is not sent.
 func (r *Reconciler) update(ctx context.Context, sc scope, id string, changed, desired, observed map[string]any) error {
 	d := r.Descriptor
 	body := changed
@@ -736,12 +810,14 @@ func (r *Reconciler) update(ctx context.Context, sc scope, id string, changed, d
 		for _, f := range d.UpdateFields {
 			if v, ok := desired[f]; ok && v != nil {
 				body[f] = v
-			} else if v, ok := observed[f]; ok && v != nil && !has(d.WriteOnly, f) {
+			} else if v, ok := observed[r.Extension.ObservedName(f)]; ok && v != nil && !has(d.WriteOnly, f) {
 				body[f] = v
 			}
 		}
 	}
-	_, err := sc.cf.Do(ctx, cfclient.Request{Method: d.UpdateMethod, Path: sc.path(d.ItemPath, id), Body: body})
+	req := cfclient.Request{Method: d.UpdateMethod, Path: sc.path(d.ItemPath, id), Body: body}
+	r.Extension.moveUpdateHeaders(&req, body)
+	_, err := sc.do(ctx, req)
 	return err
 }
 
@@ -861,17 +937,27 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 		}
 	}
 	var del func(ctx context.Context, id string) error
+	var refused error // the API's answer to the DELETE, when it refused it
 	if deleteExternal {
 		del = func(ctx context.Context, id string) error {
-			_, err := sc.cf.Do(ctx, cfclient.Request{Method: http.MethodDelete, Path: sc.path(d.ItemPath, id)})
+			_, err := sc.do(ctx, cfclient.Request{Method: http.MethodDelete, Path: sc.path(d.ItemPath, id)})
 			if err == nil {
 				log.FromContext(ctx).Info("deleted", "id", id)
+			} else if ae, ok := cfclient.AsAPIError(err); ok && ae.Status != http.StatusNotFound && ae.Status != http.StatusTooManyRequests {
+				refused = err
 			}
 			return err
 		}
 	}
 	reconcile.MarkDeleting(obj, "")
 	res, err := reconcile.Finalize(ctx, r.Client, obj, kindDefault, del)
+	if refused != nil && err != nil {
+		// E.g. an R2 bucket that still holds objects: the finalizer stays and retries (with
+		// backoff) until the API accepts the delete or deletionPolicy becomes Orphan.
+		reconcile.SetSynced(obj, metav1.ConditionFalse, reconcile.ReasonDeleteFailed,
+			fmt.Sprintf("Cloudflare refused to delete %s %s: %v (the finalizer retries; resolve the cause, or set deletionPolicy Orphan to keep the resource)",
+				d.Kind, id, refused))
+	}
 	if err == nil && !controllerutil.ContainsFinalizer(obj, commonv1alpha1.Finalizer) {
 		r.applied.Delete(client.ObjectKeyFromObject(obj))
 	}

@@ -14,6 +14,7 @@ Managed kinds share one shape, Crossplane-style: `spec.accountRef`, `spec.forPro
 | [D1Database](#d1database) | `d1.cloudflare.flare.dev/v1alpha1` | `cfd1` | `cloudflare`, `managed`, `d1` | Orphan |
 | [KVNamespace](#kvnamespace) | `kv.cloudflare.flare.dev/v1alpha1` | `cfkv` | `cloudflare`, `managed`, `kv` | Orphan |
 | [Queue](#queue) | `queues.cloudflare.flare.dev/v1alpha1` | `cfqueue`, `cfq` | `cloudflare`, `managed`, `queues` | Orphan |
+| [R2Bucket](#r2bucket) | `r2.cloudflare.flare.dev/v1alpha1` | `cfr2`, `cfbucket` | `cloudflare`, `managed`, `r2` | Orphan |
 | [SecretsStore](#secretsstore) | `secretsstore.cloudflare.flare.dev/v1alpha1` | `cfstore` | `cloudflare`, `managed`, `secretsstore` | Delete |
 | [Tunnel](#tunnel) | `tunnels.cloudflare.flare.dev/v1alpha1` | `cftunnel`, `cftun` | `cloudflare`, `managed`, `tunnels` | Delete |
 | [VPCService](#vpcservice) | `workersvpc.cloudflare.flare.dev/v1alpha1` | `cfvpcsvc`, `cfvpc` | `cloudflare`, `managed`, `workersvpc` | Delete |
@@ -33,6 +34,7 @@ Managed kinds share one shape, Crossplane-style: `spec.accountRef`, `spec.forPro
 | D1Database | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `DATABASE` (`.status.atProvider.name`), `VERSION` (`.status.atProvider.version`) *wide*, `AGE` (`.metadata.creationTimestamp`) |
 | KVNamespace | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `TITLE` (`.status.atProvider.title`), `AGE` (`.metadata.creationTimestamp`) |
 | Queue | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `QUEUE` (`.status.atProvider.queue_name`), `CONSUMERS` (`.status.atProvider.consumers_total_count`) *wide*, `AGE` (`.metadata.creationTimestamp`) |
+| R2Bucket | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `LOCATION` (`.status.atProvider.location`), `STORAGE-CLASS` (`.status.atProvider.storage_class`), `JURISDICTION` (`.status.atProvider.jurisdiction`) *wide*, `AGE` (`.metadata.creationTimestamp`) |
 | SecretsStore | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `STORE` (`.status.atProvider.name`), `AGE` (`.metadata.creationTimestamp`) |
 | Tunnel | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `STATUS` (`.status.atProvider.status`), `CONNECTORS` (`.status.connector.readyReplicas`), `AGE` (`.metadata.creationTimestamp`) |
 | VPCService | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `TYPE` (`.status.atProvider.type`), `TUNNEL` (`.spec.forProvider.tunnelRef.name`), `AGE` (`.metadata.creationTimestamp`) |
@@ -57,7 +59,8 @@ Every kind reports two conditions. `Ready` says whether the Cloudflare resource 
 | `ObserveOnly` | Synced | True | managed kinds | managementPolicies is ["Observe"]; the resource was read and nothing is ever written. |
 | `ReconcileError` | Synced | False | every kind | The last reconcile failed (the message quotes the Cloudflare error, sanitized) or spec differs from Cloudflare in a way the policies or the API do not allow to fix (no update operation, Update not in managementPolicies). Transient errors are retried with backoff. |
 | `Immutable` | Synced | False | managed kinds | forProvider changes a field Cloudflare cannot change after creation; nothing is written. Recreate the object to change it. The CRD's CEL rules reject most such changes at once; this is the controller's own check (e.g. after the field was removed and re-added, or an adopted resource differs). |
-| `NameConflict` | Ready, Synced | False | Tunnel, VPCService, WorkerScript, generated kinds without an owner tag (VectorizeIndex, SecretsStore, AIGateway; every generated kind with --ownership-tags=false) | The Cloudflare name (or client-chosen ID) is taken by a resource this object cannot prove it owns: no owner tag names this object and it is not the object's own lost create. It is not adopted by name. Set the cloudflare.flare.dev/external-id annotation to adopt it. |
+| `NameConflict` | Ready, Synced | False | Tunnel, VPCService, WorkerScript, generated kinds without an owner tag (VectorizeIndex, SecretsStore, AIGateway, R2Bucket; every generated kind with --ownership-tags=false) | The Cloudflare name (or client-chosen ID) is taken by a resource this object cannot prove it owns: no owner tag names this object and it is not the object's own lost create. It is not adopted by name. Set the cloudflare.flare.dev/external-id annotation to adopt it. |
+| `DeleteFailed` | Synced | False | generated kinds | The object is being deleted (deletionPolicy Delete) and Cloudflare refused the DELETE of its resource; the message quotes the API error. The finalizer stays and retries with backoff. R2Bucket: a bucket that still holds objects cannot be deleted (the error code, e.g. 10008, is UNVERIFIED): empty the bucket, or set deletionPolicy Orphan to keep it. Rate limits (429) and a resource already gone (404) are not reported this way. |
 | `InvalidHostname` | Ready, Synced | False | VPCService | host.hostname looks like a short in-cluster name; cloudflared never applies DNS search domains, so use the fully qualified name. |
 | `InvalidScriptName` | Ready, Synced | False | WorkerScript | The script name (forProvider.script_name, or metadata.name) is not a valid Workers script name. |
 | `InvalidSpec` | Ready, Synced | False | WorkerScript | forProvider cannot be uploaded (an invalid module name or type, wasm-base64 content that is not base64, a main_module that is not one of the modules, an unusable sourceRef ConfigMap, ...). |
@@ -507,6 +510,72 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `status.atProvider.settings.delivery_delay` | integer | Number of seconds to delay delivery of all messages to consumers. |  |
 | `status.atProvider.settings.delivery_paused` | boolean | Indicates if message delivery to consumers is currently paused. |  |
 | `status.atProvider.settings.message_retention_period` | integer | Number of seconds after which an unconsumed message will be delayed. |  |
+| `status.conditions` | []object |  | list type map (key type) |
+| `status.id` | string | ID is the Cloudflare ID of the external resource. |  |
+| `status.observedGeneration` | integer |  |  |
+| `status.writeOnlyHash` | string | WriteOnlyHash is a hash of write-only forProvider fields last applied. |  |
+
+## R2Bucket
+
+`r2.cloudflare.flare.dev/v1alpha1`, kind `R2Bucket`, resource `r2buckets`, generated by flaregen from the Cloudflare API operations with `x-fern-sdk-group-name` `r2.buckets`.
+
+R2Bucket is a Cloudflare r2 buckets (x-fern-sdk-group-name "r2.buckets").
+
+### Validation rules
+
+CEL rules (`x-kubernetes-validations`) the API server enforces on create and update (rules that use `oldSelf` apply to updates only):
+
+| Field | Message | Rule |
+|---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
+| `spec.forProvider.jurisdiction` | forProvider.jurisdiction is immutable once the resource exists (status.id is set): it is sent as the cf-r2-jurisdiction header and selects where the resource lives (unset means "default"); setting, changing or removing it is refused. Recreate the object to change it | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| (has(self.spec.forProvider) && has(self.spec.forProvider.jurisdiction) ? self.spec.forProvider.jurisdiction : "default") == (has(oldSelf.spec.forProvider) && has(oldSelf.spec.forProvider.jurisdiction) ? oldSelf.spec.forProvider.jurisdiction : "default") ` |
+| `spec.forProvider.locationHint` | forProvider.locationHint is immutable once the resource exists (status.id is set): recreate the object to change it | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.locationHint) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.locationHint) \|\| self.spec.forProvider.locationHint == oldSelf.spec.forProvider.locationHint ` |
+| `spec.forProvider.name` | forProvider.name is immutable once the resource exists (status.id is set): recreate the object to change it, or set it to the value Cloudflare reports (status.atProvider.name) | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| !has(oldSelf.spec.forProvider) \|\| !has(oldSelf.spec.forProvider.name) \|\| !has(self.spec.forProvider) \|\| !has(self.spec.forProvider.name) \|\| self.spec.forProvider.name == oldSelf.spec.forProvider.name \|\| (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name == self.spec.forProvider.name) ` |
+| `spec.forProvider.name` | forProvider.name is required unless managementPolicies exclude Create (e.g. ["Observe"]) | ` !(!has(self.managementPolicies) \|\| size(self.managementPolicies) == 0 \|\| '*' in self.managementPolicies \|\| 'Create' in self.managementPolicies) \|\| (has(self.forProvider) && has(self.forProvider.name)) ` |
+| `spec.accountRef.name` | accountRef.name must name a CloudflareAccount in this namespace (1-253 characters) | ` size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253 ` |
+
+### Fields
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `spec` | object | **Required.** R2BucketSpec defines the desired state of a R2Bucket. | CEL rules: see above |
+| `spec.accountRef` | object | **Required.** AccountRef names the CloudflareAccount (same namespace) to use. |  |
+| `spec.accountRef.name` | string | **Required.** |  |
+| `spec.deletionPolicy` | string | DeletionPolicy says what happens to the Cloudflare resource when this object is deleted. | one of `Delete`, `Orphan`; default `"Orphan"` |
+| `spec.forProvider` | object | ForProvider holds the Cloudflare API fields, named exactly as in the API. |  |
+| `spec.forProvider.cors` | object | cors is managed through PUT /accounts/{account_id}/r2/buckets/{bucket_name}/cors (and read with GET); unset leaves it as it is. |  |
+| `spec.forProvider.cors.rules` | []object |  |  |
+| `spec.forProvider.cors.rules[].allowed` | object | **Required.** Object specifying allowed origins, methods and headers for this CORS rule. |  |
+| `spec.forProvider.cors.rules[].allowed.headers` | []string | Specifies the value for the Access-Control-Allow-Headers header R2 sets when requesting objects in this bucket from a browser. Cross-origin requests that include custom headers (e.g. x-user-id) should specify these headers as AllowedHeaders. |  |
+| `spec.forProvider.cors.rules[].allowed.methods` | []string | **Required.** Specifies the value for the Access-Control-Allow-Methods header R2 sets when requesting objects in a bucket from a browser. | each item: one of `GET`, `PUT`, `POST`, `DELETE`, `HEAD` |
+| `spec.forProvider.cors.rules[].allowed.origins` | []string | **Required.** Specifies the value for the Access-Control-Allow-Origin header R2 sets when requesting objects in a bucket from a browser. |  |
+| `spec.forProvider.cors.rules[].exposeHeaders` | []string | Specifies the headers that can be exposed back, and accessed by, the JavaScript making the cross-origin request. If you need to access headers beyond the safelisted response headers, such as Content-Encoding or cf-cache-status, you must specify it here. |  |
+| `spec.forProvider.cors.rules[].id` | string | Identifier for this rule. |  |
+| `spec.forProvider.cors.rules[].maxAgeSeconds` | number | Specifies the amount of time (in seconds) browsers are allowed to cache CORS preflight responses. Browsers may limit this to 2 hours or less, even if the maximum value (86400) is specified. |  |
+| `spec.forProvider.jurisdiction` | string | Jurisdiction where objects in this bucket are guaranteed to be stored. Sent as the cf-r2-jurisdiction header of every request; it selects where the resource lives, so it cannot be set, changed or removed once the resource exists. | one of `default`, `eu`, `us`, `fedramp`, `fedramp-high` |
+| `spec.forProvider.locationHint` | string | Location of the bucket. | one of `apac`, `eeur`, `enam`, `weur`, `wnam`, `oc` |
+| `spec.forProvider.name` | string | Name of the bucket. | pattern ` ^[a-z0-9][a-z0-9-]*[a-z0-9] `; length 3–64 |
+| `spec.forProvider.storageClass` | string | Storage class for newly uploaded objects, unless specified otherwise. | one of `Standard`, `InfrequentAccess` |
+| `spec.managementPolicies` | []string | ManagementPolicies default to ["*"]. ["Observe"] makes the object read-only. | each item: one of `Observe`, `Create`, `Update`, `Delete`, `LateInitialize`, `*` |
+| `spec.zoneRef` | object | ZoneRef is required for zone-scoped kinds and ignored otherwise. Exactly one of id or name. |  |
+| `spec.zoneRef.id` | string |  |  |
+| `spec.zoneRef.name` | string |  |  |
+| `status` | object | R2BucketStatus defines the observed state of a R2Bucket. |  |
+| `status.atProvider` | object | AtProvider is the resource as last read from the Cloudflare API. |  |
+| `status.atProvider.cors` | object | cors as returned by GET /accounts/{account_id}/r2/buckets/{bucket_name}/cors (absent when not configured). |  |
+| `status.atProvider.cors.rules` | []object |  |  |
+| `status.atProvider.cors.rules[].allowed` | object | Object specifying allowed origins, methods and headers for this CORS rule. |  |
+| `status.atProvider.cors.rules[].allowed.headers` | []string | Specifies the value for the Access-Control-Allow-Headers header R2 sets when requesting objects in this bucket from a browser. Cross-origin requests that include custom headers (e.g. x-user-id) should specify these headers as AllowedHeaders. |  |
+| `status.atProvider.cors.rules[].allowed.methods` | []string | Specifies the value for the Access-Control-Allow-Methods header R2 sets when requesting objects in a bucket from a browser. |  |
+| `status.atProvider.cors.rules[].allowed.origins` | []string | Specifies the value for the Access-Control-Allow-Origin header R2 sets when requesting objects in a bucket from a browser. |  |
+| `status.atProvider.cors.rules[].exposeHeaders` | []string | Specifies the headers that can be exposed back, and accessed by, the JavaScript making the cross-origin request. If you need to access headers beyond the safelisted response headers, such as Content-Encoding or cf-cache-status, you must specify it here. |  |
+| `status.atProvider.cors.rules[].id` | string | Identifier for this rule. |  |
+| `status.atProvider.cors.rules[].maxAgeSeconds` | number | Specifies the amount of time (in seconds) browsers are allowed to cache CORS preflight responses. Browsers may limit this to 2 hours or less, even if the maximum value (86400) is specified. |  |
+| `status.atProvider.creation_date` | string | Creation timestamp. |  |
+| `status.atProvider.jurisdiction` | string | Jurisdiction where objects in this bucket are guaranteed to be stored. |  |
+| `status.atProvider.location` | string | Location of the bucket. |  |
+| `status.atProvider.name` | string | Name of the bucket. |  |
+| `status.atProvider.storage_class` | string | Storage class for newly uploaded objects, unless specified otherwise. |  |
 | `status.conditions` | []object |  | list type map (key type) |
 | `status.id` | string | ID is the Cloudflare ID of the external resource. |  |
 | `status.observedGeneration` | integer |  |  |

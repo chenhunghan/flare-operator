@@ -38,6 +38,12 @@ Nothing has been released yet. This section collects what the first release will
 - `make lint-static` (staticcheck) and `make vulncheck` (govulncheck), in `make ci` and the CI
   workflow. `make crds-apply` and `make crds-diff` for CRD upgrades. `make e2e-upgrade` tests
   an upgrade from a previous git ref.
+- Generated kind `R2Bucket` (`r2.cloudflare.flare.dev`; default `deletionPolicy: Orphan`):
+  jurisdiction (the `cf-r2-jurisdiction` header, immutable), location hint, storage class and
+  CORS policy. It comes with three `generator.yaml` extensions for generated kinds:
+  `requestHeaders`, `observedAs` and `subResources` (docs/generator-scaleout.md). A refused
+  delete (an R2 bucket that is not empty) is reported as `Synced=False`, reason `DeleteFailed`.
+  Emulated by flarefake's generic profile; not verified against the live API.
 - `SECURITY.md` and `docs/operations.md` (install, upgrade, uninstall semantics, metrics,
   leader election, network policy, rate limiting, troubleshooting, backup and restore,
   multi-account setup).

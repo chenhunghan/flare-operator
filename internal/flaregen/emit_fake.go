@@ -43,6 +43,7 @@ func emitFakeKinds(kinds []*KindModel) ([]byte, error) {
 		if d.Singleton {
 			b.WriteString("\t\tSingleton: true,\n")
 		}
+		b.WriteString(extensionLiteral("", "GenericHeader", "GenericSubResource", "Headers", "SubResources", m.Extension, "\t\t"))
 		b.WriteString("\t},\n")
 	}
 	b.WriteString("}\n")

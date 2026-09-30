@@ -47,6 +47,14 @@ package fake
 //     cursor, no result_info and no paging when the spec has none (Vectorize, 0154).
 //   - Singletons: GET returns a default object shaped from the schema (defaults, zero values)
 //     until PUT/PATCH changes it.
+//   - A list result that the spec declares as an object whose only member is the item array
+//     (R2: {"buckets": [...]}) is answered in that shape.
+//   - Per-kind extensions (GenericKind.Headers, ObservedAs, SubResources; generator.yaml
+//     requestHeaders, observedAs, subResources, docs/generator-scaleout.md): a partitioning
+//     header splits the kind's collection by its value (absent = its spec default) and is stored
+//     in the object; an update header sets the stored field; an update route whose spec has no
+//     body ignores any body; ObservedAs fields of a body are stored under their read-back name;
+//     a sub-resource is a document stored with its item (GET → 404 when absent, PUT, DELETE).
 //
 // What it cannot model is listed in docs/generator-scaleout.md (product validation and error
 // codes, async state machines, side effects on other resources, non-JSON bodies, …).
@@ -74,6 +82,29 @@ type GenericKind struct {
 	UpdateMethod                   string // informational: the spec decides which update routes exist
 	WriteOnly                      []string
 	Singleton                      bool
+
+	// Headers, ObservedAs and SubResources mirror internal/generic.Extension (generator.yaml
+	// requestHeaders, observedAs, subResources); see the package comment above.
+	Headers      []GenericHeader
+	ObservedAs   map[string]string
+	SubResources []GenericSubResource
+}
+
+// GenericHeader is a forProvider field the kind sends as a request header
+// (internal/generic.HeaderField). Update=false: the header partitions the collection (a
+// resource made with one value is invisible with another; absent means Default) and is stored in
+// the object's Field when the item schema has it. Update=true: an update request's header sets
+// the object's Field (or its ObservedAs name).
+type GenericHeader struct {
+	Header, Field string
+	Update        bool
+	Default       string
+}
+
+// GenericSubResource is a fixed sub-path of the item served as its own stored document
+// (internal/generic.SubResource).
+type GenericSubResource struct {
+	Field, Path string
 }
 
 // GeneratedGenericKinds returns the generator.yaml kinds marked `emulate: generic`
@@ -102,6 +133,17 @@ type genericObject struct {
 	obj     map[string]any
 	seq     int64
 	created time.Time
+	// subs holds the item's sub-resource documents (GenericSubResource), keyed by Field.
+	subs map[string]map[string]any
+}
+
+// genericSub is one GenericSubResource of a model with its spec operations.
+type genericSub struct {
+	res           GenericSubResource
+	get, put, del *openapi3.Operation
+	doc           *gSchema // GET result: the stored document's shape
+	putRes        *gSchema
+	delRes        *gSchema
 }
 
 // genericCollection holds one kind's objects in one account (or zone).
@@ -128,6 +170,10 @@ type genericModel struct {
 	cursor    bool
 	idGen     func(time.Time) string
 	clientID  bool // the client chooses the ID (IDField in the create body, or IDField == NameField)
+	// listWrap is the property of the list result object that holds the items, when the spec's
+	// list result is an object with exactly one array property (R2: {"buckets": [...]}).
+	listWrap string
+	subs     []*genericSub
 }
 
 // GenericSkipped returns the Options.Generic kinds that are not served because a hand-written
@@ -230,7 +276,15 @@ func newGenericModel(k GenericKind, spec *Spec) (*genericModel, string) {
 		}
 	}
 	if m.list != nil {
-		_, m.listInfo = responseResult(m.list)
+		var listRes *gSchema
+		listRes, m.listInfo = responseResult(m.list)
+		if listRes != nil && listRes.typ == "object" && len(listRes.props) == 1 {
+			for name, p := range listRes.props {
+				if p.typ == "array" {
+					m.listWrap = name
+				}
+			}
+		}
 		m.perPage = queryDefault(m.list, "per_page")
 		if m.perPage == 0 {
 			m.perPage = genericDefaultPerPage
@@ -250,6 +304,20 @@ func newGenericModel(k GenericKind, spec *Spec) (*genericModel, string) {
 			idSchema = &gSchema{}
 		}
 		m.idGen = idGenerator(idSchema)
+	}
+	for _, sr := range k.SubResources {
+		pi := specPathItem(spec.Doc, k.ItemPath+sr.Path)
+		if pi == nil || pi.Get == nil || pi.Put == nil {
+			return nil, "no spec GET and PUT for " + k.ItemPath + sr.Path
+		}
+		sub := &genericSub{res: sr, get: pi.Get, put: pi.Put, del: pi.Delete}
+		sub.doc, _ = responseResult(pi.Get)
+		if sub.doc == nil {
+			sub.doc = &gSchema{typ: "object"}
+		}
+		sub.putRes, _ = responseResult(pi.Put)
+		sub.delRes, _ = responseResult(pi.Delete)
+		m.subs = append(m.subs, sub)
 	}
 	return m, ""
 }
@@ -318,6 +386,14 @@ func (s *Server) registerGenericModel(m *genericModel) {
 	if m.del != nil {
 		s.handle(http.MethodDelete, k.ItemPath, m.deleteH)
 	}
+	for _, sub := range m.subs {
+		p := k.ItemPath + sub.res.Path
+		s.handle(http.MethodGet, p, m.subGetH(sub))
+		s.handle(http.MethodPut, p, m.subPutH(sub))
+		if sub.del != nil {
+			s.handle(http.MethodDelete, p, m.subDeleteH(sub))
+		}
+	}
 }
 
 // ---- handlers --------------------------------------------------------------------------------
@@ -329,8 +405,28 @@ func (m *genericModel) scopeID(c *reqCtx) string {
 	return "account:" + c.params["account_id"]
 }
 
+// partition renders the values of the kind's partitioning headers (GenericHeader, Update=false)
+// for a collection key: "" for a kind without them. get returns a header's request value.
+func (m *genericModel) partition(get func(string) string) string {
+	var b strings.Builder
+	for _, h := range m.kind.Headers {
+		if !h.Update {
+			fmt.Fprintf(&b, "|%s=%s", strings.ToLower(h.Header), m.headerValue(h, get))
+		}
+	}
+	return b.String()
+}
+
+// headerValue is a partitioning header's value: the request's, else its default.
+func (m *genericModel) headerValue(h GenericHeader, get func(string) string) string {
+	if v := get(h.Header); v != "" {
+		return v
+	}
+	return h.Default
+}
+
 func (m *genericModel) coll(c *reqCtx) *genericCollection {
-	key := m.kind.Group + "/" + m.kind.Kind + "@" + m.scopeID(c)
+	key := m.kind.Group + "/" + m.kind.Kind + "@" + m.scopeID(c) + m.partition(c.r.Header.Get)
 	g := c.s.generic
 	col, ok := g.state[key]
 	if !ok {
@@ -419,7 +515,8 @@ func (m *genericModel) createH(c *reqCtx) response {
 	if k.NameField != "" && k.NameField != k.IDField && m.nameTaken(col, body[k.NameField], "") {
 		return m.conflict(k.NameField, fmt.Sprint(body[k.NameField]))
 	}
-	obj := shapeTop(m.item, body, m.ctx(c, c.now, true))
+	obj := shapeTop(m.item, m.renamed(body), m.ctx(c, c.now, true))
+	m.setHeaderFields(c, obj, false)
 	obj[k.IDField] = id
 	m.finish(obj)
 	col.items[id] = &genericObject{obj: obj, seq: c.s.nextSeq(), created: c.now}
@@ -442,10 +539,18 @@ func (m *genericModel) getH(c *reqCtx) response {
 }
 
 func (m *genericModel) updateH(merge bool) handler {
+	op := m.put
+	if merge {
+		op = m.patch
+	}
+	bodyless := requestBodySchema(op) == nil // R2's PATCH: headers only
 	return func(c *reqCtx) response {
 		body, r := m.check(c, true)
 		if r != nil {
 			return *r
+		}
+		if bodyless {
+			body = map[string]any{} // the spec defines no body: whatever was sent changes nothing
 		}
 		col := m.coll(c)
 		id := c.params["id"]
@@ -457,7 +562,8 @@ func (m *genericModel) updateH(merge bool) handler {
 		if name, set := body[k.NameField]; set && k.NameField != k.IDField && m.nameTaken(col, name, id) {
 			return m.conflict(k.NameField, fmt.Sprint(name))
 		}
-		next := m.updated(c, o.obj, body, o.created, merge)
+		next := m.updated(c, o.obj, m.renamed(body), o.created, merge)
+		m.setHeaderFields(c, next, true)
 		next[k.IDField] = id
 		o.obj = m.finish(next)
 		return ok(deepCopyJSON(o.obj))
@@ -525,7 +631,7 @@ func (m *genericModel) listH(c *reqCtx) response {
 		all = append(all, deepCopyJSON(o.obj))
 	}
 	if m.listInfo == nil {
-		return ok(all) // no result_info, no paging (0154)
+		return ok(m.wrap(all)) // no result_info, no paging (0154)
 	}
 	perPage := c.intQuery("per_page", m.perPage)
 	if perPage <= 0 {
@@ -547,19 +653,156 @@ func (m *genericModel) listH(c *reqCtx) response {
 		if end < len(all) {
 			next = encodeCursor(end)
 		}
-		return okList(all[start:end], m.info(map[string]any{
+		return okList(m.wrap(all[start:end]), m.info(map[string]any{
 			"count": end - start, "per_page": perPage, "total_count": len(all),
 			"cursor": next, "cursors": map[string]any{"after": next},
 		}))
 	}
 	page := c.intQuery("page", 1)
 	out, page, perPage, totalPages := paginate(all, page, perPage, m.perPage)
-	return okList(out, m.info(map[string]any{
+	return okList(m.wrap(out), m.info(map[string]any{
 		"page": page, "per_page": perPage, "count": len(out), "total_count": len(all), "total_pages": totalPages,
 	}))
 }
 
 func (m *genericModel) hasPage() bool { return hasQueryParam(m.list, "page") }
+
+// wrap puts a list page into the list result object when the spec wraps it (listWrap).
+func (m *genericModel) wrap(items []any) any {
+	if m.listWrap == "" {
+		return items
+	}
+	return map[string]any{m.listWrap: items}
+}
+
+// renamed returns a request body with the kind's ObservedAs fields under their stored names
+// (R2: the create body's storageClass is stored as storage_class). The body is not modified.
+func (m *genericModel) renamed(body map[string]any) map[string]any {
+	if len(m.kind.ObservedAs) == 0 {
+		return body
+	}
+	out := make(map[string]any, len(body))
+	for k, v := range body {
+		out[k] = v
+	}
+	for from, to := range m.kind.ObservedAs {
+		if v, ok := out[from]; ok {
+			delete(out, from)
+			if _, set := out[to]; !set {
+				out[to] = v
+			}
+		}
+	}
+	return out
+}
+
+// setHeaderFields stores header values in obj where the item schema has the field: on create,
+// the partitioning headers (R2: the bucket's jurisdiction; absent → the default); on update,
+// the update headers that the request sends (R2: cf-r2-storage-class → storage_class).
+func (m *genericModel) setHeaderFields(c *reqCtx, obj map[string]any, update bool) {
+	for _, h := range m.kind.Headers {
+		field := h.Field
+		if to, ok := m.kind.ObservedAs[field]; ok {
+			field = to
+		}
+		if _, stored := m.item.props[field]; !stored {
+			continue
+		}
+		switch {
+		case !h.Update && !update:
+			obj[field] = m.headerValue(h, c.r.Header.Get)
+		case h.Update && update:
+			if v := c.r.Header.Get(h.Header); v != "" {
+				obj[field] = v
+			}
+		}
+	}
+}
+
+// ---- sub-resources (GenericSubResource) --------------------------------------------------------
+//
+// UNVERIFIED throughout (spec only): a sub-resource is a document stored with its item. GET of an
+// item without one → 404 (the item's notFound error with a sub-resource message; the real code
+// for R2 CORS is not known), PUT replaces it (the body shaped by the GET result schema), DELETE
+// removes it. PUT and DELETE answer the spec's result: {} for a free-form object result.
+
+func (m *genericModel) subItem(c *reqCtx) (*genericObject, *response) {
+	id := c.params["id"]
+	o, found := m.coll(c).items[id]
+	if !found {
+		r := m.notFound(id)
+		return nil, &r
+	}
+	return o, nil
+}
+
+// subResult is the answer of a sub-resource write whose spec result is res.
+func subResult(res *gSchema, stored map[string]any, ctx shapeCtx) any {
+	switch {
+	case res == nil:
+		return nil
+	case len(res.props) > 0 && stored != nil:
+		return shapeTop(res, stored, ctx)
+	default:
+		return zeroValue(res, ctx)
+	}
+}
+
+func (m *genericModel) subGetH(sub *genericSub) handler {
+	return func(c *reqCtx) response {
+		if _, r := m.check(c, false); r != nil {
+			return *r
+		}
+		o, r := m.subItem(c)
+		if r != nil {
+			return *r
+		}
+		doc, found := o.subs[sub.res.Field]
+		if !found {
+			code := genericNotFoundCode
+			if q := m.quirk.notFound; q != nil {
+				code = q.Code
+			}
+			return fail(http.StatusNotFound, code, fmt.Sprintf("flarefake(generic): %s %q has no %s", m.kind.Kind, c.params["id"], sub.res.Field))
+		}
+		return ok(deepCopyJSON(doc))
+	}
+}
+
+func (m *genericModel) subPutH(sub *genericSub) handler {
+	return func(c *reqCtx) response {
+		body, r := m.check(c, true)
+		if r != nil {
+			return *r
+		}
+		o, r := m.subItem(c)
+		if r != nil {
+			return *r
+		}
+		ctx := m.ctx(c, o.created, false)
+		doc := shapeTop(sub.doc, body, ctx)
+		if o.subs == nil {
+			o.subs = map[string]map[string]any{}
+		}
+		o.subs[sub.res.Field] = doc
+		return ok(subResult(sub.putRes, doc, ctx))
+	}
+}
+
+func (m *genericModel) subDeleteH(sub *genericSub) handler {
+	return func(c *reqCtx) response {
+		if _, r := m.check(c, false); r != nil {
+			return *r
+		}
+		o, r := m.subItem(c)
+		if r != nil {
+			return *r
+		}
+		doc := o.subs[sub.res.Field]
+		delete(o.subs, sub.res.Field)
+		return ok(subResult(sub.delRes, doc, m.ctx(c, o.created, false)))
+	}
+}
 
 // info keeps the result_info fields the spec's list response declares, minus those the real
 // API is recorded to omit (quirks).
@@ -633,7 +876,13 @@ func (s *Server) GenericObject(group, kind, accountID, id string) map[string]any
 	if s.generic == nil {
 		return nil
 	}
-	col, ok := s.generic.state[group+"/"+kind+"@account:"+accountID]
+	part := ""
+	for _, m := range s.generic.models {
+		if m.kind.Group == group && m.kind.Kind == kind {
+			part = m.partition(func(string) string { return "" }) // partitioning headers at their defaults
+		}
+	}
+	col, ok := s.generic.state[group+"/"+kind+"@account:"+accountID+part]
 	if !ok {
 		return nil
 	}

@@ -40,6 +40,10 @@ type Resource struct {
 
 	// Unsupported is why the resource cannot be generated yet ("" if it can).
 	Unsupported string
+
+	// all is every annotated operation of the spec (Discover), for generator.yaml options that
+	// reach beyond the resource's fern group (subResources).
+	all []*Operation
 }
 
 // Key identifies the resource for generator.yaml (fern group + path).
@@ -99,12 +103,16 @@ func scopeOf(p string) (scope, param string) {
 // Discover builds the resource model of a spec from its fern annotations.
 func Discover(doc *openapi3.T) []*Resource {
 	byGroup := map[string][]*Operation{}
-	for _, op := range Operations(doc) {
+	all := Operations(doc)
+	for _, op := range all {
 		byGroup[op.FernGroup] = append(byGroup[op.FernGroup], op)
 	}
 	var out []*Resource
 	for _, g := range sortedKeys(byGroup) {
 		out = append(out, discoverGroup(g, byGroup[g])...)
+	}
+	for _, r := range out {
+		r.all = all
 	}
 	return out
 }
@@ -310,6 +318,9 @@ type KindModel struct {
 	// fields the create and update bodies accept.
 	// Descriptor.TagResourceType comes from generator.yaml tagResourceType.
 	Descriptor generic.Descriptor
+	// Extension is generator.yaml requestHeaders, observedAs and subResources, resolved
+	// against the spec (emitted next to the Descriptor).
+	Extension generic.Extension
 	// CreateRequired are the top-level forProvider fields the create body
 	// requires; required (by a CEL rule) only when the object may create.
 	CreateRequired []string
@@ -443,6 +454,10 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 		f.Required = false
 	}
 	obs := getT
+	ext, err := buildExtension(r, kc, upd, createT, params, obs, conv)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", r.Key(), err)
+	}
 	if err := applyFieldOverrides(kc, params, obs); err != nil {
 		return nil, fmt.Errorf("%s: %w", r.Key(), err)
 	}
@@ -542,6 +557,19 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 		}
 		imm[n] = true
 	}
+	// Request headers: "all" fields select where the resource lives (immutable); "update"
+	// fields are what the update request carries (in its header).
+	for _, h := range ext.Headers {
+		if h.Update {
+			delete(imm, h.Field)
+			if !contains(updateFields, h.Field) {
+				updateFields = append(updateFields, h.Field)
+			}
+		} else {
+			imm[h.Field] = true
+		}
+	}
+	sort.Strings(updateFields)
 	d.Immutable = sortedKeys(imm)
 	var updFields []string
 	for _, n := range updateFields {
@@ -554,7 +582,7 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 	// WriteOnly: forProvider fields the get response never returns, plus overrides.
 	wo := map[string]bool{}
 	for _, f := range m.Params.Fields {
-		if m.Observation.Field(f.JSONName) == nil {
+		if m.Observation.Field(ext.ObservedName(f.JSONName)) == nil {
 			wo[f.JSONName] = true
 		}
 	}
@@ -581,7 +609,129 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 	}
 	d.TagResourceType = kc.TagResourceType
 	m.Descriptor = d
+	m.Extension = ext
 	return m, nil
+}
+
+// buildExtension resolves generator.yaml requestHeaders, observedAs and subResources against
+// the spec and adds the fields they introduce to params (forProvider) and obs (atProvider).
+func buildExtension(r *Resource, kc KindConfig, upd *Operation, createT, params, obs *Type,
+	conv func(*openapi3.SchemaRef, string) *Type) (generic.Extension, error) {
+	var ext generic.Extension
+	for _, h := range kc.RequestHeaders {
+		update := h.SentOn == "update"
+		op, what := r.Create, "create"
+		if update {
+			op, what = upd, "update"
+		}
+		p := headerParam(op, h.Header)
+		if p == nil {
+			return ext, fmt.Errorf("requestHeaders %s: the %s operation declares no such header parameter", h.Header, what)
+		}
+		hf := generic.HeaderField{Header: p.Name, Field: h.Field, Update: update}
+		if p.Schema != nil && p.Schema.Value != nil {
+			if s, ok := p.Schema.Value.Default.(string); ok {
+				hf.Default = s
+			}
+		}
+		switch {
+		case update && params.Field(h.Field) == nil:
+			// Only the update sets it: forProvider gets the header's schema.
+			addField(params, h.Field, conv(p.Schema, "header "+p.Name), headerDoc(p, "sent as the "+p.Name+" header of the update request"))
+		case update:
+		case createT.Field(h.Field) != nil:
+			return ext, fmt.Errorf("requestHeaders %s: field %s is also a create-body field", h.Header, h.Field)
+		default:
+			addField(params, h.Field, conv(p.Schema, "header "+p.Name), headerDoc(p, "sent as the "+p.Name+
+				" header of every request; it selects where the resource lives, so it cannot be set, changed or removed once the resource exists"))
+		}
+		if t := params.Field(h.Field).Type; t == nil || t.Kind != KString {
+			return ext, fmt.Errorf("requestHeaders %s: field %s must be a string", h.Header, h.Field)
+		}
+		ext.Headers = append(ext.Headers, hf)
+	}
+	for _, f := range sortedKeys(kc.ObservedAs) {
+		o := kc.ObservedAs[f]
+		switch {
+		case params.Field(f) == nil:
+			return ext, fmt.Errorf("observedAs %s: not a forProvider field", f)
+		case obs.Field(o) == nil:
+			return ext, fmt.Errorf("observedAs %s: %s is not an atProvider field", f, o)
+		}
+		if ext.ObservedAs == nil {
+			ext.ObservedAs = map[string]string{}
+		}
+		ext.ObservedAs[f] = o
+	}
+	for _, sr := range kc.SubResources {
+		p := r.ItemPath + sr.Path
+		get, put := findPath(r.all, p, http.MethodGet), findPath(r.all, p, http.MethodPut)
+		switch {
+		case get == nil || put == nil:
+			return ext, fmt.Errorf("subResources %s: the spec has no GET and PUT at %s", sr.Field, p)
+		case params.Field(sr.Field) != nil || obs.Field(sr.Field) != nil:
+			return ext, fmt.Errorf("subResources %s: the kind already has a field %s", sr.Field, sr.Field)
+		}
+		in := conv(requestSchema(put), "sub-resource "+sr.Field+" PUT body")
+		var out *Type
+		if t := conv(responseSchema(get), "sub-resource "+sr.Field+" GET response"); t != nil {
+			out = resultType(t)
+		}
+		if in == nil || out == nil {
+			return ext, fmt.Errorf("subResources %s: no JSON PUT body or GET result at %s", sr.Field, p)
+		}
+		addField(params, sr.Field, in, fmt.Sprintf("%s is managed through %s %s (and read with GET); unset leaves it as it is.", sr.Field, put.Method, p))
+		addField(obs, sr.Field, out, fmt.Sprintf("%s as returned by GET %s (absent when not configured).", sr.Field, p))
+		ext.SubResources = append(ext.SubResources, generic.SubResource{Field: sr.Field, Path: sr.Path})
+	}
+	return ext, nil
+}
+
+// headerDoc describes a forProvider field that travels in a header.
+func headerDoc(p *openapi3.Parameter, how string) string {
+	d := strings.TrimSpace(p.Description)
+	if d != "" && !strings.HasSuffix(d, ".") {
+		d += "."
+	}
+	if d != "" {
+		d += " "
+	}
+	return d + strings.ToUpper(how[:1]) + how[1:] + "."
+}
+
+// headerParam returns op's header parameter named name (case-insensitive), or nil.
+func headerParam(op *Operation, name string) *openapi3.Parameter {
+	if op == nil {
+		return nil
+	}
+	for _, pr := range op.Op.Parameters {
+		if p := pr.Value; p != nil && p.In == openapi3.ParameterInHeader && strings.EqualFold(p.Name, name) {
+			return p
+		}
+	}
+	return nil
+}
+
+// findPath returns the operation with the exact spec path and method.
+func findPath(ops []*Operation, p, method string) *Operation {
+	for _, op := range ops {
+		if op.Path == p && op.Method == method {
+			return op
+		}
+	}
+	return nil
+}
+
+// addField adds an optional field to an object type, keeping Fields sorted by JSON name.
+func addField(t *Type, name string, ft *Type, desc string) {
+	if ft == nil {
+		ft = anyType()
+	}
+	if ft.Description == "" {
+		ft.Description = desc
+	}
+	t.Fields = append(t.Fields, &Field{JSONName: name, Type: ft, Description: desc})
+	sort.Slice(t.Fields, func(i, j int) bool { return t.Fields[i].JSONName < t.Fields[j].JSONName })
 }
 
 func lastSegment(fernGroup string) string {

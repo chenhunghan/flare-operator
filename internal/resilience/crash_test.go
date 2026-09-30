@@ -68,9 +68,9 @@ func (cx *crashCtx) path(p string) string {
 // crashCases are the kinds under the crash tests.
 func crashCases() []crashCase {
 	var cases []crashCase
-	for _, kind := range []string{"KVNamespace", "Queue", "D1Database", "VectorizeIndex", "SecretsStore", "AIGateway"} {
+	for _, kind := range []string{"KVNamespace", "Queue", "D1Database", "VectorizeIndex", "SecretsStore", "AIGateway", "R2Bucket"} {
 		for _, tagging := range []bool{true, false} {
-			if !tagging && kind != "KVNamespace" && kind != "AIGateway" {
+			if !tagging && kind != "KVNamespace" && kind != "AIGateway" && kind != "R2Bucket" {
 				continue // tagging off changes nothing else in the generic reconciler's create path
 			}
 			cases = append(cases, genericCrashCase(kind, tagging))

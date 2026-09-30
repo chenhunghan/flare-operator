@@ -408,6 +408,64 @@ func TestWrangler(t *testing.T) {
 		}
 	})
 
+	// R2 buckets (flarefake's generic profile with the R2Bucket extensions): one bucket in the
+	// default jurisdiction, one in the EU; wrangler sends -J as cf-r2-jurisdiction and the storage
+	// class update as a bodiless PATCH with cf-r2-storage-class (src/r2/helpers/bucket.ts,
+	// bundled in wrangler@4.143.0:wrangler-dist/cli.js#L208065-L208262).
+	t.Run("r2/bucket-create", func(t *testing.T) {
+		w.ok(t, "r2", "bucket", "create", "flare-diff-r2", "--storage-class", "InfrequentAccess")
+		w.ok(t, "r2", "bucket", "create", "flare-diff-r2-eu", "-J", "eu")
+		var b struct {
+			Name, Jurisdiction string
+			StorageClass       string `json:"storage_class"`
+		}
+		if get(t, f, acctPath("/r2/buckets/flare-diff-r2"), &b) != http.StatusOK || b.StorageClass != "InfrequentAccess" || b.Jurisdiction != "default" {
+			t.Errorf("flarefake bucket %+v", b)
+		}
+		if st := get(t, f, acctPath("/r2/buckets/flare-diff-r2-eu"), nil); st != http.StatusNotFound {
+			t.Errorf("the EU bucket is visible without the jurisdiction header: %d", st)
+		}
+	})
+	t.Run("r2/bucket-list", func(t *testing.T) {
+		if r := w.ok(t, "r2", "bucket", "list"); !strings.Contains(r.stdout, "flare-diff-r2") || strings.Contains(r.stdout, "flare-diff-r2-eu") {
+			t.Errorf("r2 bucket list (default jurisdiction) output:\n%s", r.stdout)
+		}
+		if r := w.ok(t, "r2", "bucket", "list", "-J", "eu"); !strings.Contains(r.stdout, "flare-diff-r2-eu") {
+			t.Errorf("r2 bucket list -J eu output:\n%s", r.stdout)
+		}
+	})
+	t.Run("r2/bucket-update-storage-class", func(t *testing.T) {
+		w.ok(t, "r2", "bucket", "update", "storage-class", "flare-diff-r2", "-s", "Standard")
+		var b struct {
+			StorageClass string `json:"storage_class"`
+		}
+		if get(t, f, acctPath("/r2/buckets/flare-diff-r2"), &b); b.StorageClass != "Standard" {
+			t.Errorf("storage class after update %q", b.StorageClass)
+		}
+	})
+	t.Run("r2/cors", func(t *testing.T) {
+		file := filepath.Join(w.proj, "cors.json")
+		write(t, file, `{"rules": [{"allowed": {"origins": ["https://example.com"], "methods": ["GET"]}, "maxAgeSeconds": 3600}]}`)
+		w.ok(t, "r2", "bucket", "cors", "set", "flare-diff-r2-eu", "-J", "eu", "--file", file, "--force")
+		if r := w.ok(t, "r2", "bucket", "cors", "list", "flare-diff-r2-eu", "-J", "eu"); !strings.Contains(r.stdout, "https://example.com") {
+			t.Errorf("r2 bucket cors list output:\n%s", r.stdout)
+		}
+		w.ok(t, "r2", "bucket", "cors", "delete", "flare-diff-r2-eu", "-J", "eu", "--force")
+	})
+	t.Run("r2/bucket-delete", func(t *testing.T) {
+		w.ok(t, "r2", "bucket", "delete", "flare-diff-r2")
+		w.ok(t, "r2", "bucket", "delete", "flare-diff-r2-eu", "-J", "eu")
+		var res struct {
+			Buckets []any
+		}
+		if get(t, f, acctPath("/r2/buckets"), &res); len(res.Buckets) != 0 {
+			t.Errorf("buckets left in the default jurisdiction: %v", res.Buckets)
+		}
+		if r := w.ok(t, "r2", "bucket", "list", "-J", "eu"); strings.Contains(r.stdout, "flare-diff-r2-eu") {
+			t.Errorf("the EU bucket is still listed:\n%s", r.stdout)
+		}
+	})
+
 	t.Run("spec-and-routes", func(t *testing.T) {
 		for _, v := range f.UnexplainedSchemaViolations(knownWranglerSpecViolations...) {
 			t.Errorf("wrangler request broke the pinned spec (new discrepancy?): %s", v)
