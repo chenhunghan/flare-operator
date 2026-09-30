@@ -148,6 +148,9 @@ async function createNote(request, env, sid) {
   } catch {
     return json({ error: "expected a JSON body" }, 400);
   }
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return json({ error: "expected a JSON object" }, 400);
+  }
   const title = String(input.title ?? "").trim().slice(0, 200);
   const body = String(input.body ?? "").slice(0, 10000);
   if (!title) {
