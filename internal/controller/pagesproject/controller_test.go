@@ -66,7 +66,7 @@ func TestProjectWithBindings(t *testing.T) {
 			KVNamespaces:   []pagesv1alpha1.PagesKVBinding{{Name: "CACHE", KVNamespaceRef: &commonv1alpha1.LocalRef{Name: "cache"}}},
 			D1Databases:    []pagesv1alpha1.PagesD1Binding{{Name: "DB", D1DatabaseRef: &commonv1alpha1.LocalRef{Name: "db"}}},
 			QueueProducers: []pagesv1alpha1.PagesQueueBinding{{Name: "JOBS", QueueRef: &commonv1alpha1.LocalRef{Name: "jobs"}}},
-			R2Buckets:      []pagesv1alpha1.PagesR2Binding{{Name: "FILES", BucketName: "flare-spike-files", Jurisdiction: str("eu")}},
+			R2Buckets:      []pagesv1alpha1.PagesR2Binding{{Name: "FILES", BucketName: str("flare-spike-files"), Jurisdiction: str("eu")}},
 			Services:       []pagesv1alpha1.PagesServiceBinding{{Name: "API", Service: str("api-worker"), Entrypoint: str("Api")}},
 		}},
 	}, nil)
@@ -116,7 +116,7 @@ func TestProjectUpdate(t *testing.T) {
 		DeploymentConfigs: &pagesv1alpha1.PagesDeploymentConfigs{Preview: &pagesv1alpha1.PagesDeploymentConfig{
 			EnvVars: []pagesv1alpha1.PagesEnvVar{{Name: "A", Value: str("1")},
 				{Name: "S", Type: "secret_text", SecretKeyRef: &pagesv1alpha1.PagesSecretKeyRef{Name: "api", Key: "key"}}},
-			R2Buckets: []pagesv1alpha1.PagesR2Binding{{Name: "OLD", BucketName: "flare-spike-old"}},
+			R2Buckets: []pagesv1alpha1.PagesR2Binding{{Name: "OLD", BucketName: str("flare-spike-old")}},
 		}}}, nil)
 	pp := h.waitProject("upd", projectReady)
 	hash := pp.Status.WriteOnlyHash

@@ -77,6 +77,7 @@ import (
 	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
+	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
 	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
 	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
 	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
@@ -128,7 +129,7 @@ func init() {
 // AddToScheme registers the API groups this controller reads.
 func AddToScheme(s *runtime.Scheme) error {
 	for _, add := range []func(*runtime.Scheme) error{workersv1alpha1.AddToScheme, kvv1alpha1.AddToScheme,
-		queuesv1alpha1.AddToScheme, d1v1alpha1.AddToScheme, workersvpcv1alpha1.AddToScheme} {
+		queuesv1alpha1.AddToScheme, d1v1alpha1.AddToScheme, workersvpcv1alpha1.AddToScheme, r2v1alpha1.AddToScheme} {
 		if err := add(s); err != nil {
 			return err
 		}
@@ -186,6 +187,7 @@ type appliedState struct {
 // +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=d1.cloudflare.flare.dev,resources=d1databases,verbs=get;list;watch
 // +kubebuilder:rbac:groups=workersvpc.cloudflare.flare.dev,resources=vpcservices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=r2.cloudflare.flare.dev,resources=r2buckets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps;secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
@@ -236,6 +238,7 @@ const (
 	keyQueue     = "queue/"
 	keyD1        = "d1/"
 	keyVPC       = "vpc/"
+	keyR2        = "r2/"
 	keyScript    = "script/"
 	keySecret    = "secret/"
 	keyConfigMap = "configmap/"
@@ -258,6 +261,7 @@ func refKeys(o client.Object) []string {
 		add(keyQueue, b.QueueRef)
 		add(keyD1, b.D1DatabaseRef)
 		add(keyVPC, b.VPCServiceRef)
+		add(keyR2, b.R2BucketRef)
 		add(keyScript, b.ServiceRef)
 		if b.SecretKeyRef != nil {
 			keys = append(keys, keySecret+b.SecretKeyRef.Name)
@@ -300,6 +304,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&queuesv1alpha1.Queue{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyQueue)), builder.WithPredicates(managedChanged())).
 		Watches(&d1v1alpha1.D1Database{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyD1)), builder.WithPredicates(managedChanged())).
 		Watches(&workersvpcv1alpha1.VPCService{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyVPC)), builder.WithPredicates(managedChanged())).
+		Watches(&r2v1alpha1.R2Bucket{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyR2)), builder.WithPredicates(managedChanged())).
 		Watches(&workersv1alpha1.WorkerScript{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyScript)), builder.WithPredicates(managedChanged())).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keySecret)), builder.WithPredicates(dataChanged())).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyConfigMap)), builder.WithPredicates(dataChanged()))

@@ -45,11 +45,18 @@ next reconcile reports NameConflict instead of adopting (and, with deletionPolic
 deleting) the other writer's resource. Its watch ignores changes of the
 record alone, so writing and clearing it around a refused create does not retry the create at
 once. For the same reason (and because the error retry follows within milliseconds) the
-informer cache may not show those writes yet, so the generic reconciler reads the record
-uncached (the manager's API reader) where it decides with it: before each create (is this a
-retry?), before adopting a same-named resource as its own lost create, and in the finalizer
-before adopting a pending create. A cached copy that still showed a record a first-attempt
-refusal had cleared would otherwise adopt, and delete, the other writer's resource.
+informer cache may not show those writes yet, so every kind that writes the record (the
+generic reconciler, Tunnel, VPCService, WorkerScript, PagesProject, PagesDeployment) reads it
+uncached (`reconcile.FreshCreatePending`, through the manager's API reader) where it decides
+with it: before each create (is this a retry? and MarkCreatePending writes only a record it
+does not see), before adopting a same-named resource as its own lost create, and in the
+finalizer before adopting a pending create. A cached copy that still showed a record a refused
+create had cleared would otherwise adopt, and delete, the other writer's resource; one that did
+not show the record of an earlier attempt would report the object's own lost create as a
+NameConflict (PagesDeployment: deploy it a second time; it now finds the earlier attempt by
+its commit hash first). The ownership proof is read with it, so a RecordCreated the cache does
+not show yet counts. The regression tests drive each reconciler on a lagging client
+(`testenv.LaggingClient`).
 WorkerScript's key also carries the hashes of the content, settings and secrets it uploaded, so
 the adopted script is not uploaded again. With tagging, a readable owner tag naming another
 object still wins (NameConflict).

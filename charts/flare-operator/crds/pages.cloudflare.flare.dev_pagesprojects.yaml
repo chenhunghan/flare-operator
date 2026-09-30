@@ -325,7 +325,7 @@ spec:
                             x-kubernetes-list-type: map
                           r2_buckets:
                             description: R2Buckets bound to Pages Functions (by bucket
-                              name).
+                              name or r2BucketRef).
                             items:
                               description: PagesR2Binding binds an R2 bucket (r2_buckets).
                               properties:
@@ -337,7 +337,7 @@ spec:
                                   type: string
                                 jurisdiction:
                                   description: Jurisdiction of the bucket (e.g. eu),
-                                    when it has one.
+                                    when it has one. Only with bucket_name.
                                   maxLength: 32
                                   type: string
                                 name:
@@ -345,10 +345,25 @@ spec:
                                   maxLength: 255
                                   minLength: 1
                                   type: string
+                                r2BucketRef:
+                                  description: |-
+                                    R2BucketRef names an R2Bucket in this namespace whose bucket name (status.id) and
+                                    jurisdiction are bound. The R2Bucket cannot finish deleting while this binding exists.
+                                  properties:
+                                    name:
+                                      type: string
+                                  required:
+                                  - name
+                                  type: object
                               required:
-                              - bucket_name
                               - name
                               type: object
+                              x-kubernetes-validations:
+                              - message: set exactly one of bucket_name or r2BucketRef
+                                rule: has(self.bucket_name) != has(self.r2BucketRef)
+                              - message: jurisdiction goes with bucket_name; an r2BucketRef
+                                  binds the R2Bucket's own jurisdiction
+                                rule: '!(has(self.r2BucketRef) && has(self.jurisdiction))'
                             maxItems: 64
                             type: array
                             x-kubernetes-list-map-keys:
@@ -597,7 +612,7 @@ spec:
                             x-kubernetes-list-type: map
                           r2_buckets:
                             description: R2Buckets bound to Pages Functions (by bucket
-                              name).
+                              name or r2BucketRef).
                             items:
                               description: PagesR2Binding binds an R2 bucket (r2_buckets).
                               properties:
@@ -609,7 +624,7 @@ spec:
                                   type: string
                                 jurisdiction:
                                   description: Jurisdiction of the bucket (e.g. eu),
-                                    when it has one.
+                                    when it has one. Only with bucket_name.
                                   maxLength: 32
                                   type: string
                                 name:
@@ -617,10 +632,25 @@ spec:
                                   maxLength: 255
                                   minLength: 1
                                   type: string
+                                r2BucketRef:
+                                  description: |-
+                                    R2BucketRef names an R2Bucket in this namespace whose bucket name (status.id) and
+                                    jurisdiction are bound. The R2Bucket cannot finish deleting while this binding exists.
+                                  properties:
+                                    name:
+                                      type: string
+                                  required:
+                                  - name
+                                  type: object
                               required:
-                              - bucket_name
                               - name
                               type: object
+                              x-kubernetes-validations:
+                              - message: set exactly one of bucket_name or r2BucketRef
+                                rule: has(self.bucket_name) != has(self.r2BucketRef)
+                              - message: jurisdiction goes with bucket_name; an r2BucketRef
+                                  binds the R2Bucket's own jurisdiction
+                                rule: '!(has(self.r2BucketRef) && has(self.jurisdiction))'
                             maxItems: 64
                             type: array
                             x-kubernetes-list-map-keys:

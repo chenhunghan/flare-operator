@@ -18,7 +18,9 @@ import (
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	pagesv1alpha1 "flare.dev/operator/api/pages/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
+	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
 	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
+	"flare.dev/operator/internal/controller/r2bind"
 	"flare.dev/operator/internal/generic"
 	"flare.dev/operator/internal/reconcile"
 )
@@ -177,9 +179,19 @@ func (r *Reconciler) config(ctx context.Context, pp *pagesv1alpha1.PagesProject,
 		}
 	}
 	for _, b := range cfg.R2Buckets {
-		v := map[string]any{"name": b.BucketName}
-		if b.Jurisdiction != nil {
-			v["jurisdiction"] = *b.Jurisdiction
+		bucket, jurisdiction := deref(b.BucketName), deref(b.Jurisdiction)
+		if b.R2BucketRef != nil {
+			// The R2Bucket's name and jurisdiction (r2bind.Of).
+			var rb r2v1alpha1.R2Bucket
+			p, err := r.getRef(ctx, pp, "R2Bucket", b.R2BucketRef.Name, &rb)
+			if p != nil || err != nil {
+				return nil, withBinding(p, env, b.Name), err
+			}
+			bucket, jurisdiction = r2bind.Of(&rb)
+		}
+		v := map[string]any{"name": bucket}
+		if jurisdiction != "" {
+			v["jurisdiction"] = jurisdiction
 		}
 		if p := add("r2_buckets", b.Name, v); p != nil {
 			return nil, p, nil
@@ -222,7 +234,7 @@ func (r *Reconciler) config(ctx context.Context, pp *pagesv1alpha1.PagesProject,
 			return nil, p, nil
 		}
 	}
-	for _, field := range []string{"kv_namespaces", "d1_databases"} {
+	for _, field := range []string{"kv_namespaces", "d1_databases", "r2_buckets"} {
 		for name, v := range m[field].(map[string]any) {
 			for _, id := range v.(map[string]any) {
 				if id == "" {

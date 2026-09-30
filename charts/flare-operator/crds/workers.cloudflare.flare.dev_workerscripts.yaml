@@ -368,7 +368,7 @@ spec:
                         jurisdiction:
                           description: |-
                             Jurisdiction of the R2 bucket of an r2_bucket binding (a bucket made in a jurisdiction is
-                            found only with it).
+                            found only with it). Only with bucket_name.
                           enum:
                           - eu
                           - fedramp
@@ -400,6 +400,16 @@ spec:
                         queueRef:
                           description: QueueRef names a Queue whose queue name (status.atProvider.queue_name)
                             is bound.
+                          properties:
+                            name:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        r2BucketRef:
+                          description: |-
+                            R2BucketRef names an R2Bucket whose bucket name (status.id) and jurisdiction are bound.
+                            The R2Bucket cannot finish deleting while this binding exists.
                           properties:
                             name:
                               type: string
@@ -476,13 +486,14 @@ spec:
                       - type
                       type: object
                       x-kubernetes-validations:
-                      - message: a kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef
-                          or serviceRef needs a non-empty name
+                      - message: a kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef,
+                          serviceRef or r2BucketRef needs a non-empty name
                         rule: (!has(self.kvNamespaceRef) || size(self.kvNamespaceRef.name)
                           > 0) && (!has(self.queueRef) || size(self.queueRef.name)
                           > 0) && (!has(self.d1DatabaseRef) || size(self.d1DatabaseRef.name)
                           > 0) && (!has(self.vpcServiceRef) || size(self.vpcServiceRef.name)
                           > 0) && (!has(self.serviceRef) || size(self.serviceRef.name)
+                          > 0) && (!has(self.r2BucketRef) || size(self.r2BucketRef.name)
                           > 0)
                       - message: text is required for (and only valid with) type plain_text
                         rule: 'self.type == ''plain_text'' ? has(self.text) : !has(self.text)'
@@ -512,10 +523,14 @@ spec:
                         rule: 'self.type == ''service'' ? has(self.service) != has(self.serviceRef)
                           : !has(self.service) && !has(self.serviceRef) && !has(self.environment)
                           && !has(self.entrypoint)'
-                      - message: type r2_bucket needs bucket_name (only valid with
-                          that type, as is jurisdiction)
+                      - message: type r2_bucket needs exactly one of bucket_name or
+                          r2BucketRef (only valid with that type, as is jurisdiction)
                         rule: 'self.type == ''r2_bucket'' ? has(self.bucket_name)
-                          : !has(self.bucket_name) && !has(self.jurisdiction)'
+                          != has(self.r2BucketRef) : !has(self.bucket_name) && !has(self.r2BucketRef)
+                          && !has(self.jurisdiction)'
+                      - message: jurisdiction goes with bucket_name; an r2BucketRef
+                          binds the R2Bucket's own jurisdiction
+                        rule: '!(has(self.r2BucketRef) && has(self.jurisdiction))'
                       - message: destination_address, allowed_destination_addresses
                           and allowed_sender_addresses are only valid with type send_email
                         rule: self.type == 'send_email' || (!has(self.destination_address)

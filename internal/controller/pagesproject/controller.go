@@ -1,6 +1,6 @@
 // Package pagesproject implements the PagesProject controller: a Cloudflare Pages project with
 // its build config, deployment configs (environment variables and bindings, which may
-// reference KVNamespaces, D1Databases, Queues and WorkerScripts by name) and an optional Git
+// reference KVNamespaces, D1Databases, R2Buckets, Queues and WorkerScripts by name) and an optional Git
 // source passed through. Deployments are PagesDeployments (internal/controller/pagesdeployment).
 //
 // Behavior (API calls in api.go):
@@ -23,7 +23,7 @@
 //   - Deletion (default Delete) waits for this namespace's PagesDeployments of the project
 //     (DependencyNotReady), then deletes the project when ownership is proven
 //     (reconcile.MayDeleteExternal). Orphan releases the owner tag. This package registers
-//     PagesProjects as referrers of KVNamespace, D1Database, Queue and WorkerScript, which wait
+//     PagesProjects as referrers of KVNamespace, D1Database, R2Bucket, Queue and WorkerScript, which wait
 //     for the bindings to go away before their own Cloudflare delete.
 package pagesproject
 
@@ -61,6 +61,7 @@ import (
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
 	pagesv1alpha1 "flare.dev/operator/api/pages/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
+	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
 	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
 	"flare.dev/operator/internal/cfclient"
 	"flare.dev/operator/internal/controller"
@@ -105,7 +106,7 @@ func init() {
 // AddToScheme registers the API groups this controller reads.
 func AddToScheme(s *runtime.Scheme) error {
 	for _, add := range []func(*runtime.Scheme) error{pagesv1alpha1.AddToScheme, kvv1alpha1.AddToScheme, queuesv1alpha1.AddToScheme,
-		d1v1alpha1.AddToScheme, workersv1alpha1.AddToScheme} {
+		d1v1alpha1.AddToScheme, workersv1alpha1.AddToScheme, r2v1alpha1.AddToScheme} {
 		if err := add(s); err != nil {
 			return err
 		}
@@ -150,6 +151,7 @@ type appliedState struct {
 // +kubebuilder:rbac:groups=kv.cloudflare.flare.dev,resources=kvnamespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=d1.cloudflare.flare.dev,resources=d1databases,verbs=get;list;watch
+// +kubebuilder:rbac:groups=r2.cloudflare.flare.dev,resources=r2buckets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=workers.cloudflare.flare.dev,resources=workerscripts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
@@ -201,6 +203,7 @@ const (
 	keyD1     = "d1/"
 	keyScript = "script/"
 	keySecret = "secret/"
+	keyR2     = "r2/"
 )
 
 func configs(pp *pagesv1alpha1.PagesProject) []*pagesv1alpha1.PagesDeploymentConfig {
@@ -236,6 +239,9 @@ func refKeys(o client.Object) []string {
 		for _, b := range c.D1Databases {
 			add(keyD1, b.D1DatabaseRef)
 		}
+		for _, b := range c.R2Buckets {
+			add(keyR2, b.R2BucketRef)
+		}
 		for _, b := range c.QueueProducers {
 			add(keyQueue, b.QueueRef)
 		}
@@ -264,6 +270,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&kvv1alpha1.KVNamespace{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyKV)), builder.WithPredicates(managedChanged())).
 		Watches(&queuesv1alpha1.Queue{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyQueue)), builder.WithPredicates(managedChanged())).
 		Watches(&d1v1alpha1.D1Database{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyD1)), builder.WithPredicates(managedChanged())).
+		Watches(&r2v1alpha1.R2Bucket{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyR2)), builder.WithPredicates(managedChanged())).
 		Watches(&workersv1alpha1.WorkerScript{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keyScript)), builder.WithPredicates(managedChanged())).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.referencing(keySecret)), builder.WithPredicates(secretDataChanged()))
 	for _, ref := range generic.ReferrersOf(PagesProjectKind) {

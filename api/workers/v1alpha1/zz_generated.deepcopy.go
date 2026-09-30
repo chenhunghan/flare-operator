@@ -186,6 +186,11 @@ func (in *WorkerBinding) DeepCopyInto(out *WorkerBinding) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.R2BucketRef != nil {
+		in, out := &in.R2BucketRef, &out.R2BucketRef
+		*out = new(commonv1alpha1.LocalRef)
+		**out = **in
+	}
 	if in.DestinationAddress != nil {
 		in, out := &in.DestinationAddress, &out.DestinationAddress
 		*out = new(string)

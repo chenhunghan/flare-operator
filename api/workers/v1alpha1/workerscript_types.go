@@ -85,7 +85,7 @@ type SecretKeyRef struct {
 // is not Ready yet makes the WorkerScript Synced=False, reason DependencyNotReady, and nothing
 // is uploaded until it is.
 //
-// +kubebuilder:validation:XValidation:rule="(!has(self.kvNamespaceRef) || size(self.kvNamespaceRef.name) > 0) && (!has(self.queueRef) || size(self.queueRef.name) > 0) && (!has(self.d1DatabaseRef) || size(self.d1DatabaseRef.name) > 0) && (!has(self.vpcServiceRef) || size(self.vpcServiceRef.name) > 0) && (!has(self.serviceRef) || size(self.serviceRef.name) > 0)",message="a kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef or serviceRef needs a non-empty name"
+// +kubebuilder:validation:XValidation:rule="(!has(self.kvNamespaceRef) || size(self.kvNamespaceRef.name) > 0) && (!has(self.queueRef) || size(self.queueRef.name) > 0) && (!has(self.d1DatabaseRef) || size(self.d1DatabaseRef.name) > 0) && (!has(self.vpcServiceRef) || size(self.vpcServiceRef.name) > 0) && (!has(self.serviceRef) || size(self.serviceRef.name) > 0) && (!has(self.r2BucketRef) || size(self.r2BucketRef.name) > 0)",message="a kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef, serviceRef or r2BucketRef needs a non-empty name"
 // +kubebuilder:validation:XValidation:rule="self.type == 'plain_text' ? has(self.text) : !has(self.text)",message="text is required for (and only valid with) type plain_text"
 // +kubebuilder:validation:XValidation:rule="self.type == 'secret_text' ? has(self.secretKeyRef) : !has(self.secretKeyRef)",message="secretKeyRef is required for (and only valid with) type secret_text"
 // +kubebuilder:validation:XValidation:rule="self.type == 'kv_namespace' ? has(self.namespace_id) != has(self.kvNamespaceRef) : !has(self.namespace_id) && !has(self.kvNamespaceRef)",message="type kv_namespace needs exactly one of namespace_id or kvNamespaceRef (only valid with that type)"
@@ -93,7 +93,8 @@ type SecretKeyRef struct {
 // +kubebuilder:validation:XValidation:rule="self.type == 'd1' ? has(self.database_id) != has(self.d1DatabaseRef) : !has(self.database_id) && !has(self.d1DatabaseRef)",message="type d1 needs exactly one of database_id or d1DatabaseRef (only valid with that type)"
 // +kubebuilder:validation:XValidation:rule="self.type == 'vpc_service' ? has(self.service_id) != has(self.vpcServiceRef) : !has(self.service_id) && !has(self.vpcServiceRef)",message="type vpc_service needs exactly one of service_id or vpcServiceRef (only valid with that type)"
 // +kubebuilder:validation:XValidation:rule="self.type == 'service' ? has(self.service) != has(self.serviceRef) : !has(self.service) && !has(self.serviceRef) && !has(self.environment) && !has(self.entrypoint)",message="type service needs exactly one of service or serviceRef (only valid with that type, as are environment and entrypoint)"
-// +kubebuilder:validation:XValidation:rule="self.type == 'r2_bucket' ? has(self.bucket_name) : !has(self.bucket_name) && !has(self.jurisdiction)",message="type r2_bucket needs bucket_name (only valid with that type, as is jurisdiction)"
+// +kubebuilder:validation:XValidation:rule="self.type == 'r2_bucket' ? has(self.bucket_name) != has(self.r2BucketRef) : !has(self.bucket_name) && !has(self.r2BucketRef) && !has(self.jurisdiction)",message="type r2_bucket needs exactly one of bucket_name or r2BucketRef (only valid with that type, as is jurisdiction)"
+// +kubebuilder:validation:XValidation:rule="!(has(self.r2BucketRef) && has(self.jurisdiction))",message="jurisdiction goes with bucket_name; an r2BucketRef binds the R2Bucket's own jurisdiction"
 // +kubebuilder:validation:XValidation:rule="self.type == 'send_email' || (!has(self.destination_address) && !has(self.allowed_destination_addresses) && !has(self.allowed_sender_addresses))",message="destination_address, allowed_destination_addresses and allowed_sender_addresses are only valid with type send_email"
 // +kubebuilder:validation:XValidation:rule="!(has(self.destination_address) && has(self.allowed_destination_addresses))",message="set destination_address or allowed_destination_addresses, not both"
 type WorkerBinding struct {
@@ -163,17 +164,20 @@ type WorkerBinding struct {
 	Entrypoint *string `json:"entrypoint,omitempty"`
 
 	// BucketName of an r2_bucket binding (the R2 bucket's name).
-	// TODO(FS-r2): add an r2BucketRef naming an R2Bucket in this namespace once that kind exists.
 	// +optional
 	// +kubebuilder:validation:MinLength=3
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9-]*[a-z0-9]$`
 	BucketName *string `json:"bucket_name,omitempty"`
 	// Jurisdiction of the R2 bucket of an r2_bucket binding (a bucket made in a jurisdiction is
-	// found only with it).
+	// found only with it). Only with bucket_name.
 	// +optional
 	// +kubebuilder:validation:Enum=eu;fedramp;fedramp-high;us
 	Jurisdiction *string `json:"jurisdiction,omitempty"`
+	// R2BucketRef names an R2Bucket whose bucket name (status.id) and jurisdiction are bound.
+	// The R2Bucket cannot finish deleting while this binding exists.
+	// +optional
+	R2BucketRef *commonv1alpha1.LocalRef `json:"r2BucketRef,omitempty"`
 
 	// DestinationAddress restricts a send_email binding to this one destination address. A
 	// send_email binding needs Email Routing on a zone of the account, with the destination
