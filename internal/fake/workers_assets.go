@@ -199,6 +199,15 @@ func workerAssetsSession(c *reqCtx) response {
 	if c.account.assetSessions == nil {
 		c.account.assetSessions = map[string]*assetSession{}
 	}
+	// Drop sessions no token can name any more, so a long-running emulator does not keep every
+	// deploy's manifest: the upload token expires assetTokenTTL after the session, and a
+	// completion token (issued by an upload, so before that) at most assetTokenTTL later.
+	// Emulator housekeeping, not API behavior.
+	for id, old := range c.account.assetSessions {
+		if !c.now.Before(old.Created.Add(2 * assetTokenTTL)) {
+			delete(c.account.assetSessions, id)
+		}
+	}
 	c.account.assetSessions[sess.ID] = sess
 	if len(sess.pending) == 0 {
 		// DOCS (direct-upload): "If all assets have been previously uploaded, buckets will be

@@ -252,8 +252,9 @@ type WorkerAssetsConfig struct {
 // WorkerAssets are the Worker's static assets: the files of an artifact, uploaded with the
 // Workers assets upload flow and served by Cloudflare in front of (or instead of) the Worker's
 // code. As with wrangler, the root files _headers and _redirects become the custom headers and
-// redirects rules, and a root .assetsignore (gitignore syntax) excludes files; these three are
-// not served. Files may be at most 25 MiB.
+// redirects rules, and a root .assetsignore (gitignore syntax, matched case-insensitively)
+// excludes files; these three are not served. Files may be at most 25 MiB, and each is served
+// with the Content-Type wrangler gives its extension.
 type WorkerAssets struct {
 	// Source of the files. A change of their content uploads the new and changed files only.
 	Source sharedv1alpha1.ArtifactSource `json:"source"`

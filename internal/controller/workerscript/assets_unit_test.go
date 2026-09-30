@@ -39,6 +39,27 @@ func TestAssetHashMatchesWrangler(t *testing.T) {
 	}
 }
 
+// TestAssetContentTypeMatchesWrangler: the want values are wrangler's getContentType of each path,
+// computed by running the mime@4.0.7 module bundled in the pinned wrangler@4.143.0 under node.
+func TestAssetContentTypeMatchesWrangler(t *testing.T) {
+	for p, want := range map[string]string{
+		"index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
+		"x.mjs": "text/javascript; charset=utf-8", "site.CSS": "text/css; charset=utf-8",
+		"favicon.ico": "image/vnd.microsoft.icon", "data.yaml": "text/yaml; charset=utf-8", "c.yml": "text/yaml; charset=utf-8",
+		"blob.bin": "application/octet-stream", "a.exe": "application/octet-stream", "m.ts": "video/mp2t",
+		"App.jsx": "text/jsx; charset=utf-8", "p.xhtml": "application/xhtml+xml", "subs.vtt": "text/vtt; charset=utf-8",
+		"f.woff2": "font/woff2", "m.wasm": "application/wasm", "s.svg": "image/svg+xml", "d.json": "application/json",
+		"x.map": "application/json", "README": "application/null", "Makefile": "application/null", ".bashrc": "application/null",
+		"x/.hidden.txt": "text/plain; charset=utf-8", "..foo": "application/null", "a.": "application/null", "...": "application/null",
+		"a.tar.gz": "application/gzip", "dir.x/file": "application/null", "data.unknownext": "application/null",
+		"manifest.webmanifest": "application/manifest+json",
+	} {
+		if got := assetContentType(p); got != want {
+			t.Errorf("assetContentType(%q) = %q, want %q", p, got, want)
+		}
+	}
+}
+
 func files(m map[string]string) []artifact.File {
 	var out []artifact.File
 	for p, c := range m {
@@ -105,6 +126,16 @@ func TestBuildAssetManifest(t *testing.T) {
 	if _, prob := buildAssetManifest([]artifact.File{{Path: "big.bin", Content: make([]byte, maxAssetBytes+1)}}); prob == nil {
 		t.Error("a file over 25 MiB accepted")
 	}
+
+	// .assetsignore and the root metafile patterns match case-insensitively, as wrangler's.
+	m, p = buildAssetManifest(files(map[string]string{".assetsignore": "secret.txt\n*.draft\n", "index.html": "x",
+		"Secret.TXT": "password", "a/SECRET.txt": "password", "x.DRAFT": "wip", "_HEADERS": "/*\n  X-A: 1\n"}))
+	if p != nil {
+		t.Fatal(p.msg)
+	}
+	if got := strings.Join(manifestPaths(m), " "); got != "/index.html" {
+		t.Errorf("case-insensitive ignore: manifest %s, want /index.html", got)
+	}
 }
 
 func TestIgnoreMatcher(t *testing.T) {
@@ -113,6 +144,8 @@ func TestIgnoreMatcher(t *testing.T) {
 		"top.txt": true, "sub/top.txt": false, "x.log": true, "deep/x/y.log": true, "important.log": false,
 		"build/out.js": true, "src/build/out.js": true, "build": false, "docs/a.pdf": true, "docs/x/y/a.pdf": true, "a.pdf": false,
 		"abc": true, "abbc": false, "#hash": true, "trailing": true, "dir/keep": true, "index.html": false,
+		// Case-insensitive, as wrangler's ignore (ignorecase defaults to true).
+		"TOP.txt": true, "X.LOG": true, "Build/out.js": true, "DOCS/A.PDF": true, "ABC": true, "Important.LOG": false,
 	} {
 		if got := m.ignored(p); got != want {
 			t.Errorf("ignored(%q) = %v, want %v", p, got, want)

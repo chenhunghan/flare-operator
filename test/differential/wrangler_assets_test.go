@@ -42,10 +42,12 @@ func assetsProject(t *testing.T, w *wrangler) {
 		"public/404.html":         "<h1>not found</h1>\n",
 		"public/_headers":         "/*\n  X-Flare-Diff: 1\n",
 		"public/_redirects":       "/old /about/ 301\n",
-		"public/.assetsignore":    "secret.txt\n",
+		"public/.assetsignore":    "secret.txt\nnotes.md\n",
 		"public/secret.txt":       "not served\n",
-		"site/index.html":         "<h1>site</h1>\n",
-		"site/app.js":             "console.log('spa')\n",
+		// wrangler matches .assetsignore case-insensitively (ignore@5.3.1 defaults to ignorecase).
+		"public/docs/NOTES.MD": "not served either\n",
+		"site/index.html":      "<h1>site</h1>\n",
+		"site/app.js":          "console.log('spa')\n",
 		"wrangler-assets.json": fmt.Sprintf(`{
   "name": %q,
   "main": "src/api.js",

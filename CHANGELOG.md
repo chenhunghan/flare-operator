@@ -17,9 +17,10 @@ Nothing has been released yet. This section collects what the first release will
 - `WorkerScript` full-stack fields: static assets (`forProvider.assets`: files from an artifact,
   `html_handling`, `not_found_handling`, `run_worker_first`, `base_path`, `_headers`,
   `_redirects`, `.assetsignore`) uploaded with the Workers assets upload flow, only when they
-  change (`status.assetsHash`); assets-only Workers (no `main_module`); modules from an
-  artifact (`forProvider.moduleSource`, `moduleTypes`); `assets`, `r2_bucket` and `send_email`
-  bindings. `main_module` is now optional (required unless the Worker is assets-only).
+  change (`status.assetsHash`), with wrangler's manifest rules (`.assetsignore` matched
+  case-insensitively) and Content-Types (the pinned wrangler's mime table, `make asset-mime`);
+  assets-only Workers (no `main_module`); modules from an artifact (`forProvider.moduleSource`,
+  `moduleTypes`); `assets`, `r2_bucket` and `send_email` bindings. `main_module` is now optional (required unless the Worker is assets-only).
 - flarefake emulates the Workers assets upload session, the bucket uploads (session JWTs) and
   `metadata.assets` / `keep_assets`; `wrangler deploy` of an assets site runs against it
   (`make differential`).

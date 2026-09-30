@@ -143,8 +143,8 @@ profile (`generic*.go`, 11 UNVERIFIED) is not in the table.
 | Tunnels + virtual networks (`tunnels.go`) | 12 | 20 | 6 | 0 | 9 |
 | Tunnel IP routes (`teamnet_routes.go`) | 5 | 3 | 6 | 0 | 14 |
 | Workers VPC services (`vpc.go`) | 5 | 19 | 1 | 0 | 3 |
-| Workers scripts (`workers.go`) | 11 | 37 | 7 | 0 | 40 |
-| Workers versions API and wrangler's reads (`workers_versions.go`) | 9 | 8 | 13 | 0 | 25 |
+| Workers scripts (`workers.go`) | 11 | 37 | 7 | 0 | 42 |
+| Workers versions API and wrangler's reads (`workers_versions.go`) | 9 | 8 | 14 | 0 | 26 |
 | Workers static assets (`workers_assets.go`, `workers_assets_jwt.go`; FS-worker, 2026-09-30) | 2 | 0 | 10 | 10 | 28 |
 | Tokens / account (`tokens.go`) | 3 | 0 | 2 | 2 | 4 |
 | Resource Tagging (`tags.go`) | 4 | 0 | 0 | 8 | 8 |

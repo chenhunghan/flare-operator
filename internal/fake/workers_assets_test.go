@@ -266,6 +266,18 @@ func TestAssetsTokens(t *testing.T) {
 	if st, _ := f.deploy("site", map[string]any{"main_module": "index.js", "assets": map[string]any{"jwt": completion}}, true); st != 400 {
 		t.Errorf("expired completion token: %d, want 400", st)
 	}
+	// Housekeeping: a new session drops those no token can name any more (two TTLs old).
+	f.s.mu.Lock()
+	before := len(f.s.accounts[acctID].assetSessions)
+	f.s.mu.Unlock()
+	f.s.Clock.Advance(time.Hour)
+	f.session("site", f.manifest())
+	f.s.mu.Lock()
+	after := len(f.s.accounts[acctID].assetSessions)
+	f.s.mu.Unlock()
+	if before < 3 || after != 1 {
+		t.Errorf("sessions before %d, after pruning %d; want >= 3 and 1", before, after)
+	}
 }
 
 // TestAssetsRequestsMatchSpec: the flow's requests, as wrangler sends them, pass strict request
