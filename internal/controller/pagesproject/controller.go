@@ -490,6 +490,12 @@ func (r *Reconciler) sync(ctx context.Context, pp *pagesv1alpha1.PagesProject) (
 		reconcile.MarkCreating(pp, "")
 		// Announce the create first, so a crash before RecordCreated neither turns the
 		// object's own project into a NameConflict nor loses what was applied.
+		// MarkCreatePending writes the record only when it is not there: read it uncached
+		// first, as the cache may still show one that a refused create dropped
+		// (reconcile.FreshCreatePending).
+		if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), pp); err != nil {
+			return r.fail(pp, err)
+		}
 		if err := reconcile.MarkCreatePending(ctx, r.Client, pp, pendingKey(name, des)); err != nil {
 			return r.fail(pp, fmt.Errorf("record the pending create of %s: %w", name, err))
 		}
@@ -523,6 +529,15 @@ func (r *Reconciler) sync(ctx context.Context, pp *pagesv1alpha1.PagesProject) (
 			return r.fail(pp, fmt.Errorf("ownership tag: %w", tagErr))
 		}
 	} else {
+		if pol.CanCreate() && !reconcile.HasOwnershipProof(pp, name) && pp.GetAnnotations()[commonv1alpha1.AnnotationExternalID] != name {
+			// Nothing in the cached copy proves that pp manages the project: the create-pending
+			// record may (its own interrupted create), and so may a RecordCreated the cache does
+			// not show yet. Both are read uncached, as a record that a refused create dropped
+			// would make pp adopt, and under deletionPolicy Delete delete, someone else's project.
+			if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), pp); err != nil {
+				return r.fail(pp, err)
+			}
+		}
 		lost, isLost := pendingCreate(pp, name)
 		isLost = isLost && pol.CanCreate() && !reconcile.HasOwnershipProof(pp, name)
 		msg, err := r.claim(ctx, pp, cf, accountID, name, cur.ID, pol, isLost)
@@ -668,6 +683,14 @@ func (r *Reconciler) finalize(ctx context.Context, pp *pagesv1alpha1.PagesProjec
 	}
 	logger := log.FromContext(ctx)
 	deleteExternal := reconcile.ShouldDeleteExternal(pp, commonv1alpha1.DeletionDelete)
+	if pendingName(pp) != "" && deleteExternal {
+		// The record is confirmed uncached first: one that the cache still shows after a
+		// refused create dropped it would delete a project someone else made.
+		if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), pp); err != nil {
+			res, err := reconcile.DeletionResult(pp, err)
+			return res, false, err
+		}
+	}
 	if p := pendingName(pp); p != "" && deleteExternal {
 		// A create was announced and its result never recorded: find the project the record
 		// names and record it, so it is deleted rather than leaked.

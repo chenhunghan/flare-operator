@@ -225,6 +225,14 @@ func (r *Reconciler) finalize(ctx context.Context, vs *workersvpcv1alpha1.VPCSer
 	}
 	var deleteExternal func(context.Context, string) error
 	shouldDelete := reconcile.ShouldDeleteExternal(vs, commonv1alpha1.DeletionDelete)
+	if _, pending := reconcile.PendingCreate(vs); pending && shouldDelete {
+		// The record is confirmed uncached first: one that the cache still shows after a
+		// refused create dropped it would delete a same-named service someone else made.
+		if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), vs); err != nil {
+			res, err := reconcile.DeletionResult(vs, err)
+			return res, false, err
+		}
+	}
 	if name, pending := reconcile.PendingCreate(vs); pending && shouldDelete {
 		// A create was announced and its result never recorded: the manager may have died
 		// between the create and RecordCreated. With no ID, or with the ID of a service that
@@ -505,13 +513,24 @@ func (r *Reconciler) sync(ctx context.Context, vs *workersvpcv1alpha1.VPCService
 		if err != nil {
 			return syncErr(err)
 		}
+		if pol.CanCreate() {
+			// The create-pending record decides below whether a same-named service is this
+			// object's own lost create, and MarkCreatePending writes it only when it is not
+			// there: read it uncached, as the cache may not show this object's latest write of
+			// it (reconcile.FreshCreatePending).
+			if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), vs); err != nil {
+				return syncErr(err)
+			}
+		}
 		pending, _ := reconcile.PendingCreate(vs)
 		switch {
-		case existing != nil && pending == body.Name && pol.CanCreate():
+		case existing != nil && pol.CanCreate() && (pending == body.Name || reconcile.HasOwnershipProof(vs, existing.ServiceID)):
 			// This object announced a create of this name (MarkCreatePending, after a lookup
 			// found none) and has no record of its result: the manager died, or the API
 			// server refused the write, between the create and RecordCreated. The service is
-			// this object's own lost create; adopt it (docs/resilience.md).
+			// this object's own lost create; adopt it (docs/resilience.md). (An ownership proof
+			// for this service is its RecordCreated, whose status.id the cached copy did not
+			// have yet.)
 			if err := reconcile.RecordCreated(ctx, r.Client, vs, existing.ServiceID); err != nil {
 				return syncErr(fmt.Errorf("record the VPC service %s created before a restart: %w", existing.ServiceID, err))
 			}

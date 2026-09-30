@@ -439,6 +439,13 @@ func (r *Reconciler) sync(ctx context.Context, pd *pagesv1alpha1.PagesDeployment
 	hash := deployHash(tree.Digest, fp.Branch)
 	status := &sharedv1alpha1.ArtifactStatus{Digest: tree.Digest, ResolvedDigest: tree.ResolvedDigest, Files: int32(tree.Len()), Bytes: tree.Bytes}
 
+	if _, ok := pendingDeploy(pd); ok {
+		// The record is confirmed uncached before it is acted on: the cache may still show one
+		// that a refused deploy or RecordCreated dropped (reconcile.FreshCreatePending).
+		if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), pd); err != nil {
+			return r.fail(pd, err)
+		}
+	}
 	prev := r.last(pd)
 	// A deployment announced before a crash and never recorded: find it by its commit hash,
 	// when that is the one derived from this object (a user-set one proves nothing).
@@ -561,6 +568,32 @@ const (
 func (r *Reconciler) deploy(ctx context.Context, pd *pagesv1alpha1.PagesDeployment, acct *reconcile.Resolved, project string,
 	tree *artifact.Tree, hash string, status *sharedv1alpha1.ArtifactStatus, why string) (*apiDeployment, ctrl.Result, error) {
 	cf, accountID := acct.Client, acct.AccountID
+	commit := commitHash(pd, hash)
+	// MarkCreatePending below writes the record only when it is not there, and the cache may
+	// not show this object's latest write of it: read it uncached (reconcile.FreshCreatePending).
+	// A record of this very deployment that the cache did not show is an earlier attempt
+	// whose answer was lost (a timeout, a 5xx after the create): find it by its commit hash
+	// rather than deploy the same content twice.
+	if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), pd); err != nil {
+		res, err := r.fail(pd, err)
+		return nil, res, err
+	}
+	if lost, ok := pendingDeploy(pd); ok && lost.identifies(pd) && lost.project == project && lost.hash == hash && lost.commit == commit {
+		d, err := findByCommit(ctx, cf, accountID, project, commit)
+		if err != nil {
+			res, err := r.fail(pd, err)
+			return nil, res, err
+		}
+		if d != nil {
+			log.FromContext(ctx).Info("adopted the Pages deployment of an interrupted deploy", "project", project, "deployment", d.ID)
+			r.remember(pd, appliedState{id: d.ID, hash: hash, digest: status})
+			if err := reconcile.RecordCreated(ctx, r.Client, pd, d.ID); err != nil {
+				res, err := r.fail(pd, fmt.Errorf("record the Pages deployment %s made before a restart: %w", d.ID, err))
+				return nil, res, err
+			}
+			return d, ctrl.Result{}, nil
+		}
+	}
 	baseURL := ""
 	if acct.Account != nil {
 		baseURL = acct.Account.Spec.BaseURL
@@ -582,7 +615,6 @@ func (r *Reconciler) deploy(ctx context.Context, pd *pagesv1alpha1.PagesDeployme
 		res, err := r.blocked(pd, ReasonInvalidArtifact, perr.Error())
 		return nil, res, err
 	}
-	commit := commitHash(pd, hash)
 	p.form.branch, p.form.commit, p.form.message = pd.Spec.ForProvider.Branch, commit, pd.Spec.ForProvider.CommitMessage
 	// The asset upload creates nothing this object owns (assets are content-addressed and
 	// shared by the project), so a failure there leaves no record behind.
@@ -709,6 +741,14 @@ func (r *Reconciler) finalize(ctx context.Context, pd *pagesv1alpha1.PagesDeploy
 	logger := log.FromContext(ctx)
 	deleteExternal := reconcile.ShouldDeleteExternal(pd, commonv1alpha1.DeletionDelete)
 	project := pd.Status.AtProvider.ProjectName
+	if _, ok := pendingDeploy(pd); ok && deleteExternal {
+		// The record is confirmed uncached first: the cache may still show one that a refused
+		// deploy or RecordCreated dropped (reconcile.FreshCreatePending).
+		if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), pd); err != nil {
+			res, err := reconcile.DeletionResult(pd, err)
+			return res, false, err
+		}
+	}
 	if lost, ok := pendingDeploy(pd); ok && deleteExternal && !lost.identifies(pd) {
 		// Its commit hash was set by the user and may be any deployment's: nothing to look up.
 		reconcile.WarnExternalKept(r.Recorder, pd, "Delete", lost.unidentifiable())

@@ -557,7 +557,12 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 			return r.fail(ws, err)
 		}
 		// Announce the upload (pending.go), so a crash before RecordCreated neither turns the
-		// object's own script into a NameConflict nor uploads it twice.
+		// object's own script into a NameConflict nor uploads it twice. MarkCreatePending writes
+		// the record only when it is not there: read it uncached first, as the cache may still
+		// show one that a refused upload dropped (reconcile.FreshCreatePending).
+		if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), ws); err != nil {
+			return r.fail(ws, err)
+		}
 		if err := reconcile.MarkCreatePending(ctx, r.Client, ws, pendingKey(name, des)); err != nil {
 			return r.fail(ws, fmt.Errorf("record the pending upload of %s: %w", name, err))
 		}
@@ -606,6 +611,15 @@ func (r *Reconciler) sync(ctx context.Context, ws *workersv1alpha1.WorkerScript)
 			}
 			if item != nil {
 				observeScript(ws, item)
+			}
+		}
+		if pol.CanCreate() && !reconcile.HasOwnershipProof(ws, name) && ws.GetAnnotations()[commonv1alpha1.AnnotationExternalID] != name {
+			// Nothing in the cached copy proves that ws manages the script: the create-pending
+			// record may (its own interrupted upload), and so may a RecordCreated the cache does
+			// not show yet. Both are read uncached, as a record that a refused upload dropped
+			// would make ws adopt, and under deletionPolicy Delete delete, someone else's script.
+			if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), ws); err != nil {
+				return r.fail(ws, err)
 			}
 		}
 		lost, isLost := pendingUpload(ws, name)
@@ -920,6 +934,14 @@ func (r *Reconciler) finalize(ctx context.Context, ws *workersv1alpha1.WorkerScr
 		return ctrl.Result{}, true, nil
 	}
 	logger := log.FromContext(ctx)
+	if pendingScript(ws) != "" && reconcile.ShouldDeleteExternal(ws, commonv1alpha1.DeletionDelete) {
+		// The record is confirmed uncached first: one that the cache still shows after a
+		// refused upload dropped it would delete a script someone else made.
+		if _, err := reconcile.FreshCreatePending(ctx, r.apiReader(), ws); err != nil {
+			res, err := reconcile.DeletionResult(ws, err)
+			return res, false, err
+		}
+	}
 	if p := pendingScript(ws); p != "" && reconcile.ShouldDeleteExternal(ws, commonv1alpha1.DeletionDelete) {
 		// An upload was announced and its result never recorded: the manager may have died
 		// between the upload and RecordCreated. With no ID, or with the ID (script name) of a
