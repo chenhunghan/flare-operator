@@ -38,6 +38,20 @@ var genericSamples = map[string]genericSample{
 			"rate_limiting_interval": 60, "rate_limiting_limit": 10},
 	},
 	"SecretsStore": {creates: map[string]map[string]any{"minimal": {"name": "flare-spike-store"}}},
+	// R2Bucket's PATCH has no body (the storage class travels in a header): TestGenericR2Bucket
+	// covers it, and the headers, sub-resources and wrapped list.
+	"R2Bucket": {
+		creates: map[string]map[string]any{
+			"minimal": {"name": "flare-spike-r2"},
+			"full":    {"name": "flare-spike-r2", "locationHint": "weur", "storageClass": "InfrequentAccess"},
+		},
+		check: func(t *testing.T, variant string, res map[string]any) {
+			want := map[string]string{"minimal": "Standard", "full": "InfrequentAccess"}[variant]
+			if res["storage_class"] != want || res["jurisdiction"] != "default" {
+				t.Errorf("%s: storage_class %v (want %s), jurisdiction %v (want default)", variant, res["storage_class"], want, res["jurisdiction"])
+			}
+		},
+	},
 	"VectorizeIndex": {
 		creates: map[string]map[string]any{
 			"dimensions": {"name": "flare-spike-v", "config": map[string]any{"dimensions": 3, "metric": "cosine"}},

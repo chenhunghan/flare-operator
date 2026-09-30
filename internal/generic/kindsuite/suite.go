@@ -249,6 +249,9 @@ func (k *kindTest) run() {
 	k.waitSynced(obj, "recreated")
 	id = obj.GetResourceStatus().ID
 	item = k.path(en.ItemPath, id)
+	// The status still shows the pre-delete sync until the recreating reconcile ends, and that
+	// reconcile may write more after the create (e.g. R2Bucket's CORS policy): let it finish.
+	k.quiesce(mark, item)
 	k.assertNoWrites("after recreate", 2, item)
 
 	// 6. Observe-only.
@@ -571,6 +574,13 @@ func (k *kindTest) waitSynced(obj reconcile.ManagedObject, what string) {
 		for _, p := range k.en.WriteOnly {
 			deletePath(desired, p)
 		}
+		// Fields read back under another name (Extension.ObservedAs, e.g. R2's storage_class).
+		for f, o := range k.en.Extension.ObservedAs {
+			if v, ok := desired[f]; ok {
+				delete(desired, f)
+				desired[o] = v
+			}
+		}
 		ap := atProvider(obj)
 		if !generic.Covers(desired, ap) {
 			return false, fmt.Sprintf("atProvider %s does not cover forProvider %s", mustJSON(ap), mustJSON(desired))
@@ -583,6 +593,24 @@ func (k *kindTest) mark() int { return len(k.e.Journal(k.t)) }
 
 func (k *kindTest) writesSince(n int) []fake.JournalEntry {
 	return testenv.Writes(testenv.ForAccount(k.e.Journal(k.t)[n:], k.acct.AccountID))
+}
+
+// quiesce waits until the journal since the mark since shows two GETs of the item after its
+// last write of this account: the reconcile that wrote has ended and a later one has started,
+// so a following assertNoWrites sees steady state only.
+func (k *kindTest) quiesce(since int, item string) {
+	k.t.Helper()
+	k.e.WaitJournal(k.t, since, 2*time.Minute, func(j []fake.JournalEntry) (bool, string) {
+		j = testenv.ForAccount(j, k.acct.AccountID)
+		last := -1
+		for i, e := range j {
+			if e.Method != http.MethodGet {
+				last = i
+			}
+		}
+		gets := testenv.CountPath(j[last+1:], http.MethodGet, item)
+		return gets >= 2, fmt.Sprintf("%d GETs of %s after the last write, waiting for 2", gets, item)
+	})
 }
 
 // assertNoWrites waits until the item was re-observed (one GET per reconcile of the poll loop)

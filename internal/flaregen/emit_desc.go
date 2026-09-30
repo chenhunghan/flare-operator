@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"flare.dev/operator/internal/generic"
 )
 
 func goStrings(ss []string) string {
@@ -75,6 +77,7 @@ func emitDescriptors(module string, kinds []*KindModel) ([]byte, error) {
 		}
 		fmt.Fprintf(&b, "\t\t\tDefaultDeletionPolicy: %q,\n\t\t},\n", d.DefaultDeletionPolicy)
 		fmt.Fprintf(&b, "\t\tFernGroup: %q,\n", m.Resource.FernGroup)
+		b.WriteString(extensionLiteral("generic.Extension", "generic.HeaderField", "generic.SubResource", "Headers", "SubResources", m.Extension, "\t\t"))
 		fmt.Fprintf(&b, "\t\tNew: func() commonv1alpha1.Managed { return &%s.%s{} },\n", a, m.Kind)
 		fmt.Fprintf(&b, "\t\tNewList: func() runtime.Object { return &%s.%sList{} },\n\t},\n", a, m.Kind)
 	}
@@ -84,6 +87,53 @@ func emitDescriptors(module string, kinds []*KindModel) ([]byte, error) {
 	}
 	b.WriteString("}\n")
 	return formatGo(b.Bytes())
+}
+
+// extensionLiteral renders the fields of a generic.Extension (or the emulator's copy of it,
+// with its own type names) as Go struct fields at indent; "" when x is empty. With extType the
+// fields are wrapped in `Extension: extType{...}`, else they are emitted inline.
+func extensionLiteral(extType, headerType, subType, headersName, subsName string, x generic.Extension, indent string) string {
+	if len(x.Headers) == 0 && len(x.ObservedAs) == 0 && len(x.SubResources) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	in := indent
+	if extType != "" {
+		fmt.Fprintf(&b, "%sExtension: %s{\n", indent, extType)
+		in += "\t"
+	}
+	if len(x.Headers) > 0 {
+		fmt.Fprintf(&b, "%s%s: []%s{\n", in, headersName, headerType)
+		for _, h := range x.Headers {
+			fmt.Fprintf(&b, "%s\t{Header: %q, Field: %q, Update: %t, Default: %q},\n", in, h.Header, h.Field, h.Update, h.Default)
+		}
+		fmt.Fprintf(&b, "%s},\n", in)
+	}
+	if len(x.ObservedAs) > 0 {
+		fmt.Fprintf(&b, "%sObservedAs: map[string]string{", in)
+		for i, k := range sortedKeys(x.ObservedAs) {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "%q: %q", k, x.ObservedAs[k])
+		}
+		b.WriteString("},\n")
+	}
+	if len(x.SubResources) > 0 {
+		fmt.Fprintf(&b, "%s%s: []%s{\n", in, subsName, subType)
+		for _, s := range x.SubResources {
+			serverSet := ""
+			if len(s.ServerSet) > 0 && extType != "" { // the reconciler's; the emulator stores what is PUT
+				serverSet = fmt.Sprintf(", ServerSet: %#v", s.ServerSet)
+			}
+			fmt.Fprintf(&b, "%s\t{Field: %q, Path: %q, Delete: %t%s},\n", in, s.Field, s.Path, s.Delete, serverSet)
+		}
+		fmt.Fprintf(&b, "%s},\n", in)
+	}
+	if extType != "" {
+		fmt.Fprintf(&b, "%s},\n", indent)
+	}
+	return b.String()
 }
 
 // emitRBAC renders internal/generic/kinds/zz_generated.rbac.go: the RBAC markers the

@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
+
+	"flare.dev/operator/internal/generic"
 )
 
 type printerColumn struct {
@@ -294,6 +297,10 @@ func immutableRules(m *KindModel) apiextensionsv1.ValidationRules {
 		if strings.Contains(f, ".") || !CELAccessible(f) || m.Params.Field(f) == nil {
 			continue // nested or unnameable: the controller's check alone applies
 		}
+		if h, ok := locationHeader(m, f); ok {
+			out = append(out, headerImmutableRule(f, h))
+			continue
+		}
 		cf := CELField(f)
 		newV, oldV := "self.spec.forProvider."+cf, "oldSelf.spec.forProvider."+cf
 		rule := fmt.Sprintf("!(%s) || !has(oldSelf.spec.forProvider) || !has(%s) || !has(self.spec.forProvider) || !has(%s) || %s == %s",
@@ -311,6 +318,42 @@ func immutableRules(m *KindModel) apiextensionsv1.ValidationRules {
 		out = append(out, r)
 	}
 	return out
+}
+
+// locationHeader returns the requestHeaders entry (on: all) that sends forProvider field f.
+func locationHeader(m *KindModel, f string) (generic.HeaderField, bool) {
+	for _, h := range m.Extension.Headers {
+		if h.Field == f && !h.Update {
+			return h, true
+		}
+	}
+	return generic.HeaderField{}, false
+}
+
+// headerImmutableRule is the transition rule of a field sent as a header on every request
+// (requestHeaders sentOn: all). The header selects where the resource lives (R2: its
+// jurisdiction), so once the resource exists the value it addresses cannot change at all: not
+// by an edit, and unlike immutableRules, not by setting or removing the field either (an unset
+// field addresses the header's default). Otherwise the controller would look for the resource
+// in the wrong place, not find it, and create a second one.
+func headerImmutableRule(f string, h generic.HeaderField) apiextensionsv1.ValidationRule {
+	cf := CELField(f)
+	eff := func(root string) string {
+		return fmt.Sprintf("(has(%[1]s.spec.forProvider) && has(%[1]s.spec.forProvider.%[2]s) ? %[1]s.spec.forProvider.%[2]s : %[3]s)",
+			root, cf, strconv.Quote(h.Default))
+	}
+	msg := fmt.Sprintf("forProvider.%s is immutable once the resource exists (status.id is set): it is sent as the %s header and selects where the resource lives",
+		f, h.Header)
+	if h.Default != "" {
+		msg += fmt.Sprintf(" (unset means %q)", h.Default)
+	}
+	msg += "; setting, changing or removing it is refused. Recreate the object to change it"
+	r := apiextensionsv1.ValidationRule{Rule: fmt.Sprintf("!(%s) || %s == %s", ExistsCEL, eff("self"), eff("oldSelf")),
+		Message: msg, Reason: ptr(apiextensionsv1.FieldValueInvalid)}
+	if celIdentRe.MatchString(f) && !celReserved[f] {
+		r.FieldPath = ".spec.forProvider." + f
+	}
+	return r
 }
 
 // atProviderComparable: status.atProvider has field f with the same scalar type as

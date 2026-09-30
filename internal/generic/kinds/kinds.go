@@ -58,6 +58,7 @@ func NewReconciler(e descriptors.Entry, c client.Client, d controller.Deps) *gen
 		// 0 → generic.DefaultPollInterval
 		PollInterval: d.PollInterval,
 		Descriptor:   e.Descriptor,
+		Extension:    e.Extension,
 		New: func() reconcile.ManagedObject {
 			return e.New().(reconcile.ManagedObject)
 		},

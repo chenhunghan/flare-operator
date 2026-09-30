@@ -11,7 +11,8 @@ import (
 // MaxListPages guards ListAll against endpoints that never signal the last page.
 const MaxListPages = 1000
 
-// ListAll GETs req.Path repeatedly and concatenates the result arrays of every page.
+// ListAll GETs req.Path repeatedly and concatenates the result arrays of every page (a result
+// object whose only member is the array, such as R2's {"buckets": [...]}, counts as that array).
 //
 // Both pagination styles of the v4 API are handled, detected per response:
 //   - cursor-based: result_info.cursor is non-empty → the next request sets ?cursor=…;
@@ -41,11 +42,9 @@ func ListAll(ctx context.Context, c Client, req Request) ([]json.RawMessage, err
 		if err != nil {
 			return nil, err
 		}
-		var items []json.RawMessage
-		if len(resp.Result) > 0 && string(resp.Result) != "null" {
-			if err := json.Unmarshal(resp.Result, &items); err != nil {
-				return nil, fmt.Errorf("cfclient: ListAll %s: result is not an array: %w", req.Path, err)
-			}
+		items, err := listItems(resp.Result)
+		if err != nil {
+			return nil, fmt.Errorf("cfclient: ListAll %s: %w", req.Path, err)
 		}
 		all = append(all, items...)
 		ri := resp.ResultInfo
@@ -89,6 +88,32 @@ func ListAll(ctx context.Context, c Client, req Request) ([]json.RawMessage, err
 		}
 	}
 	return nil, fmt.Errorf("cfclient: ListAll %s: more than %d pages", req.Path, MaxListPages)
+}
+
+// listItems returns the items of one list page: the result array, or the array that is the
+// only member of a result object (R2's list buckets answers {"buckets": [...]}, spec
+// r2-list-buckets). null or an absent result is an empty page.
+func listItems(result json.RawMessage) ([]json.RawMessage, error) {
+	if len(result) == 0 || string(result) == "null" {
+		return nil, nil
+	}
+	var items []json.RawMessage
+	err := json.Unmarshal(result, &items)
+	if err == nil {
+		return items, nil
+	}
+	var wrapped map[string]json.RawMessage
+	if json.Unmarshal(result, &wrapped) == nil && len(wrapped) == 1 {
+		for _, v := range wrapped {
+			if string(v) == "null" {
+				return nil, nil
+			}
+			if json.Unmarshal(v, &items) == nil {
+				return items, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("result is neither an array nor an object holding one: %w", err)
 }
 
 // ListAllInto is ListAll decoding each item into T.

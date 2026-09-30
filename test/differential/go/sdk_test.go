@@ -23,6 +23,7 @@ import (
 	"github.com/cloudflare/cloudflare-go/v7/kv"
 	"github.com/cloudflare/cloudflare-go/v7/option"
 	"github.com/cloudflare/cloudflare-go/v7/queues"
+	"github.com/cloudflare/cloudflare-go/v7/r2"
 	"github.com/cloudflare/cloudflare-go/v7/resource_tagging"
 	"github.com/cloudflare/cloudflare-go/v7/user"
 	"github.com/cloudflare/cloudflare-go/v7/workers"
@@ -256,6 +257,59 @@ func TestCloudflareGo(t *testing.T) {
 		del, err := c.D1.Database.Delete(ctx, db.UUID, d1.DatabaseDeleteParams{AccountID: acct})
 		decoded(t, "D1.Database.Delete", del, err)
 		if _, err := c.D1.Database.Get(ctx, db.UUID, d1.DatabaseGetParams{AccountID: acct}); apiStatus(err) != http.StatusNotFound {
+			t.Errorf("Get after delete: %v, want a 404 API error", err)
+		}
+	})
+
+	// R2 buckets in the EU jurisdiction: the SDK sends cf-r2-jurisdiction on every call and the
+	// storage class of Edit in cf-r2-storage-class with no body
+	// (cloudflare/cloudflare-go@3da6607:r2/bucket.go#L121-L145), as the operator does.
+	t.Run("r2", func(t *testing.T) {
+		const name = "flare-diff-r2"
+		b, err := c.R2.Buckets.New(ctx, r2.BucketNewParams{AccountID: acct, Name: cloudflare.F(name),
+			StorageClass:     cloudflare.F(r2.BucketNewParamsStorageClassInfrequentAccess),
+			CfR2Jurisdiction: cloudflare.F(r2.BucketNewParamsCfR2JurisdictionEu)})
+		if !decoded(t, "R2.Buckets.New", b, err) {
+			return
+		}
+		if b.Name != name || b.StorageClass != r2.BucketStorageClassInfrequentAccess || b.Jurisdiction != r2.BucketJurisdictionEu {
+			t.Errorf("created bucket %+v", b)
+		}
+		got, err := c.R2.Buckets.Get(ctx, name, r2.BucketGetParams{AccountID: acct, CfR2Jurisdiction: cloudflare.F(r2.BucketGetParamsCfR2JurisdictionEu)})
+		decoded(t, "R2.Buckets.Get", got, err)
+		if _, err := c.R2.Buckets.Get(ctx, name, r2.BucketGetParams{AccountID: acct}); apiStatus(err) != http.StatusNotFound {
+			t.Errorf("Get without the jurisdiction: %v, want a 404 API error", err)
+		}
+		ed, err := c.R2.Buckets.Edit(ctx, name, r2.BucketEditParams{AccountID: acct,
+			StorageClass:     cloudflare.F(r2.BucketEditParamsCfR2StorageClassStandard),
+			CfR2Jurisdiction: cloudflare.F(r2.BucketEditParamsCfR2JurisdictionEu)})
+		if decoded(t, "R2.Buckets.Edit", ed, err) && ed.StorageClass != r2.BucketStorageClassStandard {
+			t.Errorf("edited storage class %q", ed.StorageClass)
+		}
+		ls, err := c.R2.Buckets.List(ctx, r2.BucketListParams{AccountID: acct, CfR2Jurisdiction: cloudflare.F(r2.BucketListParamsCfR2JurisdictionEu)})
+		if decoded(t, "R2.Buckets.List", ls, err) && (len(ls.Buckets) != 1 || ls.Buckets[0].Name != name) {
+			t.Errorf("EU buckets %+v", ls.Buckets)
+		}
+		if _, err := c.R2.Buckets.CORS.Update(ctx, name, r2.BucketCORSUpdateParams{AccountID: acct,
+			CfR2Jurisdiction: cloudflare.F(r2.BucketCORSUpdateParamsCfR2JurisdictionEu),
+			Rules: cloudflare.F([]r2.BucketCORSUpdateParamsRule{{
+				Allowed: cloudflare.F(r2.BucketCORSUpdateParamsRulesAllowed{
+					Methods: cloudflare.F([]r2.BucketCORSUpdateParamsRulesAllowedMethod{r2.BucketCORSUpdateParamsRulesAllowedMethodGet}),
+					Origins: cloudflare.F([]string{"https://example.com"})}),
+				MaxAgeSeconds: cloudflare.F(3600.0)}})}); err != nil {
+			t.Errorf("R2.Buckets.CORS.Update: %v", err)
+		}
+		cors, err := c.R2.Buckets.CORS.Get(ctx, name, r2.BucketCORSGetParams{AccountID: acct, CfR2Jurisdiction: cloudflare.F(r2.BucketCORSGetParamsCfR2JurisdictionEu)})
+		if decoded(t, "R2.Buckets.CORS.Get", cors, err) && (len(cors.Rules) != 1 || len(cors.Rules[0].Allowed.Origins) != 1 || cors.Rules[0].MaxAgeSeconds != 3600) {
+			t.Errorf("CORS rules %+v", cors.Rules)
+		}
+		if _, err := c.R2.Buckets.CORS.Delete(ctx, name, r2.BucketCORSDeleteParams{AccountID: acct, CfR2Jurisdiction: cloudflare.F(r2.BucketCORSDeleteParamsCfR2JurisdictionEu)}); err != nil {
+			t.Errorf("R2.Buckets.CORS.Delete: %v", err)
+		}
+		if _, err := c.R2.Buckets.Delete(ctx, name, r2.BucketDeleteParams{AccountID: acct, CfR2Jurisdiction: cloudflare.F(r2.BucketDeleteParamsCfR2JurisdictionEu)}); err != nil {
+			t.Errorf("R2.Buckets.Delete: %v", err)
+		}
+		if _, err := c.R2.Buckets.Get(ctx, name, r2.BucketGetParams{AccountID: acct, CfR2Jurisdiction: cloudflare.F(r2.BucketGetParamsCfR2JurisdictionEu)}); apiStatus(err) != http.StatusNotFound {
 			t.Errorf("Get after delete: %v, want a 404 API error", err)
 		}
 	})

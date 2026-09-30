@@ -133,6 +133,10 @@ var plainTextBodies = map[string]string{
 	// cloudflare/workers-sdk@3bdcd0d:packages/wrangler/src/queues/client.ts#L55-L64 (and
 	// wrangler@4.143.0:wrangler-dist/cli.js#L56358-L56386 adds no Content-Type).
 	http.MethodPost + " /accounts/{account_id}/queues": "application/json",
+	// SOURCED (relies): `wrangler r2 bucket create` sends JSON.stringify({name, storageClass,
+	// locationHint}) with only the cf-r2-jurisdiction header, so text/plain;charset=UTF-8
+	// (createR2Bucket in src/r2/helpers/bucket.ts, wrangler@4.143.0:wrangler-dist/cli.js#L208160-L208178).
+	http.MethodPost + " /accounts/{account_id}/r2/buckets": "application/json",
 	// SOURCED (relies): `wrangler kv key put` sends a string value as the raw body with no
 	// Content-Type (text/plain;charset=UTF-8); the spec allows only octet-stream and multipart,
 	// cloudflare/workers-sdk@3bdcd0d:packages/wrangler/src/kv/helpers.ts#L247-L259.

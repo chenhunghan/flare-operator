@@ -16,6 +16,9 @@ package kinds
 // +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues/finalizers,verbs=update
+// +kubebuilder:rbac:groups=r2.cloudflare.flare.dev,resources=r2buckets,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=r2.cloudflare.flare.dev,resources=r2buckets/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=r2.cloudflare.flare.dev,resources=r2buckets/finalizers,verbs=update
 // +kubebuilder:rbac:groups=secretsstore.cloudflare.flare.dev,resources=secretsstores,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=secretsstore.cloudflare.flare.dev,resources=secretsstores/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=secretsstore.cloudflare.flare.dev,resources=secretsstores/finalizers,verbs=update

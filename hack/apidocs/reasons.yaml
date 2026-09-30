@@ -91,11 +91,22 @@ conditions:
   - reason: NameConflict
     condition: Ready, Synced
     status: "False"
-    kinds: Tunnel, VPCService, WorkerScript, generated kinds without an owner tag (VectorizeIndex, SecretsStore, AIGateway; every generated kind with --ownership-tags=false)
+    kinds: Tunnel, VPCService, WorkerScript, generated kinds without an owner tag (VectorizeIndex, SecretsStore, AIGateway, R2Bucket; every generated kind with --ownership-tags=false)
     meaning: >-
       The Cloudflare name (or client-chosen ID) is taken by a resource this object cannot prove
       it owns: no owner tag names this object and it is not the object's own lost create. It is
       not adopted by name. Set the cloudflare.flare.dev/external-id annotation to adopt it.
+  - reason: DeleteFailed
+    condition: Synced
+    status: "False"
+    kinds: generated kinds
+    meaning: >-
+      The object is being deleted (deletionPolicy Delete) and Cloudflare refused the DELETE of its
+      resource; the message quotes the API error. The finalizer stays and retries with backoff.
+      R2Bucket: a bucket that still holds objects cannot be deleted (the error code, e.g. 10008,
+      is UNVERIFIED): empty the bucket, or set deletionPolicy Orphan to keep it. Only 4xx answers
+      are reported this way: rate limits (429), timeouts (408), server errors (5xx), transport
+      errors and a resource already gone (404) are not.
   - reason: InvalidHostname
     condition: Ready, Synced
     status: "False"

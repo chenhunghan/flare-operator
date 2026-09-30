@@ -70,6 +70,14 @@ A client that is not installed is skipped with a hint. You can override where a 
   - workers.dev off and back on (`triggers deploy`)
   - a redeploy of the existing Worker, which goes through the versions API: `POST …/versions`, `POST …/deployments` at 100%, `PATCH …/script-settings`
   - `delete` (`DELETE …/workers/services/{name}?force=true`)
+- R2 (the generic profile's R2Bucket extensions, 2026-09-30):
+  - `r2 bucket create`, one bucket in the default jurisdiction (`--storage-class`) and one in the EU (`-J eu`: the `cf-r2-jurisdiction` header)
+  - `r2 bucket list`, with and without `-J eu`: each jurisdiction lists only its own bucket
+  - `r2 bucket update storage-class` (a bodiless `PATCH` with `cf-r2-storage-class`)
+  - `r2 bucket cors set/list/delete` in the EU jurisdiction
+  - `r2 bucket delete` of both buckets
+
+  The first run found a discrepancy: `r2 bucket create` sends its JSON body with no Content-Type (text/plain). flarefake now validates that body as JSON, as it already did for `queues create` (`internal/fake/spec.go` `plainTextBodies`, SOURCED). `r2 bucket info` is not run: it also queries the GraphQL analytics API, which flarefake does not emulate.
 
   The test also asserts that every request wrangler made either matches the pinned spec or is a known client-side spec violation, and that it hit only emulated routes. No route is shimmed any more.
 
@@ -78,6 +86,7 @@ A client that is not installed is skipped with a hint. You can override where a 
 - KV namespaces: create/get/rename/list/delete, then a 404 after delete.
 - Queues: create/get/edit/list/delete, then a 404.
 - D1: create/get/list/delete, then a 404.
+- R2 buckets in the EU jurisdiction: create (with a storage class), get, a 404 without the jurisdiction header, edit (the storage class header), list, CORS update/get/delete, delete, then a 404.
 - Tunnels:
   - create/get/token/list/delete
   - connections, with a connector attached through `/_fake`

@@ -30,7 +30,7 @@ import (
 var env *testenv.Env
 
 // TestMain starts envtest and an in-process flarefake. Outside -short the fake also serves the
-// generic-profile kinds (VectorizeIndex, SecretsStore, AIGateway), which need the pinned spec.
+// generic-profile kinds (VectorizeIndex, SecretsStore, AIGateway, R2Bucket), which need the pinned spec.
 func TestMain(m *testing.M) {
 	flag.Parse()
 	generic.ReferrerRetry = 500 * time.Millisecond

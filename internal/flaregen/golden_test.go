@@ -72,7 +72,7 @@ func TestGeneratedUpToDate(t *testing.T) {
 		kinds = append(kinds, m.Group+"/"+m.Kind)
 	}
 	if want := "aigateway.cloudflare.flare.dev/AIGateway d1.cloudflare.flare.dev/D1Database kv.cloudflare.flare.dev/KVNamespace " +
-		"queues.cloudflare.flare.dev/Queue secretsstore.cloudflare.flare.dev/SecretsStore vectorize.cloudflare.flare.dev/VectorizeIndex"; strings.Join(sortedStrings(kinds), " ") != want {
+		"queues.cloudflare.flare.dev/Queue r2.cloudflare.flare.dev/R2Bucket secretsstore.cloudflare.flare.dev/SecretsStore vectorize.cloudflare.flare.dev/VectorizeIndex"; strings.Join(sortedStrings(kinds), " ") != want {
 		t.Errorf("kinds = %v", kinds)
 	}
 }

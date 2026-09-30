@@ -32,6 +32,9 @@ var createBudget = map[string]int{
 	"VectorizeIndex": 7,
 	"SecretsStore":   7,
 	"AIGateway":      7,
+	// R2Bucket: the lookup of the client-chosen name (404), the create, then GET item + GET cors,
+	// the PUT of the kindsuite fixture's CORS policy, and GET item + GET cors again.
+	"R2Bucket": 7,
 }
 
 // listPageSize is the smallest default page size of the kinds' lists (KV 20, 0007; the generic
@@ -43,6 +46,7 @@ const listPageSize = 20
 var pollBudget = map[string]int{
 	"KVNamespace": 2, "Queue": 2, "D1Database": 2,
 	"VectorizeIndex": 1, "SecretsStore": 1, "AIGateway": 1,
+	"R2Bucket": 2, // the item and its CORS sub-resource
 }
 
 // TestScale creates FLARE_SCALE_OBJECTS (default 24) mixed objects of the generated kinds on one

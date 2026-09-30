@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"regexp"
 	"sort"
@@ -393,6 +394,12 @@ func (s *Spec) validate(r *http.Request, body []byte, excludeBody bool) error {
 			ExcludeRequestBody: excludeBody,
 		},
 	}
+	// A text/plain body that an official client is known to send (spec.go plainTextBodies) is
+	// validated as the declared media type, as for the hand-written profiles.
+	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if as := plainTextBodyAs(r.Method, route, mt); as != "" {
+		clone.Header.Set("Content-Type", as)
+	}
 	return openapi3filter.ValidateRequest(context.Background(), in)
 }
 
@@ -408,19 +415,20 @@ const (
 )
 
 // timestampRole classifies date-time properties by name (created_on, created_at, created,
-// modified_on, modified_at, modified, updated_at, last_modified, …). UNVERIFIED heuristic.
+// creation_date, modified_on, modified_at, modified, updated_at, last_modified, …). UNVERIFIED
+// heuristic.
 func timestampRole(name string, s *gSchema) tsRole {
 	if s == nil || (s.typ != "" && s.typ != "string") {
 		return tsNone
 	}
 	n := strings.ToLower(name)
-	named := strings.HasPrefix(n, "created") || n == "create_time" ||
+	named := strings.HasPrefix(n, "created") || n == "create_time" || n == "creation_date" ||
 		strings.HasPrefix(n, "modified") || strings.HasPrefix(n, "updated") ||
 		strings.HasPrefix(n, "last_modified") || strings.HasPrefix(n, "last_updated")
 	if !named || (s.format != "" && s.format != "date-time") {
 		return tsNone
 	}
-	if strings.HasPrefix(n, "created") || n == "create_time" {
+	if strings.HasPrefix(n, "created") || n == "create_time" || n == "creation_date" {
 		return tsCreated
 	}
 	return tsModified

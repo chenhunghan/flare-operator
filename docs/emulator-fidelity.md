@@ -112,6 +112,15 @@ rejects becomes the first zero value it accepts, for example Vectorize v2's dele
 `TestGenericCRUDStrictResponses` drives every generic kind, one create per oneOf branch where
 there are several, through its lifecycle under strict validation.
 
+R2Bucket (2026-09-30) uses the generic profile's per-kind extensions
+([generator-scaleout.md](generator-scaleout.md#per-kind-extensions)). All of it is spec-only
+(UNVERIFIED), and `TestGenericR2Bucket` checks it under strict validation: buckets partitioned
+by `cf-r2-jurisdiction`, the storage class set by the bodiless PATCH's `cf-r2-storage-class`,
+the `{"buckets": [...]}` list with cursor paging, and the CORS policy as a sub-resource document
+(404 with the generic code 7003 when absent, not the bucket's 10006). The one exception is the missing-bucket error code 10006, which is SOURCED
+(relies) from wrangler 4.143.0 (`generic_quirks.go`). Its HTTP status and message are
+UNVERIFIED.
+
 **Update 2026-09-30 (FX-emu).** The allowlist has 16 entries: 13 backed by recordings and 3
 unsatisfiable ones. The 971 field-report entry is gone. Two unsatisfiable entries are new, and
 both cover surfaces that no recording shows yet:
@@ -132,7 +141,7 @@ Marker counts are occurrences in the non-test source (SOURCED/DOCS count citatio
 behaviors). "Recordings" counts the distinct recordings cited. Of the 216 recordings,
 `TestConformance` replays 149; the rest hit surfaces that are not emulated yet (Workers
 observability, tails, Hyperdrive and others). Counts as of 2026-09-30 (FX-emu); the generic
-profile (`generic*.go`, 11 UNVERIFIED) is not in the table.
+profile (`generic*.go`, 13 UNVERIFIED markers; one SOURCED quirk, R2's 10006 "bucket not found" from wrangler 4.143.0) is not in the table.
 
 | Surface (file) | Routes | Recordings cited | SOURCED | DOCS | UNVERIFIED |
 |---|---|---|---|---|---|

@@ -1,0 +1,8 @@
+{
+  "create": {"name": "{name}", "storageClass": "Standard",
+    "cors": {"rules": [{"allowed": {"origins": ["https://example.com"], "methods": ["GET", "HEAD"]}, "maxAgeSeconds": 3600}]}},
+  "update": {"name": "{name}", "storageClass": "InfrequentAccess",
+    "cors": {"rules": [{"allowed": {"origins": ["https://example.com"], "methods": ["GET", "HEAD"]}, "maxAgeSeconds": 3600}]}},
+  "immutable": {"name": "{name}", "storageClass": "InfrequentAccess", "locationHint": "weur",
+    "cors": {"rules": [{"allowed": {"origins": ["https://example.com"], "methods": ["GET", "HEAD"]}, "maxAgeSeconds": 3600}]}}
+}
