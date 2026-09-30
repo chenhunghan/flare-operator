@@ -86,6 +86,14 @@ A client that is not installed is skipped with a hint. You can override where a 
   - No discrepancy was found: wrangler's hashes pass flarefake's hash check, and every request matches the pinned spec (the assets upload's undeclared `assets_jwt` security scheme is skipped, `spec.go` `withoutUndeclaredSecurity`).
 
   The test also asserts that every request wrangler made either matches the pinned spec or is a known client-side spec violation, and that it hit only emulated routes. No route is shimmed any more.
+- Pages (`TestWranglerPages`, `pages_test.go`):
+  - `pages project create --production-branch`, `pages project list`
+  - `pages deploy <dir>` of a directory with nested files, a dot directory, `node_modules` (ignored) and `_headers`/`_redirects`: upload token, `check-missing`, bucketed `upload`, `upsert-hashes`, the deployment create and the status poll until deploy/success. The manifest's hashes, computed by wrangler (blake3-wasm), must equal the operator's `pagesdeployment.HashFile`, and the stored assets and routing files are checked in flarefake.
+  - a second deploy of the same directory uploads nothing
+  - `pages deployment list`; a preview deploy (`--branch feature-x`) with its branch alias; `pages deployment delete` of the aliased preview (without `--force` a non-interactive run declines the confirmation and sends nothing; with it, `DELETE ?force=true`)
+  - `pages project delete --yes`
+
+  Known client-side spec violation: the deployment create sends `manifest` as a plain form field; the spec's multipart encoding wants `application/json`.
 
 **cloudflare-go v7.11.0:**
 - User token verify.

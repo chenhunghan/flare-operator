@@ -1,6 +1,8 @@
 package fake
 
 import (
+	"sort"
+
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
@@ -143,4 +145,44 @@ func allOfProperty(members openapi3.SchemaRefs, name string, seen map[*openapi3.
 		}
 	}
 	return nil
+}
+
+// declareSecuritySchemes declares, as HTTP bearer schemes, the security schemes that
+// operations require but the spec's components never define. The pinned spec's Pages asset
+// operations (/pages/assets/check-missing, upload, upsert-hashes) require
+// "pages_upload_token", which is not declared. kin-openapi then fails every such request with
+// "security scheme ... is not declared", and, having read the request body for the
+// authentication function first, validates the body as missing
+// (openapi3filter.validateSecurityRequirement returns before restoring it). The emulator
+// authenticates requests itself (AuthenticationFunc is a no-op), so the declaration changes
+// nothing but that. It returns the names declared.
+func declareSecuritySchemes(doc *openapi3.T) []string {
+	if doc.Components == nil {
+		doc.Components = &openapi3.Components{}
+	}
+	if doc.Components.SecuritySchemes == nil {
+		doc.Components.SecuritySchemes = openapi3.SecuritySchemes{}
+	}
+	var added []string
+	declare := func(reqs *openapi3.SecurityRequirements) {
+		if reqs == nil {
+			return
+		}
+		for _, req := range *reqs {
+			for name := range req {
+				if _, ok := doc.Components.SecuritySchemes[name]; !ok {
+					doc.Components.SecuritySchemes[name] = &openapi3.SecuritySchemeRef{Value: openapi3.NewJWTSecurityScheme()}
+					added = append(added, name)
+				}
+			}
+		}
+	}
+	declare(&doc.Security)
+	for _, item := range doc.Paths.Map() {
+		for _, op := range item.Operations() {
+			declare(op.Security)
+		}
+	}
+	sort.Strings(added)
+	return added
 }

@@ -1,0 +1,67 @@
+# A Cloudflare Pages project (Direct Upload: deploy to it with PagesDeployments, see
+# pagesdeployment.yaml). For a new site, Cloudflare recommends Workers static assets instead of
+# Pages. Default deletionPolicy: Delete; deleting the project waits for this namespace's
+# PagesDeployments of it.
+#
+# Each deployment config (production: the production branch; preview: every other branch) is
+# authoritative for its environment variables and bindings: what Cloudflare has and the config
+# lacks is removed. The *Ref fields name objects in this namespace; nothing is written until
+# they are Ready.
+apiVersion: pages.cloudflare.flare.dev/v1alpha1
+kind: PagesProject
+metadata:
+  name: docs-site
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    name: acme-docs              # the Cloudflare name: acme-docs.pages.dev (immutable)
+    production_branch: main
+    deployment_configs:
+      production:
+        compatibility_date: "2026-09-01"
+        compatibility_flags: [nodejs_compat]
+        env_vars:
+          - name: SITE_ENV
+            value: production    # type defaults to plain_text
+          - name: API_TOKEN
+            type: secret_text    # write-only: a change of the Secret is re-applied. The Secret
+            secretKeyRef:        # needs the label cloudflare.flare.dev/worker-binding=true.
+              name: docs-secrets
+              key: api-token
+        kv_namespaces:
+          - name: SESSIONS
+            kvNamespaceRef:
+              name: sessions
+        queue_producers:
+          - name: JOBS
+            queueRef:
+              name: jobs
+        r2_buckets:
+          - name: FILES
+            bucket_name: acme-docs-files
+      preview:
+        env_vars:
+          - name: SITE_ENV
+            value: preview
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: docs-secrets
+  labels:
+    cloudflare.flare.dev/worker-binding: "true"
+stringData:
+  api-token: replace-me
+---
+# Observe a project made elsewhere (no writes, never deleted).
+apiVersion: pages.cloudflare.flare.dev/v1alpha1
+kind: PagesProject
+metadata:
+  name: marketing
+  annotations:
+    cloudflare.flare.dev/external-id: acme-marketing
+spec:
+  accountRef:
+    name: main
+  managementPolicies: ["Observe"]

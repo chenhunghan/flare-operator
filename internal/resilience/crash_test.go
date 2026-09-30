@@ -77,7 +77,8 @@ func crashCases() []crashCase {
 		}
 	}
 	return append(cases, tunnelCrashCase(true), tunnelCrashCase(false), vpcCrashCase(),
-		workerCrashCase(true, false), workerCrashCase(true, true), workerCrashCase(false, false), workerAssetsCrashCase())
+		workerCrashCase(true, false), workerCrashCase(true, true), workerCrashCase(false, false), workerAssetsCrashCase(),
+		pagesProjectCrashCase(true), pagesProjectCrashCase(false), pagesDeploymentCrashCase())
 }
 
 // TestCrashBetweenCreateAndRecord kills the manager right after each kind's Cloudflare create,

@@ -141,7 +141,12 @@ type allowedResponseViolation struct {
 
 	recording     string // NNNN of the recording showing the real API does this
 	unsatisfiable bool
-	why           string
+	// probes (unsatisfiable entries whose failing field is nested) are, per operation, a
+	// whole response body with one %s where the field goes: the test substitutes each candidate
+	// value there and requires that every error of every candidate matches errRe, which proves
+	// that no value of that field validates while the rest of the body does.
+	probes map[string]string
+	why    string
 }
 
 func (a allowedResponseViolation) covers(v *ResponseViolation, e string) bool {
@@ -180,7 +185,41 @@ const (
 	opD1            = "/accounts/{account_id}/d1/database/{database_id}"
 	opD1Query       = "/accounts/{account_id}/d1/database/{database_id}/query"
 	opQueues        = "/accounts/{account_id}/queues"
+	opPagesProjects = "/accounts/{account_id}/pages/projects"
+	opPagesProject  = "/accounts/{account_id}/pages/projects/{project_name}"
+	opPagesDeploys  = "/accounts/{account_id}/pages/projects/{project_name}/deployments"
+	opPagesDeploy   = "/accounts/{account_id}/pages/projects/{project_name}/deployments/{deployment_id}"
 )
+
+// Probe bodies of the Pages allowlist entries: a conforming project and deployment (the
+// emulator's shapes), with %s where the unsatisfiable field goes.
+const (
+	pagesProbeConfig = `{"env_vars":null,"fail_open":true,"always_use_latest_compatibility_date":false,"compatibility_date":"2026-09-30",` +
+		`"compatibility_flags":[],"build_image_major_version":3,"usage_model":"standard"}`
+	pagesProbeBuild = `{"build_caching":null,"build_command":null,"destination_dir":null,"root_dir":null,"web_analytics_tag":null,"web_analytics_token":null}`
+	pagesProbeStage = `{"name":"deploy","status":"success","started_on":"2026-09-30T00:00:00.000000Z","ended_on":"2026-09-30T00:00:01.000000Z"}`
+	// pagesProbeDeployment has %[1]s for source.
+	pagesProbeDeployment = `{"id":"8b1f2e4c-3a5d-4e6f-9a7b-0c1d2e3f4a5b","short_id":"8b1f2e4c","project_id":"7b162ea7-7367-4d67-bcde-1160995d5aaa",` +
+		`"project_name":"p","environment":"production","url":"https://8b1f2e4c.p.pages.dev","aliases":null,` +
+		`"created_on":"2026-09-30T00:00:00.000000Z","modified_on":"2026-09-30T00:00:01.000000Z","is_skipped":false,"skip_reason":null,` +
+		`"latest_stage":` + pagesProbeStage + `,"stages":[` + pagesProbeStage + `],` +
+		`"deployment_trigger":{"type":"ad_hoc","metadata":{"branch":"main","commit_hash":"","commit_message":"","commit_dirty":false}},` +
+		`"build_config":` + pagesProbeBuild + `,"env_vars":null,"uses_functions":null,"source":%[1]s}`
+	// pagesProbeProject has %[1]s for latest_deployment and %[2]s for canonical_deployment.
+	pagesProbeProject = `{"id":"7b162ea7-7367-4d67-bcde-1160995d5aaa","name":"p","subdomain":"p.pages.dev","domains":["p.pages.dev"],` +
+		`"created_on":"2026-09-30T00:00:00.000000Z","production_branch":"main","production_script_name":"pages-worker--1-production",` +
+		`"preview_script_name":"pages-worker--1-preview","uses_functions":null,"framework":"","framework_version":"","build_config":` + pagesProbeBuild +
+		`,"deployment_configs":{"production":` + pagesProbeConfig + `,"preview":` + pagesProbeConfig + `},` +
+		`"latest_deployment":%[1]s,"canonical_deployment":%[2]s}`
+	pagesProbeEnvelope = `{"success":true,"errors":[],"messages":[],"result":%s}`
+	pagesProbeList     = `{"success":true,"errors":[],"messages":[],"result_info":{"page":1,"per_page":10,"count":1,"total_count":1,"total_pages":1},"result":[%s]}`
+)
+
+// pagesProbe fills a probe template: every %s of the Sprintf-ready inner template becomes the
+// candidate placeholder "%s" of the probe.
+func pagesProbe(outer, inner string, args ...any) string {
+	return strings.Replace(outer, "%s", fmt.Sprintf(inner, args...), 1)
+}
 
 var reSuccessTrue = regexp.MustCompile(`^/success: value is not one of the allowed values \[true\]$`)
 
@@ -237,6 +276,24 @@ var responseAllowlist = []allowedResponseViolation{
 	{id: "tunnel-empty-response-unsatisfiable", method: http.MethodDelete, operations: []string{opTunnelConns}, status: 200,
 		errRe: regexp.MustCompile(`^/result: doesn't match any schema from "anyOf"$`), unsatisfiable: true,
 		why: "tunnel_empty_response is allOf(result anyOf[object,array,string], result enum [null]): no result value validates"},
+	{id: "pages-no-deployment-unsatisfiable", operations: []string{opPagesProjects, opPagesProject}, status: 200,
+		errRe: regexp.MustCompile(`^/result(/\d+)?/(latest|canonical)_deployment: Value is not nullable$`), unsatisfiable: true,
+		probes: map[string]string{
+			opPagesProjects: pagesProbe(pagesProbeList, pagesProbeProject, "%s", "%s"),
+			opPagesProject:  pagesProbe(pagesProbeEnvelope, pagesProbeProject, "%s", "%s"),
+		},
+		why: "a project without (production) deployments has none to report, and pages_project requires latest_deployment and canonical_deployment " +
+			"as allOf(pages_deployment, {nullable: true}): the nullable is on the other allOf branch, so null never validates, nor does {}, [] or \"\""},
+	{id: "pages-direct-upload-source-unsatisfiable", operations: []string{opPagesProjects, opPagesProject, opPagesDeploys, opPagesDeploy}, status: 200,
+		errRe: regexp.MustCompile(`^/result(/\d+)?(/(latest|canonical)_deployment)?/source: Value is not nullable$`), unsatisfiable: true,
+		probes: map[string]string{
+			opPagesProjects: pagesProbe(pagesProbeList, pagesProbeProject, fmt.Sprintf(pagesProbeDeployment, "%s"), fmt.Sprintf(pagesProbeDeployment, "%s")),
+			opPagesProject:  pagesProbe(pagesProbeEnvelope, pagesProbeProject, fmt.Sprintf(pagesProbeDeployment, "%s"), fmt.Sprintf(pagesProbeDeployment, "%s")),
+			opPagesDeploys:  pagesProbe(pagesProbeList, pagesProbeDeployment, "%s"),
+			opPagesDeploy:   pagesProbe(pagesProbeEnvelope, pagesProbeDeployment, "%s"),
+		},
+		why: "a Direct Upload deployment has no Git source, and pages_deployment requires source as pages_source (type github|gitlab and a full " +
+			"repository config): neither null, {}, [] nor \"\" validates, and the emulator does not invent a repository (the live value is UNVERIFIED)"},
 }
 
 // classify marks v.Allowed when every error is covered by an allowlist entry.

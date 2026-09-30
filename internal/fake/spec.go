@@ -71,7 +71,8 @@ func LoadSpec(path string) (*Spec, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load spec: %w", err)
 	}
-	liftAccessRequired(doc) // readOnly/writeOnly required across allOf (spec_access.go)
+	liftAccessRequired(doc)     // readOnly/writeOnly required across allOf (spec_access.go)
+	declareSecuritySchemes(doc) // schemes operations use but the spec never declares
 	// Route on paths only: the spec's server URL is https://api.cloudflare.com/client/v4.
 	doc.Servers = openapi3.Servers{{URL: "/client/v4"}}
 	router, err := gorillamux.NewRouter(doc)
@@ -170,6 +171,10 @@ var plainTextBodies = map[string]string{
 	// Content-Type (text/plain;charset=UTF-8); the spec allows only octet-stream and multipart,
 	// cloudflare/workers-sdk@3bdcd0d:packages/wrangler/src/kv/helpers.ts#L247-L259.
 	http.MethodPut + " /accounts/{account_id}/storage/kv/namespaces/{namespace_id}/values/{key_name}": "application/octet-stream",
+	// SOURCED (relies): `wrangler pages project create` sends JSON.stringify(body) with no
+	// Content-Type (text/plain;charset=UTF-8),
+	// cloudflare/workers-sdk@485cfb3:packages/wrangler/src/pages/projects.ts#L303-L310.
+	http.MethodPost + " /accounts/{account_id}/pages/projects": "application/json",
 }
 
 // plainTextBodyAs returns the media type a text/plain body to route is validated as, or "".

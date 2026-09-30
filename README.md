@@ -69,6 +69,8 @@ Open issues are tracked in [docs/STATUS.md](docs/STATUS.md).
 | `Tunnel` | `tunnels.cloudflare.flare.dev` | `cftunnel`, `cftun` | `STATUS`, `CONNECTORS` | `Delete` | hand-written; also runs `cloudflared` and an egress NetworkPolicy |
 | `VPCService` | `workersvpc.cloudflare.flare.dev` | `cfvpcsvc`, `cfvpc` | `TYPE`, `TUNNEL` | `Delete` | hand-written (Workers VPC) |
 | `WorkerScript` | `workers.cloudflare.flare.dev` | `cfworker`, `cfscript` | `URL`, *`VERSION`* | `Delete` | hand-written (Workers scripts: modules, static assets, bindings, workers.dev) |
+| `PagesProject` | `pages.cloudflare.flare.dev` | `cfpages`, `cfpp` | `URL`, `BRANCH`, *`LIVE`* | `Delete` | hand-written (Cloudflare Pages projects: deployment configs, bindings) |
+| `PagesDeployment` | `pages.cloudflare.flare.dev` | `cfpagesdeploy`, `cfpd` | `PROJECT`, `ENV`, `STAGE`, *`URL`* | `Delete` | hand-written (Pages Direct Upload of an artifact) |
 
 Every kind prints `READY`, `SYNCED` and `EXTERNAL-ID` (`status.id`) first, then its own
 columns, then `AGE`. Every kind is namespaced and belongs to the `cloudflare` category, so
@@ -128,7 +130,8 @@ helm install flare-operator charts/flare-operator -n flare-system --create-names
 - The `reconcile.*` values are optional. `reconcile.pollInterval=10m` polls every kind for
   drift every 10 minutes, which halves the steady-state API use of the generated kinds. Left
   empty (the chart default), each controller keeps its own interval: 5m for generated kinds,
-  10m for Tunnel, VPCService and WorkerScript. The other three values above are the defaults,
+  10m for the hand-written kinds (Tunnel, VPCService, WorkerScript, PagesProject,
+  PagesDeployment). The other three values above are the defaults,
   spelled out. Size them with
   [the API budget](docs/operations.md#reconcile-tuning-and-the-api-budget).
 - Every value is listed in [charts/flare-operator/README.md](charts/flare-operator/README.md#values).
@@ -225,6 +228,8 @@ against the CRDs on an envtest API server: schema, CEL rules and strict field va
 | [vpcservice.yaml](examples/vpcservice.yaml) | two `VPCService`s behind the Tunnel: an HTTP Service by hostname, a TCP backend by IP |
 | [workerscript.yaml](examples/workerscript.yaml) | a `WorkerScript` with inline modules and `*Ref` bindings, one with modules from a ConfigMap, and an observe-only one |
 | [workerscript-fullstack.yaml](examples/workerscript-fullstack.yaml) | a static site with an API Worker (static assets, an `assets`, an `r2_bucket` and a `send_email` binding), an assets-only site from an archive, and modules from an OCI image |
+| [pagesproject.yaml](examples/pagesproject.yaml) | a `PagesProject` with environment variables (one from a Secret) and `*Ref` bindings, and an observe-only one |
+| [pagesdeployment.yaml](examples/pagesdeployment.yaml) | a production `PagesDeployment` from ConfigMaps, a preview one from an HTTPS archive, and one observing the live deployment |
 
 ### Trying it without a Cloudflare account
 
@@ -264,6 +269,7 @@ spec lists no group.
 | `Tunnel` | `Cloudflare Tunnel Write` (`Cloudflare Tunnel Read`). The spec also accepts `Cloudflare One Connector: cloudflared Write`/`Read` and `Cloudflare One Connectors Write`/`Read`. Fetching the connector token for `cloudflared` needs Write. | Cloudflare One Connector: cloudflared › Edit (Read); formerly "Cloudflare Tunnel" |
 | `WorkerScript` | Legacy `Workers Scripts Write` (`Workers Scripts Read`). The spec also accepts `Workers Tail Read` for reading a script, its settings, deployments and subdomain, but not for `GET /accounts/{id}/workers/subdomain` (the workers.dev URL), so Observe needs `Workers Scripts Read`. Static assets: the upload session needs `Workers Scripts Write`; the file uploads authenticate with the session's JWT, not the token. Whether an `r2_bucket` or `send_email` binding also needs an R2 or Email Routing permission is UNVERIFIED. | Legacy: Workers Scripts › Edit (Read). Granular roles: **Admin at Workers product scope** to create or delete scripts; per-Worker Editor only for an adopted Worker; Content Read-Only for Observe. See [below](#workers-roles-legacy-and-granular). |
 | `VPCService` | UNVERIFIED: the spec lists no group for `/connectivity/directory/services`. | Connectivity Directory (UNVERIFIED) |
+| `PagesProject`, `PagesDeployment` | `Pages Write` (`Pages Read`). A deployment also needs Write for `GET …/upload-token`; the asset calls (`/pages/assets/*`) authenticate with that upload token, not with the API token. A `PagesProject` binding to a KV namespace, D1 database, queue or Worker needs no permission on those. | Cloudflare Pages › Edit (Read) |
 | Ownership tags (on by default) | UNVERIFIED: the spec lists no group for `/accounts/{id}/tags`. Or install with `ownershipTags=false`. | Tag, formerly "Resource Tagging" (UNVERIFIED) |
 
 ### Workers roles: legacy and granular
@@ -427,6 +433,15 @@ Without the annotation, what happens depends on the kind:
   create-pending record shows it is the object's own lost create).
 - **`WorkerScript`** adopts an existing script only when its owner tag names this object or the
   annotation pins it; otherwise `NameConflict`.
+- **`PagesProject`** adopts an existing project only when its owner tag names this object, the
+  annotation pins it, or the create-pending record shows it is the object's own lost create;
+  otherwise `NameConflict`.
+- **`PagesDeployment`** never adopts: a deployment's ID is Cloudflare's. It manages only the
+  deployments it made (found again after a restart by the commit hash it derives from the
+  object, when `forProvider.commit_hash` is unset) and, when observing, the one the annotation
+  pins. A user-set `commit_hash` is a git commit that other deployments may carry too, so a
+  deployment lost to a restart with it is not looked up: a Warning event
+  `ExternalResourceKept` says it may be left in Cloudflare.
 
 A resource whose owner tag names a different object is never touched.
 
@@ -437,10 +452,11 @@ resource it manages through Cloudflare's Resource Tagging API with
 `flare.dev/owner=<clusterName>/<namespace>/<name>`. It reads the existing tags, merges its own,
 and writes them back with `If-Match`, so other tags are kept. The tag is how two objects, or two
 clusters, avoid managing and deleting the same resource. The tag's `resource_type` values are
-`kv_namespace`, `queue`, `d1_database`, `cloudflared_tunnel` and `worker`. Five kinds are not
-tagged:
+`kv_namespace`, `queue`, `d1_database`, `cloudflared_tunnel`, `worker` and `pages_project`
+(its `resource_id` being the project's UUID is UNVERIFIED). Six kinds are not tagged:
 
-- `SecretsStore` and `VPCService`: the spec's tags `resource_type` enum has no value for them.
+- `SecretsStore`, `VPCService` and `PagesDeployment`: the spec's tags `resource_type` enum has no
+  value for them.
 - `VectorizeIndex`, `AIGateway` and `R2Bucket`: the enum has `vectorize_index`, `ai_gateway`
   and `r2_bucket`, but `generator.yaml` sets no `tagResourceType` for them yet (live support is
   UNVERIFIED; an R2 bucket name is unique only per jurisdiction).
@@ -458,8 +474,8 @@ Each object reports two conditions. Both are stamped with `metadata.generation`,
 Every reason, per kind, is in [docs/api-reference.md](docs/api-reference.md#conditions), and
 what to do about each one in [docs/operations.md](docs/operations.md#troubleshooting-by-condition-reason).
 
-In-sync objects are re-read every 5 minutes (generated kinds) or 10 minutes (Tunnel,
-VPCService, WorkerScript) to detect drift; `--poll-interval` overrides both. Some fields are
+In-sync objects are re-read every 5 minutes (generated kinds) or 10 minutes (Tunnel, VPCService,
+WorkerScript, PagesProject, PagesDeployment) to detect drift; `--poll-interval` overrides both. Some fields are
 write-only: Cloudflare never returns them, for example `Queue` `settings.delivery_paused` and
 `D1Database` `primary_location_hint`. For those fields, the operator detects changes through
 `status.writeOnlyHash`.
@@ -514,6 +530,56 @@ Kubernetes Service.
   `Ready=False` and reason `DependencyNotReady`, until no `WorkerScript` binds it. The same
   applies to a `WorkerScript` bound by another script's `serviceRef`.
 
+### Cloudflare Pages: PagesProject and PagesDeployment
+
+> For a **new** site, Cloudflare recommends Workers with static assets rather than Pages
+> ([migration guide](https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/));
+> wrangler 4.143 even redirects an AI agent's new static Pages project there. These kinds exist for sites
+> that are on Pages.
+
+A `PagesProject` ([examples/pagesproject.yaml](examples/pagesproject.yaml)) is a Pages project;
+`PagesDeployment`s ([examples/pagesdeployment.yaml](examples/pagesdeployment.yaml)) deploy files
+to it with Pages Direct Upload.
+
+- **Project.** `forProvider.name` (immutable; default `metadata.name`) is the Cloudflare ID and
+  the `<name>.pages.dev` subdomain. `production_branch` marks production deployments.
+  `deployment_configs.production` and `.preview` hold compatibility settings, environment
+  variables (`plain_text`, or `secret_text` from a Secret labelled
+  `cloudflare.flare.dev/worker-binding=true`, tracked in `status.writeOnlyHash`) and bindings:
+  `kv_namespaces`, `d1_databases`, `queue_producers` and `services`, each by raw value or by a
+  `kvNamespaceRef`, `d1DatabaseRef`, `queueRef` or `serviceRef` (a `WorkerScript`), and
+  `r2_buckets` by bucket name. A set config is authoritative for its variables and bindings:
+  ones that Cloudflare has and the config lacks are removed. A change is one `PATCH`; an
+  unchanged object makes no writes. `source` (a GitHub or GitLab repository) is passed through
+  as it is: authorizing the repository is done in the dashboard.
+- **Deployment.** `forProvider.projectRef` names the `PagesProject`; `branch` (empty: the
+  production branch) and `source`, an [artifact source](docs/artifacts.md) (labelled
+  ConfigMaps, an OCI image or an HTTPS archive). The operator runs wrangler's Direct Upload
+  flow: an upload token, `check-missing`, the missing files in buckets, `upsert-hashes`, then
+  the deployment with its manifest. Files are hashed exactly as wrangler hashes them, so files
+  Cloudflare already has are not uploaded again, and each file's stored content type (which
+  Pages serves) is the one wrangler sends: the `mime` 3.0.0 type of its extension, else
+  `application/octet-stream`. Root files `_headers`, `_redirects` and
+  `_routes.json` go as the deployment's routing files and `_worker.js` as its advanced-mode
+  Worker (not bundled). An artifact with a `_worker.js` directory is refused with
+  `InvalidArtifact`, and so is one with a Pages Functions `functions` directory but no
+  `_worker.js` file (compile the Functions into `_worker.js`; like wrangler, a `_worker.js`
+  file wins and the directory is ignored). A new deployment is made only when the artifact's digest or the branch
+  changes (`status.deployedHash`). The object is `Ready` once the deploy stage succeeds
+  (`Deploying` until then; `DeploymentFailed`, not retried, when it fails).
+  `status.atProvider` has the deployment's `url`, `aliases` (a preview's branch alias), stage
+  and whether it is the live production deployment.
+- **History.** Earlier deployments stay in the project's history (roll back in the dashboard);
+  `status.id` is the newest one this object made.
+- **Deletion.** Deleting a `PagesDeployment` deletes its deployment, a preview's alias with it
+  (`force=true`). Cloudflare refuses to delete the project's live production deployment: that
+  one is kept, with a Warning event `ExternalResourceKept`, and the object goes away. Deleting a
+  `PagesProject` waits, with `DependencyNotReady`, until this namespace's `PagesDeployment`s of
+  it are gone, then deletes the project and every deployment in it.
+- **Observe.** With `managementPolicies: ["Observe"]`, a `PagesDeployment` reports the
+  deployment the external-id annotation pins, else the live production deployment (no branch)
+  or the newest one of its branch.
+
 ## Metrics
 
 The manager serves Prometheus metrics on `--metrics-bind-address` (default `:8080`; chart
@@ -560,7 +626,7 @@ suggests alerts.
 | `--controller` | `[]` | `controllers` | Run only this controller (repeatable; default: all). Names: `cloudflareaccount`, `kvnamespace`, `queue`, `d1database`, `vectorizeindex`, `secretsstore`, `aigateway`, `tunnel`, `vpcservice`, `workerscript`. |
 | `--allow-base-url-override` | `false` | `baseURLOverride.allowAny` | Honour any CloudflareAccount `spec.baseURL`. |
 | `--allowed-base-url` | `[]` | `baseURLOverride.allowed` (and flarefake's URL when `flarefake.enabled`) | Honour exactly this `spec.baseURL` (repeatable; trailing slash ignored). |
-| `--poll-interval` | `0s` | `reconcile.pollInterval` | Drift-poll interval of in-sync objects. `0`: 5m for generated kinds, 10m for Tunnel, VPCService and WorkerScript. Minimum `10s`. |
+| `--poll-interval` | `0s` | `reconcile.pollInterval` | Drift-poll interval of in-sync objects. `0`: 5m for generated kinds, 10m for Tunnel, VPCService, WorkerScript, PagesProject and PagesDeployment. Minimum `10s`. |
 | `--max-concurrent-reconciles` | `1` | `reconcile.maxConcurrentReconciles` | Parallel reconciles per controller. |
 | `--reconcile-timeout` | `5m` | `reconcile.timeout` | Context deadline of one reconcile (`0` disables it). |
 | `--cloudflare-request-timeout` | `60s` | `reconcile.cloudflareRequestTimeout` | Timeout of one Cloudflare API HTTP request. |

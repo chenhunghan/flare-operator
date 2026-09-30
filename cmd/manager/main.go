@@ -42,7 +42,7 @@ type Options struct {
 	// Resilience and scale (docs/resilience.md).
 	//
 	// PollInterval is the drift-poll interval of every managed kind (0: each controller's
-	// default, 5m for generated kinds, 10m for Tunnel, VPCService and WorkerScript).
+	// default, 5m for generated kinds, 10m for the hand-written kinds).
 	PollInterval time.Duration
 	// MaxConcurrentReconciles is the number of parallel workers per controller.
 	MaxConcurrentReconciles int

@@ -13,6 +13,8 @@ Managed kinds share one shape, Crossplane-style: `spec.accountRef`, `spec.forPro
 | [AIGateway](#aigateway) | `aigateway.cloudflare.flare.dev/v1alpha1` | `cfaigw` | `cloudflare`, `managed`, `aigateway` | Delete |
 | [D1Database](#d1database) | `d1.cloudflare.flare.dev/v1alpha1` | `cfd1` | `cloudflare`, `managed`, `d1` | Orphan |
 | [KVNamespace](#kvnamespace) | `kv.cloudflare.flare.dev/v1alpha1` | `cfkv` | `cloudflare`, `managed`, `kv` | Orphan |
+| [PagesDeployment](#pagesdeployment) | `pages.cloudflare.flare.dev/v1alpha1` | `cfpagesdeploy`, `cfpd` | `cloudflare`, `managed`, `pages` | Delete |
+| [PagesProject](#pagesproject) | `pages.cloudflare.flare.dev/v1alpha1` | `cfpages`, `cfpp` | `cloudflare`, `managed`, `pages` | Delete |
 | [Queue](#queue) | `queues.cloudflare.flare.dev/v1alpha1` | `cfqueue`, `cfq` | `cloudflare`, `managed`, `queues` | Orphan |
 | [R2Bucket](#r2bucket) | `r2.cloudflare.flare.dev/v1alpha1` | `cfr2`, `cfbucket` | `cloudflare`, `managed`, `r2` | Orphan |
 | [SecretsStore](#secretsstore) | `secretsstore.cloudflare.flare.dev/v1alpha1` | `cfstore` | `cloudflare`, `managed`, `secretsstore` | Delete |
@@ -33,6 +35,8 @@ Managed kinds share one shape, Crossplane-style: `spec.accountRef`, `spec.forPro
 | AIGateway | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `COLLECT-LOGS` (`.status.atProvider.collect_logs`), `CACHE-TTL` (`.status.atProvider.cache_ttl`) *wide*, `AGE` (`.metadata.creationTimestamp`) |
 | D1Database | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `DATABASE` (`.status.atProvider.name`), `VERSION` (`.status.atProvider.version`) *wide*, `AGE` (`.metadata.creationTimestamp`) |
 | KVNamespace | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `TITLE` (`.status.atProvider.title`), `AGE` (`.metadata.creationTimestamp`) |
+| PagesDeployment | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `PROJECT` (`.status.atProvider.project_name`), `ENV` (`.status.atProvider.environment`), `STAGE` (`.status.atProvider.latest_stage.status`), `URL` (`.status.atProvider.url`) *wide*, `AGE` (`.metadata.creationTimestamp`) |
+| PagesProject | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `URL` (`.status.atProvider.url`), `BRANCH` (`.status.atProvider.production_branch`), `LIVE` (`.status.atProvider.canonical_deployment_id`) *wide*, `AGE` (`.metadata.creationTimestamp`) |
 | Queue | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `QUEUE` (`.status.atProvider.queue_name`), `CONSUMERS` (`.status.atProvider.consumers_total_count`) *wide*, `AGE` (`.metadata.creationTimestamp`) |
 | R2Bucket | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `LOCATION` (`.status.atProvider.location`), `STORAGE-CLASS` (`.status.atProvider.storage_class`), `JURISDICTION` (`.status.atProvider.jurisdiction`) *wide*, `AGE` (`.metadata.creationTimestamp`) |
 | SecretsStore | `READY` (`.status.conditions[?(@.type=='Ready')].status`), `SYNCED` (`.status.conditions[?(@.type=='Synced')].status`), `EXTERNAL-ID` (`.status.id`), `STORE` (`.status.atProvider.name`), `AGE` (`.metadata.creationTimestamp`) |
@@ -54,16 +58,21 @@ Every kind reports two conditions. `Ready` says whether the Cloudflare resource 
 | `Unavailable` | Ready | False | every kind | The resource exists but is not usable yet (Tunnel: cloudflared replicas not ready or the tunnel not connected), or the first read failed transiently (CloudflareAccount: the first token verification got a 429, 5xx or transport error). |
 | `ExternalNotFound` | Ready, Synced | False | managed kinds | The Cloudflare resource does not exist and the object may not create it: managementPolicies exclude Create (an observe-only object with nothing to observe), or the external-id annotation pins a resource that was deleted (remove the annotation to create a new one). |
 | `AccountNotReady` | Ready, Synced | False | managed kinds | The CloudflareAccount named by spec.accountRef is missing or not Ready; nothing is sent to Cloudflare. |
-| `DependencyNotReady` | Ready, Synced | False | managed kinds, CloudflareAccount | A referenced object is not Ready yet (a WorkerScript binding's kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef or serviceRef; a VPCService's tunnelRef; a ConfigMap or pull Secret of a WorkerScript's moduleSource or assets.source that is missing or lacks the label cloudflare.flare.dev/artifact=true), so nothing is sent until it is; or deletion waits for referrers (a Tunnel or VPCService still used, a CloudflareAccount still used by managed objects). |
+| `DependencyNotReady` | Ready, Synced | False | managed kinds, CloudflareAccount | A referenced object is not Ready yet (a WorkerScript binding's kvNamespaceRef, queueRef, d1DatabaseRef, vpcServiceRef or serviceRef; a VPCService's tunnelRef; a ConfigMap or pull Secret of a WorkerScript's moduleSource or assets.source that is missing or lacks the label cloudflare.flare.dev/artifact=true; a PagesProject binding's reference or a secret_text Secret that is missing or not opted in; a PagesDeployment's projectRef or artifact ConfigMap or pull Secret), so nothing is sent until it is; or deletion waits for referrers (a Tunnel or VPCService still used, a KVNamespace, Queue, D1Database or WorkerScript still bound by a WorkerScript or PagesProject, a PagesProject that still has PagesDeployments, a CloudflareAccount still used by managed objects). |
 | `ReconcileSuccess` | Synced | True | every kind | The last reconcile applied spec to Cloudflare (or found nothing to change). |
 | `ObserveOnly` | Synced | True | managed kinds | managementPolicies is ["Observe"]; the resource was read and nothing is ever written. |
 | `ReconcileError` | Synced | False | every kind | The last reconcile failed (the message quotes the Cloudflare error, sanitized) or spec differs from Cloudflare in a way the policies or the API do not allow to fix (no update operation, Update not in managementPolicies). Transient errors are retried with backoff. |
 | `Immutable` | Synced | False | managed kinds | forProvider changes a field Cloudflare cannot change after creation; nothing is written. Recreate the object to change it. The CRD's CEL rules reject most such changes at once; this is the controller's own check (e.g. after the field was removed and re-added, or an adopted resource differs). |
-| `NameConflict` | Ready, Synced | False | Tunnel, VPCService, WorkerScript, generated kinds without an owner tag (VectorizeIndex, SecretsStore, AIGateway, R2Bucket; every generated kind with --ownership-tags=false) | The Cloudflare name (or client-chosen ID) is taken by a resource this object cannot prove it owns: no owner tag names this object and it is not the object's own lost create. It is not adopted by name. Set the cloudflare.flare.dev/external-id annotation to adopt it. |
+| `NameConflict` | Ready, Synced | False | Tunnel, VPCService, WorkerScript, PagesProject, generated kinds without an owner tag (VectorizeIndex, SecretsStore, AIGateway, R2Bucket; every generated kind with --ownership-tags=false) | The Cloudflare name (or client-chosen ID) is taken by a resource this object cannot prove it owns: no owner tag names this object and it is not the object's own lost create. It is not adopted by name. Set the cloudflare.flare.dev/external-id annotation to adopt it. |
 | `DeleteFailed` | Synced | False | generated kinds | The object is being deleted (deletionPolicy Delete) and Cloudflare refused the DELETE of its resource; the message quotes the API error. The finalizer stays and retries with backoff. R2Bucket: a bucket that still holds objects cannot be deleted (the error code, e.g. 10008, is UNVERIFIED): empty the bucket, or set deletionPolicy Orphan to keep it. Only 4xx answers are reported this way: rate limits (429), timeouts (408), server errors (5xx), transport errors and a resource already gone (404) are not. |
 | `InvalidHostname` | Ready, Synced | False | VPCService | host.hostname looks like a short in-cluster name; cloudflared never applies DNS search domains, so use the fully qualified name. |
 | `InvalidScriptName` | Ready, Synced | False | WorkerScript | The script name (forProvider.script_name, or metadata.name) is not a valid Workers script name. |
-| `InvalidSpec` | Ready, Synced | False | WorkerScript | forProvider cannot be uploaded (an invalid module name or type, wasm-base64 content that is not base64, a main_module that is not one of the modules, an unusable sourceRef ConfigMap, a moduleSource file of unknown type, an artifact the loader refuses (limits, path safety, SHA-256 mismatch), a static asset over 25 MiB, a _worker.js asset without .assetsignore, ...). |
+| `InvalidSpec` | Ready, Synced | False | WorkerScript, PagesProject | forProvider cannot be uploaded (WorkerScript: an invalid module name or type, wasm-base64 content that is not base64, a main_module that is not one of the modules, an unusable sourceRef ConfigMap, a moduleSource file of unknown type, an artifact the loader refuses (limits, path safety, SHA-256 mismatch), a static asset over 25 MiB, a _worker.js asset without .assetsignore, ...; PagesProject: an invalid project name, one binding name used twice in a deployment config). |
+| `Deploying` | Ready | False | PagesDeployment | The deployment was made and its deploy stage has not succeeded yet; the object is re-read every few seconds until it has. |
+| `DeploymentFailed` | Ready, Synced | False | PagesDeployment | The deployment's deploy stage ended with failure (or was canceled). It is not retried: change the artifact or the branch to deploy again. The Cloudflare dashboard shows the deployment's logs. |
+| `InvalidArtifact` | Ready, Synced | False | PagesDeployment | The artifact cannot be deployed: an invalid source (reference, URL, path), content that breaks a limit or safety rule of the loader (--artifact-max-*), a file larger than Pages' 25 MiB, more files than the upload token allows, a _worker.js directory (which needs bundling), or a top-level functions directory (Pages Functions, which need compiling) without a _worker.js file. Only a change of the source or its content fixes it. |
+| `ArtifactUnavailable` | Synced | False | PagesDeployment | The artifact could not be fetched (a registry or download server failed, refused the credentials or could not be reached, or its address is refused); retried with backoff. |
+| `LiveDeploymentKept` | Ready | False | PagesDeployment | Set while a deleted PagesDeployment is finalized: its deployment is the project's live production deployment, which Cloudflare does not delete, so it is kept (with a Warning event ExternalResourceKept) and the finalizer is removed. It goes when another production deployment replaces it or when the project is deleted. |
 | `SecretNotFound` | Ready | False | CloudflareAccount | The Secret named by spec.tokenSecretRef does not exist. |
 | `SecretKeyMissing` | Ready | False | CloudflareAccount | The token Secret has no (or an empty) spec.tokenSecretRef.key. |
 | `TokenInvalid` | Ready | False | CloudflareAccount | Cloudflare rejected the token, or reported an unexpected token status. |
@@ -79,7 +88,7 @@ Every kind reports two conditions. `Ready` says whether the Cloudflare resource 
 
 | Reason | Type | Kinds | Meaning |
 |---|---|---|---|
-| `ExternalResourceKept` | Warning | managed kinds | An object with deletionPolicy Delete was deleted but its Cloudflare resource was kept (ownership not proven, or the CloudflareAccount is gone), or an orphaned resource keeps its owner tag. |
+| `ExternalResourceKept` | Warning | managed kinds | An object with deletionPolicy Delete was deleted but its Cloudflare resource was kept (ownership not proven, or the CloudflareAccount is gone), or an orphaned resource keeps its owner tag. A PagesDeployment with a user-set forProvider.commit_hash also records it when a deployment it may have made (an interrupted create) cannot be identified and may be left in Cloudflare. |
 | `ForeignOwnerTunnelKept` | Warning | Tunnel | A Tunnel with deletionPolicy Delete was deleted but its Cloudflare tunnel was kept because another owner holds it. |
 
 ## CloudflareAccount
@@ -441,6 +450,255 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `status.conditions` | []object |  | list type map (key type) |
 | `status.id` | string | ID is the Cloudflare ID of the external resource. |  |
 | `status.observedGeneration` | integer |  |  |
+| `status.writeOnlyHash` | string | WriteOnlyHash is a hash of write-only forProvider fields last applied. |  |
+
+## PagesDeployment
+
+`pages.cloudflare.flare.dev/v1alpha1`, kind `PagesDeployment`, resource `pagesdeployments`.
+
+PagesDeployment is one Cloudflare Pages Direct Upload deployment (x-fern-sdk-group-name "pages.deployments"): the files of an artifact uploaded to a PagesProject. A change of the content or branch makes a new deployment (the previous ones stay in the project's history, for rollbacks in the dashboard); status.id is always the newest one this object made. Deleting it deletes its deployment in Cloudflare (default deletion policy Delete), except the project's live production deployment, which Cloudflare refuses to delete: that one is kept, with a Warning event ExternalResourceKept.
+
+### Validation rules
+
+CEL rules (`x-kubernetes-validations`) the API server enforces on create and update (rules that use `oldSelf` apply to updates only):
+
+| Field | Message | Rule |
+|---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
+| `spec.accountRef.name` | accountRef.name must name a CloudflareAccount in this namespace (1-253 characters) | ` size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253 ` |
+| `spec` | forProvider.source is required unless managementPolicies exclude Create and Update (e.g. ["Observe"]) | ` has(self.forProvider.source) \|\| (has(self.managementPolicies) && size(self.managementPolicies) > 0 && !('*' in self.managementPolicies) && !('Create' in self.managementPolicies) && !('Update' in self.managementPolicies)) ` |
+| `spec.forProvider.projectRef` | projectRef is immutable | ` self == oldSelf ` |
+| `spec.forProvider.source` | set exactly one of configMapRef, ociRef or url | ` (has(self.configMapRef) ? 1 : 0) + (has(self.ociRef) ? 1 : 0) + (has(self.url) ? 1 : 0) == 1 ` |
+
+### Fields
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `spec` | object | **Required.** PagesDeploymentSpec defines the desired state of a PagesDeployment. | CEL rules: see above |
+| `spec.accountRef` | object | **Required.** AccountRef names the CloudflareAccount (same namespace) to use. |  |
+| `spec.accountRef.name` | string | **Required.** |  |
+| `spec.deletionPolicy` | string | DeletionPolicy defaults per kind (Orphan for data-bearing kinds). | one of `Delete`, `Orphan` |
+| `spec.forProvider` | object | **Required.** ForProvider is the deployment. |  |
+| `spec.forProvider.branch` | string | Branch of the deployment. Empty, or the project's production branch, makes a production deployment; any other branch a preview deployment (served at its branch alias). A change deploys again. | length ≤ 255 |
+| `spec.forProvider.commit_hash` | string | CommitHash recorded on the deployment (deployment_trigger.metadata.commit_hash). When unset the operator records a 40-hex identifier derived from this object and the content, which lets it find a deployment it made but could not record before a restart. A set commit hash (a git commit, which other deployments may carry too) does not identify a deployment: one lost that way is not looked up, and may be left in Cloudflare. | pattern ` ^[0-9a-fA-F]+$ `; length ≤ 64 |
+| `spec.forProvider.commit_message` | string | CommitMessage recorded on the deployment (at most 384 bytes, as wrangler truncates it). A change alone does not deploy again. | length ≤ 384 |
+| `spec.forProvider.projectRef` | object | **Required.** ProjectRef names the PagesProject (same namespace, same CloudflareAccount) to deploy to. Immutable. Nothing is deployed until the project is Ready. | CEL rules: see above |
+| `spec.forProvider.projectRef.name` | string | **Required.** |  |
+| `spec.forProvider.source` | object | Source of the site's files. Files at the root named _headers, _redirects and _routes.json are sent as the deployment's routing files and _worker.js as its advanced-mode Worker (as is: the operator does not bundle). A _worker.js directory is refused with InvalidArtifact, and so is a top-level functions directory (Pages Functions, which need compiling) unless a _worker.js file is given, which takes its place as wrangler does. Every other file is uploaded as an asset. A deployment is made when the artifact's content digest or branch changes (status.deployedHash). | CEL rules: see above |
+| `spec.forProvider.source.configMapRef` | object | ConfigMapRef takes the files from one or more ConfigMaps in the object's namespace. Each ConfigMap must carry the label cloudflare.flare.dev/artifact=true. A ConfigMap holds at most 1 MiB (data and binaryData together), so larger artifacts belong in ociRef or url. |  |
+| `spec.forProvider.source.configMapRef.configMaps` | []object | **Required.** ConfigMaps in the object's namespace, each labelled cloudflare.flare.dev/artifact=true. | items 1–64 |
+| `spec.forProvider.source.configMapRef.configMaps[].items` | []object | Items selects keys and gives each its own path (relative to path). When set, only the listed keys are used and each must exist; when empty, every key is a file named after it. | items ≤ 256 |
+| `spec.forProvider.source.configMapRef.configMaps[].items[].key` | string | **Required.** Key of the ConfigMap (data or binaryData). | length 1–253 |
+| `spec.forProvider.source.configMapRef.configMaps[].items[].path` | string | **Required.** Path of the file, relative to the ConfigMap's path. Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length 1–1024 |
+| `spec.forProvider.source.configMapRef.configMaps[].name` | string | **Required.** Name of the ConfigMap. | length 1–253 |
+| `spec.forProvider.source.configMapRef.configMaps[].path` | string | Path is the directory, relative to the artifact root, that this ConfigMap's files are placed in (default: the root). Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length ≤ 1024 |
+| `spec.forProvider.source.ociRef` | object | OCIRef takes the files from the layers of an OCI image (e.g. one built FROM scratch with the site's files). Pin it by digest: a tag is resolved again on every sync, and the digest it resolved to is reported in status. |  |
+| `spec.forProvider.source.ociRef.image` | string | **Required.** Image is the reference: registry/repository[:tag][@sha256:&lt;digest&gt;]. Pinning by digest is recommended: the content then cannot change under the object, and a cached pull needs one manifest request per sync. The registry is always contacted over HTTPS. | length 1–1024 |
+| `spec.forProvider.source.ociRef.path` | string | Path is the directory of the image's filesystem that becomes the artifact root (default: the image root). Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length ≤ 1024 |
+| `spec.forProvider.source.ociRef.pullSecretRef` | object | PullSecretRef names a kubernetes.io/dockerconfigjson Secret in the object's namespace with the registry credentials. It must carry the label cloudflare.flare.dev/artifact=true. Without it the image is pulled anonymously. |  |
+| `spec.forProvider.source.ociRef.pullSecretRef.name` | string | **Required.** Name of the Secret. | length 1–253 |
+| `spec.forProvider.source.url` | object | URL downloads a tar, tar.gz or zip archive over HTTPS and checks its SHA-256. |  |
+| `spec.forProvider.source.url.path` | string | Path is the directory inside the archive that becomes the artifact root (default: the archive root). Slash-separated; no "." or ".." segments, no leading "/". | pattern ` ^([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+)(/([^/\\.][^/\\]*\\|\.[^/\\.][^/\\]*\\|\.\.[^/\\]+))*$ `; length ≤ 1024 |
+| `spec.forProvider.source.url.sha256` | string | **Required.** SHA256 of the archive, lowercase hex. The download is rejected unless it matches. | pattern ` ^[a-f0-9]{64}$ ` |
+| `spec.forProvider.source.url.url` | string | **Required.** URL of the archive (https only). | pattern ` ^https://[^\s]+$ `; length 9–2048 |
+| `spec.managementPolicies` | []string | ManagementPolicies default to ["*"]. ["Observe"] makes the object read-only. | each item: one of `Observe`, `Create`, `Update`, `Delete`, `LateInitialize`, `*` |
+| `spec.zoneRef` | object | ZoneRef is required for zone-scoped kinds and ignored otherwise. |  |
+| `spec.zoneRef.id` | string |  |  |
+| `spec.zoneRef.name` | string |  |  |
+| `status` | object | PagesDeploymentStatus defines the observed state of a PagesDeployment. |  |
+| `status.artifact` | object | Artifact is the content last deployed. |  |
+| `status.artifact.bytes` | integer | Bytes is the total size of the files. |  |
+| `status.artifact.digest` | string | Digest of the file tree ("sha256:&lt;hex&gt;" over the sorted paths and contents); the same files give the same digest whatever the source. |  |
+| `status.artifact.files` | integer | Files is the number of files in the tree. |  |
+| `status.artifact.resolvedDigest` | string | ResolvedDigest is the manifest digest an ociRef resolved to (the digest of its tag at the last sync, or the pinned digest). |  |
+| `status.atProvider` | object | AtProvider is the deployment as last read from Cloudflare. |  |
+| `status.atProvider.aliases` | []string | Aliases are the alias URLs pointing to this deployment (a preview branch alias). |  |
+| `status.atProvider.branch` | string | Branch of the deployment (deployment_trigger.metadata.branch). |  |
+| `status.atProvider.commit_hash` | string | CommitHash of the deployment (deployment_trigger.metadata.commit_hash). |  |
+| `status.atProvider.created_on` | string |  |  |
+| `status.atProvider.environment` | string | Environment is production or preview. |  |
+| `status.atProvider.id` | string | ID of the deployment. |  |
+| `status.atProvider.latest_stage` | object | LatestStage is the deployment's current stage. |  |
+| `status.atProvider.latest_stage.ended_on` | string |  |  |
+| `status.atProvider.latest_stage.name` | string | Name of the stage: queued, initialize, clone_repo, build or deploy. |  |
+| `status.atProvider.latest_stage.started_on` | string |  |  |
+| `status.atProvider.latest_stage.status` | string | Status of the stage: success, idle, active, failure, canceled or skipped. |  |
+| `status.atProvider.modified_on` | string |  |  |
+| `status.atProvider.production` | boolean | Production reports that this is the project's live production deployment (its canonical_deployment). Cloudflare refuses to delete it. |  |
+| `status.atProvider.project_name` | string | ProjectName is the Cloudflare project the deployment belongs to. |  |
+| `status.atProvider.short_id` | string | ShortID is the 8-character short ID (the &lt;short_id&gt;.&lt;project&gt;.pages.dev host). |  |
+| `status.atProvider.url` | string | URL is the deployment's own URL. |  |
+| `status.conditions` | []object |  | list type map (key type) |
+| `status.deployedHash` | string | DeployedHash is a hash of the artifact digest and branch last deployed: a deployment is made when it changes. |  |
+| `status.id` | string | ID is the Cloudflare ID of the external resource. |  |
+| `status.observedGeneration` | integer |  |  |
+| `status.writeOnlyHash` | string | WriteOnlyHash is a hash of write-only forProvider fields last applied. |  |
+
+## PagesProject
+
+`pages.cloudflare.flare.dev/v1alpha1`, kind `PagesProject`, resource `pagesprojects`.
+
+PagesProject is a Cloudflare Pages project (x-fern-sdk-group-name "pages"). Created with POST /accounts/{account_id}/pages/projects; its name is the external ID. Default deletion policy: Delete (a project is configuration and deployed code; the site's content lives in its source). Deleting it waits for this namespace's PagesDeployments of it.
+
+### Validation rules
+
+CEL rules (`x-kubernetes-validations`) the API server enforces on create and update (rules that use `oldSelf` apply to updates only):
+
+| Field | Message | Rule |
+|---|---|---|
+| `spec.accountRef.name` | spec.accountRef is immutable once the resource exists (status.id is set): the resource lives in that account. To move it, delete this object (deletionPolicy Orphan keeps the resource) and create a new one | ` !(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id) > 0) \|\| self.spec.accountRef.name == oldSelf.spec.accountRef.name ` |
+| `spec.accountRef.name` | accountRef.name must name a CloudflareAccount in this namespace (1-253 characters) | ` size(self.accountRef.name) > 0 && size(self.accountRef.name) <= 253 ` |
+| `spec` | forProvider is required unless managementPolicies exclude Create and Update (e.g. ["Observe"]) | ` has(self.forProvider) \|\| (has(self.managementPolicies) && size(self.managementPolicies) > 0 && !('*' in self.managementPolicies) && !('Create' in self.managementPolicies) && !('Update' in self.managementPolicies)) ` |
+| `spec.forProvider` | name cannot be added or removed | ` has(self.name) == has(oldSelf.name) ` |
+| `spec.forProvider.deployment_configs.preview.d1_databases[]` | set exactly one of id or d1DatabaseRef | ` has(self.id) != has(self.d1DatabaseRef) ` |
+| `spec.forProvider.deployment_configs.preview.env_vars[]` | a plain_text variable needs value, a secret_text variable needs secretKeyRef (and not value) | ` self.type == 'plain_text' ? (has(self.value) && !has(self.secretKeyRef)) : (has(self.secretKeyRef) && !has(self.value)) ` |
+| `spec.forProvider.deployment_configs.preview.kv_namespaces[]` | set exactly one of namespace_id or kvNamespaceRef | ` has(self.namespace_id) != has(self.kvNamespaceRef) ` |
+| `spec.forProvider.deployment_configs.preview.queue_producers[]` | set exactly one of queue_name or queueRef | ` has(self.queue_name) != has(self.queueRef) ` |
+| `spec.forProvider.deployment_configs.preview.services[]` | set exactly one of service or serviceRef | ` has(self.service) != has(self.serviceRef) ` |
+| `spec.forProvider.deployment_configs.production.d1_databases[]` | set exactly one of id or d1DatabaseRef | ` has(self.id) != has(self.d1DatabaseRef) ` |
+| `spec.forProvider.deployment_configs.production.env_vars[]` | a plain_text variable needs value, a secret_text variable needs secretKeyRef (and not value) | ` self.type == 'plain_text' ? (has(self.value) && !has(self.secretKeyRef)) : (has(self.secretKeyRef) && !has(self.value)) ` |
+| `spec.forProvider.deployment_configs.production.kv_namespaces[]` | set exactly one of namespace_id or kvNamespaceRef | ` has(self.namespace_id) != has(self.kvNamespaceRef) ` |
+| `spec.forProvider.deployment_configs.production.queue_producers[]` | set exactly one of queue_name or queueRef | ` has(self.queue_name) != has(self.queueRef) ` |
+| `spec.forProvider.deployment_configs.production.services[]` | set exactly one of service or serviceRef | ` has(self.service) != has(self.serviceRef) ` |
+| `spec.forProvider.name` | name is immutable | ` self == oldSelf ` |
+
+### Fields
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `spec` | object | **Required.** PagesProjectSpec defines the desired state of a PagesProject. | CEL rules: see above |
+| `spec.accountRef` | object | **Required.** AccountRef names the CloudflareAccount (same namespace) to use. |  |
+| `spec.accountRef.name` | string | **Required.** |  |
+| `spec.deletionPolicy` | string | DeletionPolicy defaults per kind (Orphan for data-bearing kinds). | one of `Delete`, `Orphan` |
+| `spec.forProvider` | object | ForProvider is the project (optional for an observe-only object). | CEL rules: see above |
+| `spec.forProvider.build_config` | object | BuildConfig of Git-connected builds. |  |
+| `spec.forProvider.build_config.build_caching` | boolean | BuildCaching enables the build cache. |  |
+| `spec.forProvider.build_config.build_command` | string | BuildCommand builds the project (e.g. npm run build). |  |
+| `spec.forProvider.build_config.destination_dir` | string | DestinationDir is the build's output directory. |  |
+| `spec.forProvider.build_config.root_dir` | string | RootDir is the directory the build runs in. |  |
+| `spec.forProvider.build_config.web_analytics_tag` | string | WebAnalyticsTag is the Web Analytics site tag. |  |
+| `spec.forProvider.deployment_configs` | object | DeploymentConfigs of production and preview deployments: environment variables, bindings, compatibility settings. |  |
+| `spec.forProvider.deployment_configs.preview` | object | Preview is the config of preview deployments (every other branch). |  |
+| `spec.forProvider.deployment_configs.preview.always_use_latest_compatibility_date` | boolean | AlwaysUseLatestCompatibilityDate for Pages Functions. |  |
+| `spec.forProvider.deployment_configs.preview.build_image_major_version` | integer | BuildImageMajorVersion of the Pages build image. | value ≥ 1 ≤ 99 |
+| `spec.forProvider.deployment_configs.preview.compatibility_date` | string | CompatibilityDate of Pages Functions (e.g. 2026-09-01). | length ≤ 32 |
+| `spec.forProvider.deployment_configs.preview.compatibility_flags` | []string | CompatibilityFlags of Pages Functions (e.g. nodejs_compat); empty removes them. | items ≤ 64; list type set |
+| `spec.forProvider.deployment_configs.preview.d1_databases` | []object | D1Databases bound to Pages Functions. | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.preview.d1_databases[].d1DatabaseRef` | object | D1DatabaseRef names a D1Database in this namespace whose status.id is bound. |  |
+| `spec.forProvider.deployment_configs.preview.d1_databases[].d1DatabaseRef.name` | string | **Required.** |  |
+| `spec.forProvider.deployment_configs.preview.d1_databases[].id` | string | ID (UUID) of the D1 database. |  |
+| `spec.forProvider.deployment_configs.preview.d1_databases[].name` | string | **Required.** Name of the binding. | length 1–255 |
+| `spec.forProvider.deployment_configs.preview.env_vars` | []object | EnvVars are the environment variables. | items ≤ 128; list type map (key name) |
+| `spec.forProvider.deployment_configs.preview.env_vars[].name` | string | **Required.** Name of the variable (env.&lt;name&gt;). | length 1–255 |
+| `spec.forProvider.deployment_configs.preview.env_vars[].secretKeyRef` | object | SecretKeyRef is the value of a secret_text variable. |  |
+| `spec.forProvider.deployment_configs.preview.env_vars[].secretKeyRef.key` | string | **Required.** Key in the Secret's data. | length 1–253 |
+| `spec.forProvider.deployment_configs.preview.env_vars[].secretKeyRef.name` | string | **Required.** Name of the Secret. It must carry the label cloudflare.flare.dev/worker-binding=true and not be a service account token. | length 1–253 |
+| `spec.forProvider.deployment_configs.preview.env_vars[].type` | string | Type is plain_text (default) or secret_text. A secret_text value is write-only in Cloudflare: a change of the Secret's value is detected through status.writeOnlyHash. | one of `plain_text`, `secret_text`; default `"plain_text"` |
+| `spec.forProvider.deployment_configs.preview.env_vars[].value` | string | Value of a plain_text variable. | length ≤ 5120 |
+| `spec.forProvider.deployment_configs.preview.fail_open` | boolean | FailOpen serves the site when the deployment config cannot be applied. |  |
+| `spec.forProvider.deployment_configs.preview.kv_namespaces` | []object | KVNamespaces bound to Pages Functions. | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.preview.kv_namespaces[].kvNamespaceRef` | object | KVNamespaceRef names a KVNamespace in this namespace whose status.id is bound. |  |
+| `spec.forProvider.deployment_configs.preview.kv_namespaces[].kvNamespaceRef.name` | string | **Required.** |  |
+| `spec.forProvider.deployment_configs.preview.kv_namespaces[].name` | string | **Required.** Name of the binding (env.&lt;name&gt;). | length 1–255 |
+| `spec.forProvider.deployment_configs.preview.kv_namespaces[].namespace_id` | string | NamespaceID of the KV namespace. |  |
+| `spec.forProvider.deployment_configs.preview.placement` | object | Placement of Pages Functions. |  |
+| `spec.forProvider.deployment_configs.preview.placement.mode` | string | **Required.** Mode of placement (e.g. smart). | length ≥ 1 |
+| `spec.forProvider.deployment_configs.preview.queue_producers` | []object | QueueProducers bound to Pages Functions. | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.preview.queue_producers[].name` | string | **Required.** Name of the binding. | length 1–255 |
+| `spec.forProvider.deployment_configs.preview.queue_producers[].queueRef` | object | QueueRef names a Queue in this namespace whose queue name (status.atProvider.queue_name) is bound. |  |
+| `spec.forProvider.deployment_configs.preview.queue_producers[].queueRef.name` | string | **Required.** |  |
+| `spec.forProvider.deployment_configs.preview.queue_producers[].queue_name` | string | QueueName of the queue (the API's queue_producers.&lt;binding&gt;.name). |  |
+| `spec.forProvider.deployment_configs.preview.r2_buckets` | []object | R2Buckets bound to Pages Functions (by bucket name). | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.preview.r2_buckets[].bucket_name` | string | **Required.** BucketName is the R2 bucket (the API's r2_buckets.&lt;binding&gt;.name). | length 3–63 |
+| `spec.forProvider.deployment_configs.preview.r2_buckets[].jurisdiction` | string | Jurisdiction of the bucket (e.g. eu), when it has one. | length ≤ 32 |
+| `spec.forProvider.deployment_configs.preview.r2_buckets[].name` | string | **Required.** Name of the binding. | length 1–255 |
+| `spec.forProvider.deployment_configs.preview.services` | []object | Services (Workers) bound to Pages Functions. | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.preview.services[].entrypoint` | string | Entrypoint of the bound Worker to invoke. |  |
+| `spec.forProvider.deployment_configs.preview.services[].environment` | string | Environment of the bound Worker. |  |
+| `spec.forProvider.deployment_configs.preview.services[].name` | string | **Required.** Name of the binding. | length 1–255 |
+| `spec.forProvider.deployment_configs.preview.services[].service` | string | Service is the Worker script name. |  |
+| `spec.forProvider.deployment_configs.preview.services[].serviceRef` | object | ServiceRef names a WorkerScript in this namespace whose script name is bound. |  |
+| `spec.forProvider.deployment_configs.preview.services[].serviceRef.name` | string | **Required.** |  |
+| `spec.forProvider.deployment_configs.production` | object | Production is the config of production deployments (the production branch). |  |
+| `spec.forProvider.deployment_configs.production.always_use_latest_compatibility_date` | boolean | AlwaysUseLatestCompatibilityDate for Pages Functions. |  |
+| `spec.forProvider.deployment_configs.production.build_image_major_version` | integer | BuildImageMajorVersion of the Pages build image. | value ≥ 1 ≤ 99 |
+| `spec.forProvider.deployment_configs.production.compatibility_date` | string | CompatibilityDate of Pages Functions (e.g. 2026-09-01). | length ≤ 32 |
+| `spec.forProvider.deployment_configs.production.compatibility_flags` | []string | CompatibilityFlags of Pages Functions (e.g. nodejs_compat); empty removes them. | items ≤ 64; list type set |
+| `spec.forProvider.deployment_configs.production.d1_databases` | []object | D1Databases bound to Pages Functions. | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.production.d1_databases[].d1DatabaseRef` | object | D1DatabaseRef names a D1Database in this namespace whose status.id is bound. |  |
+| `spec.forProvider.deployment_configs.production.d1_databases[].d1DatabaseRef.name` | string | **Required.** |  |
+| `spec.forProvider.deployment_configs.production.d1_databases[].id` | string | ID (UUID) of the D1 database. |  |
+| `spec.forProvider.deployment_configs.production.d1_databases[].name` | string | **Required.** Name of the binding. | length 1–255 |
+| `spec.forProvider.deployment_configs.production.env_vars` | []object | EnvVars are the environment variables. | items ≤ 128; list type map (key name) |
+| `spec.forProvider.deployment_configs.production.env_vars[].name` | string | **Required.** Name of the variable (env.&lt;name&gt;). | length 1–255 |
+| `spec.forProvider.deployment_configs.production.env_vars[].secretKeyRef` | object | SecretKeyRef is the value of a secret_text variable. |  |
+| `spec.forProvider.deployment_configs.production.env_vars[].secretKeyRef.key` | string | **Required.** Key in the Secret's data. | length 1–253 |
+| `spec.forProvider.deployment_configs.production.env_vars[].secretKeyRef.name` | string | **Required.** Name of the Secret. It must carry the label cloudflare.flare.dev/worker-binding=true and not be a service account token. | length 1–253 |
+| `spec.forProvider.deployment_configs.production.env_vars[].type` | string | Type is plain_text (default) or secret_text. A secret_text value is write-only in Cloudflare: a change of the Secret's value is detected through status.writeOnlyHash. | one of `plain_text`, `secret_text`; default `"plain_text"` |
+| `spec.forProvider.deployment_configs.production.env_vars[].value` | string | Value of a plain_text variable. | length ≤ 5120 |
+| `spec.forProvider.deployment_configs.production.fail_open` | boolean | FailOpen serves the site when the deployment config cannot be applied. |  |
+| `spec.forProvider.deployment_configs.production.kv_namespaces` | []object | KVNamespaces bound to Pages Functions. | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.production.kv_namespaces[].kvNamespaceRef` | object | KVNamespaceRef names a KVNamespace in this namespace whose status.id is bound. |  |
+| `spec.forProvider.deployment_configs.production.kv_namespaces[].kvNamespaceRef.name` | string | **Required.** |  |
+| `spec.forProvider.deployment_configs.production.kv_namespaces[].name` | string | **Required.** Name of the binding (env.&lt;name&gt;). | length 1–255 |
+| `spec.forProvider.deployment_configs.production.kv_namespaces[].namespace_id` | string | NamespaceID of the KV namespace. |  |
+| `spec.forProvider.deployment_configs.production.placement` | object | Placement of Pages Functions. |  |
+| `spec.forProvider.deployment_configs.production.placement.mode` | string | **Required.** Mode of placement (e.g. smart). | length ≥ 1 |
+| `spec.forProvider.deployment_configs.production.queue_producers` | []object | QueueProducers bound to Pages Functions. | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.production.queue_producers[].name` | string | **Required.** Name of the binding. | length 1–255 |
+| `spec.forProvider.deployment_configs.production.queue_producers[].queueRef` | object | QueueRef names a Queue in this namespace whose queue name (status.atProvider.queue_name) is bound. |  |
+| `spec.forProvider.deployment_configs.production.queue_producers[].queueRef.name` | string | **Required.** |  |
+| `spec.forProvider.deployment_configs.production.queue_producers[].queue_name` | string | QueueName of the queue (the API's queue_producers.&lt;binding&gt;.name). |  |
+| `spec.forProvider.deployment_configs.production.r2_buckets` | []object | R2Buckets bound to Pages Functions (by bucket name). | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.production.r2_buckets[].bucket_name` | string | **Required.** BucketName is the R2 bucket (the API's r2_buckets.&lt;binding&gt;.name). | length 3–63 |
+| `spec.forProvider.deployment_configs.production.r2_buckets[].jurisdiction` | string | Jurisdiction of the bucket (e.g. eu), when it has one. | length ≤ 32 |
+| `spec.forProvider.deployment_configs.production.r2_buckets[].name` | string | **Required.** Name of the binding. | length 1–255 |
+| `spec.forProvider.deployment_configs.production.services` | []object | Services (Workers) bound to Pages Functions. | items ≤ 64; list type map (key name) |
+| `spec.forProvider.deployment_configs.production.services[].entrypoint` | string | Entrypoint of the bound Worker to invoke. |  |
+| `spec.forProvider.deployment_configs.production.services[].environment` | string | Environment of the bound Worker. |  |
+| `spec.forProvider.deployment_configs.production.services[].name` | string | **Required.** Name of the binding. | length 1–255 |
+| `spec.forProvider.deployment_configs.production.services[].service` | string | Service is the Worker script name. |  |
+| `spec.forProvider.deployment_configs.production.services[].serviceRef` | object | ServiceRef names a WorkerScript in this namespace whose script name is bound. |  |
+| `spec.forProvider.deployment_configs.production.services[].serviceRef.name` | string | **Required.** |  |
+| `spec.forProvider.name` | string | Name of the project, its Cloudflare ID and the &lt;name&gt;.pages.dev subdomain. Defaults to metadata.name. Immutable. | pattern ` ^[a-z0-9][a-z0-9-]*$ `; length 1–58; CEL rules: see above |
+| `spec.forProvider.production_branch` | string | **Required.** ProductionBranch identifies production deployments: a deployment to this branch (or to no branch) is a production deployment, every other branch a preview. | length 1–255 |
+| `spec.forProvider.source` | object | Source connects the project to a GitHub or GitLab repository (pass-through: the repository must already be authorized for Cloudflare Pages). Without it the project is a Direct Upload project that PagesDeployments deploy to. |  |
+| `spec.forProvider.source.config` | object | **Required.** Config of the repository. |  |
+| `spec.forProvider.source.config.owner` | string | Owner of the repository. |  |
+| `spec.forProvider.source.config.owner_id` | string | OwnerID of the repository owner. |  |
+| `spec.forProvider.source.config.path_excludes` | []string | PathExcludes never trigger preview deployments. |  |
+| `spec.forProvider.source.config.path_includes` | []string | PathIncludes trigger preview deployments. |  |
+| `spec.forProvider.source.config.pr_comments_enabled` | boolean | PRCommentsEnabled posts deployment comments on pull requests. |  |
+| `spec.forProvider.source.config.preview_branch_excludes` | []string | PreviewBranchExcludes never trigger preview deployments. |  |
+| `spec.forProvider.source.config.preview_branch_includes` | []string | PreviewBranchIncludes trigger preview deployments (wildcards allowed). |  |
+| `spec.forProvider.source.config.preview_deployment_setting` | string | PreviewDeploymentSetting: all, none or custom (with the branch includes/excludes). | one of `all`, `none`, `custom` |
+| `spec.forProvider.source.config.production_branch` | string | ProductionBranch of the repository. |  |
+| `spec.forProvider.source.config.production_deployments_enabled` | boolean | ProductionDeploymentsEnabled deploys commits to the production branch. |  |
+| `spec.forProvider.source.config.repo_id` | string | RepoID of the repository. |  |
+| `spec.forProvider.source.config.repo_name` | string | RepoName of the repository. |  |
+| `spec.forProvider.source.type` | string | **Required.** Type of the Git provider. | one of `github`, `gitlab` |
+| `spec.managementPolicies` | []string | ManagementPolicies default to ["*"]. ["Observe"] makes the object read-only. | each item: one of `Observe`, `Create`, `Update`, `Delete`, `LateInitialize`, `*` |
+| `spec.zoneRef` | object | ZoneRef is required for zone-scoped kinds and ignored otherwise. |  |
+| `spec.zoneRef.id` | string |  |  |
+| `spec.zoneRef.name` | string |  |  |
+| `status` | object | PagesProjectStatus defines the observed state of a PagesProject. |  |
+| `status.atProvider` | object | AtProvider is the project as last read from Cloudflare. |  |
+| `status.atProvider.canonical_deployment_id` | string | CanonicalDeploymentID is the live production deployment. |  |
+| `status.atProvider.created_on` | string |  |  |
+| `status.atProvider.domains` | []string | Domains are the project's custom domains. |  |
+| `status.atProvider.id` | string | ID is the project's UUID (the external ID is its name). |  |
+| `status.atProvider.latest_deployment_id` | string | LatestDeploymentID is the newest deployment (any environment). |  |
+| `status.atProvider.name` | string | Name of the project. |  |
+| `status.atProvider.preview_env_vars` | []string |  |  |
+| `status.atProvider.production_branch` | string |  |  |
+| `status.atProvider.production_env_vars` | []string | ProductionEnvVars and PreviewEnvVars are the names of the environment variables (values are not copied). |  |
+| `status.atProvider.source_type` | string | SourceType is github or gitlab for a Git-connected project, empty for Direct Upload. |  |
+| `status.atProvider.subdomain` | string | Subdomain is &lt;name&gt;.pages.dev (or a variant Cloudflare chose). |  |
+| `status.atProvider.url` | string | URL is https://&lt;subdomain&gt;. |  |
+| `status.conditions` | []object |  | list type map (key type) |
+| `status.id` | string | ID is the Cloudflare ID of the external resource. |  |
+| `status.observedGeneration` | integer |  |  |
+| `status.settingsHash` | string | SettingsHash is a hash of the settings last applied (with the IDs references resolved to; secret values are tracked in writeOnlyHash). |  |
 | `status.writeOnlyHash` | string | WriteOnlyHash is a hash of write-only forProvider fields last applied. |  |
 
 ## Queue

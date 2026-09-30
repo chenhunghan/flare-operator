@@ -176,6 +176,33 @@ rules:
   - update
   - watch
 - apiGroups:
+  - pages.cloudflare.flare.dev
+  resources:
+  - pagesdeployments
+  - pagesprojects
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - pages.cloudflare.flare.dev
+  resources:
+  - pagesdeployments/finalizers
+  - pagesprojects/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - pages.cloudflare.flare.dev
+  resources:
+  - pagesdeployments/status
+  - pagesprojects/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - queues.cloudflare.flare.dev
   resources:
   - queues

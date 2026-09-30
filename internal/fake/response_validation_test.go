@@ -112,8 +112,33 @@ func TestResponseAllowlistReproducedByRecordings(t *testing.T) {
 					method = http.MethodGet
 				}
 				path := strings.NewReplacer("{account_id}", "a", "{tunnel_id}", "t", "{script_name}", "s",
-					"{database_id}", "8b1f2e4c-3a5d-4e6f-9a7b-0c1d2e3f4a5b").Replace(op)
+					"{database_id}", "8b1f2e4c-3a5d-4e6f-9a7b-0c1d2e3f4a5b", "{project_name}", "p",
+					"{deployment_id}", "8b1f2e4c-3a5d-4e6f-9a7b-0c1d2e3f4a5b").Replace(op)
 				req, _ := http.NewRequest(method, "http://x/client/v4"+path, nil)
+				if a.probes != nil {
+					// A nested field: every candidate in its place fails, and only there.
+					probe, ok := a.probes[op]
+					if !ok {
+						t.Errorf("%s: no probe for %s", a.id, op)
+						continue
+					}
+					for _, cand := range []string{`null`, `{}`, `[]`, `""`} {
+						body := []byte(strings.ReplaceAll(probe, "%s", cand))
+						got, errs := spec.ValidateResponse(req, a.status, http.Header{"Content-Type": {"application/json"}}, body)
+						if got != op {
+							t.Errorf("%s: %s %s resolves to operation %q", a.id, method, path, got)
+						}
+						if len(errs) == 0 {
+							t.Errorf("%s: %s validates on %s %s, so the field is satisfiable", a.id, cand, method, op)
+						}
+						for _, e := range errs {
+							if cand == `null` && !a.errRe.MatchString(e) {
+								t.Errorf("%s: the probe of %s fails elsewhere too: %s", a.id, op, e)
+							}
+						}
+					}
+					continue
+				}
 				// A success status gets success envelopes; a 4XX entry gets failure envelopes
 				// (with an ordinary error code) at status 400.
 				status, envelope := a.status, `{"success":true,"errors":[],"messages":[],"result":%s}`

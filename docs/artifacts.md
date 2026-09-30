@@ -7,8 +7,8 @@ bytes and a content type chosen by file extension. The tree also has a content d
 kinds report as `status.…artifact.digest`.
 
 > Status: `WorkerScript` uses it for `forProvider.moduleSource` (Worker modules) and
-> `forProvider.assets.source` (static assets; `status.artifacts` reports what was loaded). The
-> other full-stack kinds (R2, Pages) will add it.
+> `forProvider.assets.source` (static assets; `status.artifacts` reports what was loaded), and
+> `PagesDeployment` for `forProvider.source`. The other full-stack kinds (R2 objects) will add it.
 
 ## Sources
 

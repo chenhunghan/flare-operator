@@ -53,3 +53,33 @@ func TestLiftAccessRequired(t *testing.T) {
 		t.Error("an origin returning the writeOnly password validates")
 	}
 }
+
+// The Pages asset operations require the undeclared security scheme pages_upload_token;
+// declared by LoadSpec, their requests validate, and a bad body still fails.
+func TestDeclareSecuritySchemes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("loads the pinned spec")
+	}
+	spec, err := LoadDefaultSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := spec.Doc.Components.SecuritySchemes["pages_upload_token"]; s == nil || s.Value.Type != "http" {
+		t.Fatalf("pages_upload_token not declared: %+v", s)
+	}
+	if again := declareSecuritySchemes(spec.Doc); len(again) != 0 {
+		t.Fatalf("declared twice: %v", again)
+	}
+	check := func(body string) error {
+		req, _ := http.NewRequest(http.MethodPost, "http://x/client/v4/pages/assets/check-missing", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer a.b.c")
+		return spec.ValidateRequest(req, []byte(body))
+	}
+	if err := check(`{"hashes":["a948904f2f0f479b8f936b8a0c5d9882"]}`); err != nil {
+		t.Fatalf("a valid check-missing request: %v", err)
+	}
+	if err := check(`{"hashes":"nope"}`); err == nil {
+		t.Fatal("an invalid check-missing body validated")
+	}
+}

@@ -165,6 +165,14 @@ func (a *Accounts) Options(acct *cloudflarev1alpha1.CloudflareAccount, token str
 	return o
 }
 
+// NewClient builds an uncached client for acct that authenticates with token instead of the
+// account's API token (a short-lived credential the API hands out, such as a Pages upload
+// JWT), with the account's other options (Options: base URL, User-Agent, HTTP client, rate
+// limit) and the ClientFactory. acct must already be resolved (its base URL allowed).
+func (a *Accounts) NewClient(acct *cloudflarev1alpha1.CloudflareAccount, token string) (cfclient.Client, error) {
+	return a.newClient(a.Options(acct, token))
+}
+
 func optionsKey(o cfclient.Options) string {
 	sum := sha256.Sum256([]byte(o.Token))
 	return fmt.Sprintf("%s|%s|%g|%d|%d|%s", hex.EncodeToString(sum[:8]), o.BaseURL, o.RPS, o.Burst, o.MaxRetries, o.ListTTL)
