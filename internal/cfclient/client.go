@@ -175,6 +175,7 @@ type ctxKey int
 const (
 	ctxNoCache ctxKey = iota
 	ctxMaxRetries
+	ctxBearer
 )
 
 // WithoutCache makes Do bypass (but still refresh) the list cache for calls made with ctx.
@@ -189,6 +190,19 @@ func WithMaxRetries(ctx context.Context, n int) context.Context {
 		n = 0
 	}
 	return context.WithValue(ctx, ctxMaxRetries, n)
+}
+
+// WithBearerToken makes calls made with ctx authenticate with token instead of the client's own
+// API token, for the few endpoints that take a credential the API itself issued: the Workers
+// assets upload (POST …/workers/assets/upload) takes the JWT of its upload session (the pinned
+// spec's assets_jwt security scheme). Everything else stays the client's: its rate limiter
+// and 429 back-off (the requests are still the account's), retries and metrics. An empty or
+// multi-line token is ignored.
+func WithBearerToken(ctx context.Context, token string) context.Context {
+	if token == "" || strings.ContainsAny(token, "\r\n") {
+		return ctx
+	}
+	return context.WithValue(ctx, ctxBearer, token)
 }
 
 // ---- Do ----------------------------------------------------------------------------------------
@@ -230,7 +244,7 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 	u := c.url(req.Path, req.Query)
 	cacheKey := req.Path + "?" + req.Query.Encode()
 	// Conditional or otherwise header-dependent GETs are not served from (or stored in) the cache.
-	useCache := c.cache != nil && method == http.MethodGet && ctx.Value(ctxNoCache) == nil && len(req.Header) == 0
+	useCache := c.cache != nil && method == http.MethodGet && ctx.Value(ctxNoCache) == nil && len(req.Header) == 0 && ctx.Value(ctxBearer) == nil
 	if useCache {
 		if r, ok := c.cache.get(cacheKey); ok {
 			MetricListCacheHits.Inc()
@@ -278,7 +292,7 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 			// A miss is counted here, once the answer is known to be a list: item GETs, which
 			// the cache never holds, are neither hits nor misses (nor are WithoutCache reads,
 			// which refresh the cache without consulting it).
-			if c.cache != nil && method == http.MethodGet && len(req.Header) == 0 && isEnvelope && isJSONArray(out.Result) {
+			if c.cache != nil && method == http.MethodGet && len(req.Header) == 0 && ctx.Value(ctxBearer) == nil && isEnvelope && isJSONArray(out.Result) {
 				if useCache {
 					MetricListCacheMisses.Inc()
 				}
@@ -427,7 +441,11 @@ func (c *client) send(ctx context.Context, method, u string, body []byte, conten
 			hreq.Header.Add(ck, v)
 		}
 	}
-	hreq.Header.Set("Authorization", "Bearer "+c.token)
+	token := c.token
+	if t, ok := ctx.Value(ctxBearer).(string); ok {
+		token = t
+	}
+	hreq.Header.Set("Authorization", "Bearer "+token)
 	hreq.Header.Set("User-Agent", c.ua)
 	if contentType != "" {
 		hreq.Header.Set("Content-Type", contentType)

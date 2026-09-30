@@ -63,6 +63,7 @@ type workerResources struct {
 	Handlers    []string
 	Etag        string
 	StartupMs   int
+	Assets      *workerAssets // nil without static assets (workers_assets.go)
 }
 
 type workerVersion struct {
@@ -132,6 +133,16 @@ type workerMetadata struct {
 	// Version uploads (POST …/versions) only; see workers_versions.go.
 	Annotations  map[string]string `json:"annotations"`
 	KeepBindings []string          `json:"keep_bindings"`
+	// Static assets (workers_assets.go, workers_versions.go parseAssets).
+	Assets     *workerMetadataAssets `json:"assets"`
+	KeepAssets *bool                 `json:"keep_assets"`
+}
+
+// workerMetadataAssets is metadata.assets: the completion token of an assets upload and how
+// the assets are served (the spec's workers_assets-2).
+type workerMetadataAssets struct {
+	JWT    *string        `json:"jwt"`
+	Config map[string]any `json:"config"`
 }
 
 const (
@@ -180,6 +191,7 @@ func (s *Server) registerWorkers() {
 	s.handle(http.MethodPost, base+"/{script_name}/subdomain", workerSubdomainPost)
 	s.handle(http.MethodDelete, base+"/{script_name}/subdomain", workerSubdomainDelete)
 	s.registerWorkerVersions()
+	s.registerWorkerAssets()
 }
 
 // SetWorkerStartupTime sets the startup_time_ms reported by subsequent script uploads. The real
@@ -273,7 +285,7 @@ func (w *workerScript) common() map[string]any {
 		"tags":               nullIfEmpty(w.Tags),          // null when never set (0036); UNVERIFIED when set
 		"tail_consumers":     nullIfEmpty(w.TailConsumers), // null when never set (0036); UNVERIFIED when set
 		"logpush":            w.Logpush,
-		"has_assets":         false,              // 0036 (assets upload not emulated)
+		"has_assets":         w.Assets != nil,    // false without assets (0036); true with them UNVERIFIED
 		"has_modules":        w.MainModule != "", // true for module syntax (0036); false for body_part UNVERIFIED
 		"etag":               w.Etag,
 		"handlers":           emptyIfNil(w.Handlers),
@@ -571,6 +583,13 @@ func workerDelete(c *reqCtx) response {
 		return workerNotFound()
 	}
 	delete(c.account.scripts, name)
+	// The script's uploaded assets and upload sessions go with it (UNVERIFIED).
+	delete(c.account.assets, name)
+	for id, sess := range c.account.assetSessions {
+		if sess.Script == name {
+			delete(c.account.assetSessions, id)
+		}
+	}
 	return ok(map[string]any{"id": w.Tag})
 }
 
@@ -608,6 +627,9 @@ func workerSettingsPatch(c *reqCtx) response {
 	if md.Bindings != nil {
 		// 400/10180 for an unknown VPC service is recorded for upload (0106); UNVERIFIED here.
 		if r := validateBindings(c.account, *md.Bindings); r != nil {
+			return *r
+		}
+		if r := validateAssetsBinding(*md.Bindings, w.Assets != nil); r != nil {
 			return *r
 		}
 		w.Bindings = *md.Bindings

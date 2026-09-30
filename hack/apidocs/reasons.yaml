@@ -58,7 +58,9 @@ conditions:
     kinds: managed kinds, CloudflareAccount
     meaning: >-
       A referenced object is not Ready yet (a WorkerScript binding's kvNamespaceRef, queueRef,
-      d1DatabaseRef, vpcServiceRef or serviceRef; a VPCService's tunnelRef), so nothing is sent
+      d1DatabaseRef, vpcServiceRef or serviceRef; a VPCService's tunnelRef; a ConfigMap or pull
+      Secret of a WorkerScript's moduleSource or assets.source that is missing or lacks the
+      label cloudflare.flare.dev/artifact=true), so nothing is sent
       until it is; or deletion waits for referrers (a Tunnel or VPCService still used, a
       CloudflareAccount still used by managed objects).
   - reason: ReconcileSuccess
@@ -126,7 +128,9 @@ conditions:
     meaning: >-
       forProvider cannot be uploaded (an invalid module name or type, wasm-base64 content that
       is not base64, a main_module that is not one of the modules, an unusable sourceRef
-      ConfigMap, ...).
+      ConfigMap, a moduleSource file of unknown type, an artifact the loader refuses (limits,
+      path safety, SHA-256 mismatch), a static asset over 25 MiB, a _worker.js asset without
+      .assetsignore, ...).
   - reason: SecretNotFound
     condition: Ready
     status: "False"

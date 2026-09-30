@@ -73,6 +73,10 @@ type Server struct {
 	respViolations  []ResponseViolation // response_validation.go
 	tokens          map[string]*Token   // tokens.go; nil = open mode
 	workerStartupMs int                 // startup_time_ms reported by script uploads (see SetWorkerStartupTime)
+
+	assetKey         []byte // signs the Workers assets upload JWTs (workers_assets_jwt.go)
+	assetBucketFiles int    // SetAssetBuckets; 0 = default
+	assetBucketBytes int64
 }
 
 // nextSeq returns a monotonically increasing creation number. Callers hold s.mu.
@@ -125,7 +129,8 @@ func New(opts Options) *Server {
 	if opts.WorkersSubdomain == "" {
 		opts.WorkersSubdomain = "example-subdomain"
 	}
-	s := &Server{opts: opts, Clock: &Clock{}, accounts: map[string]*account{}, workerStartupMs: workerDefaultStartupMs}
+	s := &Server{opts: opts, Clock: &Clock{}, accounts: map[string]*account{}, workerStartupMs: workerDefaultStartupMs,
+		assetKey: randBytes(32)}
 	s.limiter = newLimiter(opts.RateLimit, opts.RateWindow)
 	s.registerKV()
 	s.registerD1()
@@ -151,6 +156,7 @@ func (s *Server) Reset() {
 	s.seq = 0
 	s.tokens = nil
 	s.workerStartupMs = workerDefaultStartupMs
+	s.assetBucketFiles, s.assetBucketBytes = 0, 0
 	s.generic.reset()
 	s.ids.reset()
 	s.limiter.reset()
