@@ -18,7 +18,10 @@
 //     announced first (create-pending, key "<project>;k=<deployedHash>;c=<commit hash>"): every
 //     deployment carries a commit hash (forProvider.commit_hash, else one derived from the
 //     object's UID and the deployed hash), by which a deployment made before a crash is found
-//     again instead of deploying twice.
+//     again instead of deploying twice. Only the derived commit hash identifies a deployment: a
+//     user-set one is a git commit that other deployments carry too, so with it a lost
+//     deployment is not looked up (Warning event ExternalResourceKept; it may be left in
+//     Cloudflare, and the object deploys again).
 //   - Observe (managementPolicies without Create and Update): the deployment the external-id
 //     annotation pins, else the project's live production deployment (no branch, or the
 //     production branch) or the newest deployment of the branch. Nothing is written.
@@ -372,7 +375,11 @@ func commitHash(pd *pagesv1alpha1.PagesDeployment, hash string) string {
 	if c := pd.Spec.ForProvider.CommitHash; c != "" {
 		return c
 	}
-	s := sha256.Sum256([]byte("pages-commit-v1\x00" + string(pd.UID) + "\x00" + hash))
+	return derivedCommit(pd.UID, hash)
+}
+
+func derivedCommit(uid types.UID, hash string) string {
+	s := sha256.Sum256([]byte("pages-commit-v1\x00" + string(uid) + "\x00" + hash))
 	return hex.EncodeToString(s[:20])
 }
 
@@ -433,8 +440,14 @@ func (r *Reconciler) sync(ctx context.Context, pd *pagesv1alpha1.PagesDeployment
 	status := &sharedv1alpha1.ArtifactStatus{Digest: tree.Digest, ResolvedDigest: tree.ResolvedDigest, Files: int32(tree.Len()), Bytes: tree.Bytes}
 
 	prev := r.last(pd)
-	// A deployment announced before a crash and never recorded: find it by its commit hash.
-	if lost, ok := pendingDeploy(pd); ok && lost.project == project {
+	// A deployment announced before a crash and never recorded: find it by its commit hash,
+	// when that is the one derived from this object (a user-set one proves nothing).
+	if lost, ok := pendingDeploy(pd); ok && !lost.identifies(pd) {
+		reconcile.WarnExternalKept(r.Recorder, pd, "Create", lost.unidentifiable())
+		if err := reconcile.ClearCreatePending(ctx, r.Client, pd); err != nil {
+			return r.fail(pd, fmt.Errorf("clear the pending deployment: %w", err))
+		}
+	} else if ok && lost.project == project {
 		d, err := findByCommit(ctx, cf, accountID, project, lost.commit)
 		if err != nil {
 			return r.fail(pd, err)
@@ -543,7 +556,13 @@ func (r *Reconciler) deploy(ctx context.Context, pd *pagesv1alpha1.PagesDeployme
 	if acct.Account != nil {
 		baseURL = acct.Account.Spec.BaseURL
 	}
-	up := &uploader{cf: cf, accountID: accountID, project: project, baseURL: baseURL, cache: &r.jwts}
+	up := &uploader{cf: cf, accountID: accountID, project: project, baseURL: baseURL, cache: &r.jwts,
+		newClient: func(token string) (cfclient.Client, error) {
+			if acct.Account == nil {
+				return cfclient.New(cfclient.Options{Token: token, BaseURL: baseURL})
+			}
+			return r.Accounts.NewClient(acct.Account, token)
+		}}
 	maxFiles, err := up.maxFiles(ctx)
 	if err != nil {
 		res, err := r.fail(pd, err)
@@ -556,13 +575,15 @@ func (r *Reconciler) deploy(ctx context.Context, pd *pagesv1alpha1.PagesDeployme
 	}
 	commit := commitHash(pd, hash)
 	p.form.branch, p.form.commit, p.form.message = pd.Spec.ForProvider.Branch, commit, pd.Spec.ForProvider.CommitMessage
+	// The asset upload creates nothing this object owns (assets are content-addressed and
+	// shared by the project), so a failure there leaves no record behind.
+	if err := up.upload(ctx, p); err != nil {
+		res, err := r.fail(pd, err)
+		return nil, res, err
+	}
 	// Announce the deployment, so that one made before a crash is found by its commit hash.
 	if err := reconcile.MarkCreatePending(ctx, r.Client, pd, pendingKey(project, hash, commit)); err != nil {
 		res, err := r.fail(pd, fmt.Errorf("record the pending deployment: %w", err))
-		return nil, res, err
-	}
-	if err := up.upload(ctx, p); err != nil {
-		res, err := r.fail(pd, err)
 		return nil, res, err
 	}
 	log.FromContext(ctx).Info("deploying to Pages", "project", project, "why", why, "files", len(p.assets), "digest", tree.Digest)
@@ -672,7 +693,10 @@ func (r *Reconciler) finalize(ctx context.Context, pd *pagesv1alpha1.PagesDeploy
 	logger := log.FromContext(ctx)
 	deleteExternal := reconcile.ShouldDeleteExternal(pd, commonv1alpha1.DeletionDelete)
 	project := pd.Status.AtProvider.ProjectName
-	if lost, ok := pendingDeploy(pd); ok && deleteExternal {
+	if lost, ok := pendingDeploy(pd); ok && deleteExternal && !lost.identifies(pd) {
+		// Its commit hash was set by the user and may be any deployment's: nothing to look up.
+		reconcile.WarnExternalKept(r.Recorder, pd, "Delete", lost.unidentifiable())
+	} else if ok && deleteExternal {
 		if project == "" {
 			project = lost.project
 		}
@@ -783,6 +807,21 @@ func (r *Reconciler) keepLive(ctx context.Context, pd *pagesv1alpha1.PagesDeploy
 
 // pending is a create-pending record of a deployment.
 type pending struct{ project, hash, commit string }
+
+// identifies reports whether the record's commit hash identifies the deployment it announced:
+// only the one derived from pd's UID does. A user-set forProvider.commit_hash is a git commit,
+// which other deployments carry too (another PagesDeployment of the commit, a CI run of
+// `wrangler pages deploy --commit-hash`), so a deployment found by it is not proven pd's.
+func (p pending) identifies(pd *pagesv1alpha1.PagesDeployment) bool {
+	return p.commit == derivedCommit(pd.UID, p.hash)
+}
+
+// unidentifiable is the Warning of a record that does not identify its deployment.
+func (p pending) unidentifiable() string {
+	return fmt.Sprintf("a Pages deployment this object may have made in project %s before a restart or failed request carries "+
+		"the user-set commit hash %s, which does not identify it among the project's deployments; it is not looked up and "+
+		"may be left in Cloudflare (leave forProvider.commit_hash unset to have lost deployments found again)", p.project, p.commit)
+}
 
 func pendingKey(project, hash, commit string) string {
 	return fmt.Sprintf("%s;k=%s;c=%s", project, hash, commit)

@@ -29,7 +29,9 @@ type PagesDeploymentParameters struct {
 	Source *sharedv1alpha1.ArtifactSource `json:"source,omitempty"`
 	// CommitHash recorded on the deployment (deployment_trigger.metadata.commit_hash). When unset
 	// the operator records a 40-hex identifier derived from this object and the content, which
-	// lets it find a deployment it made but could not record before a restart.
+	// lets it find a deployment it made but could not record before a restart. A set commit hash
+	// (a git commit, which other deployments may carry too) does not identify a deployment: one
+	// lost that way is not looked up, and may be left in Cloudflare.
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
 	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F]+$`

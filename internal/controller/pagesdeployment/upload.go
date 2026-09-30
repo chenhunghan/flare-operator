@@ -37,7 +37,9 @@ import (
 //
 // The asset calls authenticate with "Authorization: Bearer <jwt>", not the account's token.
 // cfclient owns the Authorization header (frozen contract), so they go through a cfclient
-// built for the JWT (cached per project until shortly before the token expires).
+// built for the JWT with the account's other client options (reconcile.Accounts.NewClient:
+// HTTP client and timeout, User-Agent, rate limit), cached per project until shortly before
+// the token expires.
 
 // Limits of wrangler's upload (packages/wrangler/src/pages/constants.ts#L15-L21).
 const (
@@ -121,7 +123,7 @@ func planTree(t *artifact.Tree, maxFiles int) (*plan, error) {
 			return nil, fmt.Errorf("%s is %d bytes: Pages takes files up to 25 MiB", f.Path, len(f.Content))
 		}
 		h := HashFile(f.Path, f.Content)
-		p.assets = append(p.assets, assetFile{path: f.Path, hash: h, contentType: contentType(f.Path), content: f.Content})
+		p.assets = append(p.assets, assetFile{path: f.Path, hash: h, contentType: ContentType(f.Path), content: f.Content})
 		p.form.manifest["/"+f.Path] = h
 	}
 	if len(p.assets) > maxFiles {
@@ -130,12 +132,26 @@ func planTree(t *artifact.Tree, maxFiles int) (*plan, error) {
 	return p, nil
 }
 
-// contentType is the asset's MIME type without parameters: wrangler sends the bare type the
-// mime package gives (validate.ts#L136-L141); the operator takes it from internal/artifact's
-// fixed table.
-func contentType(p string) string {
-	ct, _, _ := strings.Cut(artifact.ContentType(p), ";")
-	return strings.TrimSpace(ct)
+// ContentType is the contentType metadata of the asset at p (a "/"-separated path relative to
+// the artifact's root): mime@3.0.0's getType(p), else application/octet-stream, as wrangler's
+// validate walk computes it (SOURCED, relies: validate.ts#L136-L141;
+// wrangler@4.143.0:wrangler-dist/cli.js#L298603, getType at #L298453-L298459; mime_table.go is
+// generated from the bundled mime by hack/pages-mime-gen.mjs). Like getType, the extension is
+// the lower-cased text after the last "." of the base name, and a base name without a dot
+// (after its first character) counts as an extension only when p has no directory: "html" is
+// text/html, "a/html" and "a/.html" are not. "\" separates directories as "/" does.
+func ContentType(p string) string {
+	hasPath, last := false, p
+	if i := strings.LastIndexAny(p, `/\`); i >= 0 {
+		hasPath, last = true, p[i+1:]
+	}
+	last = strings.ToLower(last)
+	if dot := strings.LastIndex(last, "."); dot > 0 || !hasPath {
+		if t, ok := mimeTypes[last[dot+1:]]; ok {
+			return t
+		}
+	}
+	return "application/octet-stream"
 }
 
 // jwtClients caches a cfclient per upload JWT.
@@ -159,6 +175,9 @@ type uploader struct {
 	accountID        string
 	project, baseURL string
 	cache            *jwtClients
+	// newClient builds the client of an upload JWT: the account's client options (HTTP
+	// client and timeout, User-Agent, rate limit) with the JWT as the token.
+	newClient func(token string) (cfclient.Client, error)
 }
 
 func (u *uploader) key() string { return u.baseURL + "|" + u.accountID + "|" + u.project }
@@ -192,7 +211,7 @@ func (u *uploader) jwt(ctx context.Context, refresh bool) (jwtClient, error) {
 	if claims.Exp > 0 {
 		c.exp = time.Unix(claims.Exp, 0)
 	}
-	if c.cf, err = cfclient.New(cfclient.Options{Token: tok.JWT, BaseURL: u.baseURL}); err != nil {
+	if c.cf, err = u.newClient(tok.JWT); err != nil {
 		return jwtClient{}, err
 	}
 	u.cache.mu.Lock()

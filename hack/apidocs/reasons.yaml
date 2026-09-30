@@ -222,7 +222,9 @@ events:
     meaning: >-
       An object with deletionPolicy Delete was deleted but its Cloudflare resource was kept
       (ownership not proven, or the CloudflareAccount is gone), or an orphaned resource keeps
-      its owner tag.
+      its owner tag. A PagesDeployment with a user-set forProvider.commit_hash also records it
+      when a deployment it may have made (an interrupted create) cannot be identified and may
+      be left in Cloudflare.
   - reason: ForeignOwnerTunnelKept
     type: Warning
     kinds: Tunnel

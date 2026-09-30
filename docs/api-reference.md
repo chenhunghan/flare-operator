@@ -85,7 +85,7 @@ Every kind reports two conditions. `Ready` says whether the Cloudflare resource 
 
 | Reason | Type | Kinds | Meaning |
 |---|---|---|---|
-| `ExternalResourceKept` | Warning | managed kinds | An object with deletionPolicy Delete was deleted but its Cloudflare resource was kept (ownership not proven, or the CloudflareAccount is gone), or an orphaned resource keeps its owner tag. |
+| `ExternalResourceKept` | Warning | managed kinds | An object with deletionPolicy Delete was deleted but its Cloudflare resource was kept (ownership not proven, or the CloudflareAccount is gone), or an orphaned resource keeps its owner tag. A PagesDeployment with a user-set forProvider.commit_hash also records it when a deployment it may have made (an interrupted create) cannot be identified and may be left in Cloudflare. |
 | `ForeignOwnerTunnelKept` | Warning | Tunnel | A Tunnel with deletionPolicy Delete was deleted but its Cloudflare tunnel was kept because another owner holds it. |
 
 ## CloudflareAccount
@@ -477,7 +477,7 @@ CEL rules (`x-kubernetes-validations`) the API server enforces on create and upd
 | `spec.deletionPolicy` | string | DeletionPolicy defaults per kind (Orphan for data-bearing kinds). | one of `Delete`, `Orphan` |
 | `spec.forProvider` | object | **Required.** ForProvider is the deployment. |  |
 | `spec.forProvider.branch` | string | Branch of the deployment. Empty, or the project's production branch, makes a production deployment; any other branch a preview deployment (served at its branch alias). A change deploys again. | length ≤ 255 |
-| `spec.forProvider.commit_hash` | string | CommitHash recorded on the deployment (deployment_trigger.metadata.commit_hash). When unset the operator records a 40-hex identifier derived from this object and the content, which lets it find a deployment it made but could not record before a restart. | pattern ` ^[0-9a-fA-F]+$ `; length ≤ 64 |
+| `spec.forProvider.commit_hash` | string | CommitHash recorded on the deployment (deployment_trigger.metadata.commit_hash). When unset the operator records a 40-hex identifier derived from this object and the content, which lets it find a deployment it made but could not record before a restart. A set commit hash (a git commit, which other deployments may carry too) does not identify a deployment: one lost that way is not looked up, and may be left in Cloudflare. | pattern ` ^[0-9a-fA-F]+$ `; length ≤ 64 |
 | `spec.forProvider.commit_message` | string | CommitMessage recorded on the deployment (at most 384 bytes, as wrangler truncates it). A change alone does not deploy again. | length ≤ 384 |
 | `spec.forProvider.projectRef` | object | **Required.** ProjectRef names the PagesProject (same namespace, same CloudflareAccount) to deploy to. Immutable. Nothing is deployed until the project is Ready. | CEL rules: see above |
 | `spec.forProvider.projectRef.name` | string | **Required.** |  |

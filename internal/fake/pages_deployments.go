@@ -101,7 +101,7 @@ func (p *pagesProject) latest() *pagesDeployment {
 
 // canonical is the live production deployment: the newest production deployment that deployed
 // successfully (UNVERIFIED: a failed newer one keeps the older one live).
-func (p *pagesProject) canonical(_ *Server, now time.Time) *pagesDeployment {
+func (p *pagesProject) canonical(now time.Time) *pagesDeployment {
 	for i := len(p.Deployments) - 1; i >= 0; i-- {
 		d := p.Deployments[i]
 		if d.Environment == "production" && d.succeeded(now) {
@@ -360,7 +360,7 @@ func pagesDeploymentDelete(c *reqCtx) response {
 	if d == nil {
 		return fail(http.StatusNotFound, codePagesDeploymentNotFound, "Deployment not found") // UNVERIFIED
 	}
-	if p.canonical(c.s, c.now) == d {
+	if p.canonical(c.now) == d {
 		return fail(http.StatusBadRequest, codePagesLiveDeployment,
 			"You cannot delete the active production deployment. Deploy or roll back to another deployment first.") // UNVERIFIED
 	}

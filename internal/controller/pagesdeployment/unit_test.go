@@ -77,3 +77,20 @@ func TestPendingKeyRoundTrip(t *testing.T) {
 		t.Fatal(k)
 	}
 }
+
+// ContentType follows mime@3.0.0's getType as wrangler's validate walk calls it.
+func TestContentTypeMatchesWranglerMime(t *testing.T) {
+	for p, want := range map[string]string{
+		"index.html": "text/html", "a/b/APP.JS": "application/javascript", "favicon.ico": "image/vnd.microsoft.icon",
+		"captions.vtt": "text/vtt", "page.xhtml": "application/xhtml+xml", "data.jsonld": "application/ld+json",
+		"cal.ics": "text/calendar", "c.yaml": "text/yaml", "x.tif": "image/tiff", "a.apng": "image/apng",
+		"module.wasm": "application/wasm", "a.tar.gz": "application/gzip",
+		"README": "application/octet-stream", "d/README": "application/octet-stream", "x.unknownext": "application/octet-stream",
+		"html": "text/html", "d/html": "application/octet-stream", ".html": "text/html", "d/.html": "application/octet-stream",
+		"x.": "application/octet-stream", `d\a.css`: "text/css",
+	} {
+		if got := ContentType(p); got != want {
+			t.Errorf("ContentType(%q) = %q, want %q", p, got, want)
+		}
+	}
+}

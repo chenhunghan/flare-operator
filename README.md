@@ -414,8 +414,11 @@ Without the annotation, what happens depends on the kind:
   annotation pins it, or the create-pending record shows it is the object's own lost create;
   otherwise `NameConflict`.
 - **`PagesDeployment`** never adopts: a deployment's ID is Cloudflare's. It manages only the
-  deployments it made (found again after a restart by the commit hash it records) and, when
-  observing, the one the annotation pins.
+  deployments it made (found again after a restart by the commit hash it derives from the
+  object, when `forProvider.commit_hash` is unset) and, when observing, the one the annotation
+  pins. A user-set `commit_hash` is a git commit that other deployments may carry too, so a
+  deployment lost to a restart with it is not looked up: a Warning event
+  `ExternalResourceKept` says it may be left in Cloudflare.
 
 A resource whose owner tag names a different object is never touched.
 
@@ -517,7 +520,9 @@ to it with Pages Direct Upload.
   ConfigMaps, an OCI image or an HTTPS archive). The operator runs wrangler's Direct Upload
   flow: an upload token, `check-missing`, the missing files in buckets, `upsert-hashes`, then
   the deployment with its manifest. Files are hashed exactly as wrangler hashes them, so files
-  Cloudflare already has are not uploaded again. Root files `_headers`, `_redirects` and
+  Cloudflare already has are not uploaded again, and each file's stored content type (which
+  Pages serves) is the one wrangler sends: the `mime` 3.0.0 type of its extension, else
+  `application/octet-stream`. Root files `_headers`, `_redirects` and
   `_routes.json` go as the deployment's routing files and `_worker.js` as its advanced-mode
   Worker (not bundled; a `_worker.js` directory or a Pages Functions `functions` directory is
   not supported). A new deployment is made only when the artifact's digest or the branch

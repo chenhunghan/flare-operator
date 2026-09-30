@@ -28,8 +28,8 @@ var knownWranglerPagesSpecViolations = []string{
 // TestWranglerPages drives the pinned wrangler's Pages commands against flarefake: project
 // create, a Direct Upload `pages deploy` of a directory (upload token, check-missing, upload,
 // upsert-hashes, deployment create, status polling), a second deploy that uploads nothing new,
-// deployment list and project delete. The hashes wrangler computes must equal the operator's
-// (pagesdeployment.HashFile).
+// deployment list and project delete. The hashes and asset content types wrangler computes must
+// equal the operator's (pagesdeployment.HashFile, pagesdeployment.ContentType).
 func TestWranglerPages(t *testing.T) {
 	bin := wranglerBin(t)
 	f := harness.Start(t, harness.Options{})
@@ -43,6 +43,13 @@ func TestWranglerPages(t *testing.T) {
 		"_headers":       "/*\n  X-Flare: diff\n",
 		"_redirects":     "/old / 301\n",
 		"node_modules/a": "ignored\n",
+		// Types beyond the common ones: the stored contentType must be wrangler's (mime 3).
+		"js/app.js":       "console.log(1)\n",
+		"favicon.ico":     "ico\n",
+		"subs/en.vtt":     "WEBVTT\n",
+		"feed.jsonld":     "{}\n",
+		"LICENSE":         "none\n",
+		"data/Report.PDF": "pdf\n",
 	}
 	for p, body := range files {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(site, p)), 0o755); err != nil {
@@ -102,7 +109,12 @@ func TestWranglerPages(t *testing.T) {
 		if !ok {
 			t.Fatal("no deployment in flarefake")
 		}
-		want := map[string]string{"/index.html": files["index.html"], "/css/app.css": files["css/app.css"], "/.well-known/x": files[".well-known/x"]}
+		want := map[string]string{}
+		for p, body := range files {
+			if !strings.HasPrefix(p, "_") && !strings.HasPrefix(p, "node_modules/") {
+				want["/"+p] = body
+			}
+		}
 		if len(manifest) != len(want) {
 			t.Errorf("manifest %v, want the paths of %v (wrangler ignores node_modules and the routing files)", manifest, want)
 		}
@@ -111,8 +123,12 @@ func TestWranglerPages(t *testing.T) {
 			if got, mine := manifest[p], pagesdeployment.HashFile(strings.TrimPrefix(p, "/"), []byte(body)); got != mine {
 				t.Errorf("%s: wrangler hashed %q, the operator hashes %q", p, got, mine)
 			}
-			if b, _, ok := f.Server.PagesAsset(harness.AccountID, pagesProject, manifest[p]); !ok || string(b) != body {
+			b, ct, ok := f.Server.PagesAsset(harness.AccountID, pagesProject, manifest[p])
+			if !ok || string(b) != body {
 				t.Errorf("%s: stored asset %q, want %q", p, b, body)
+			}
+			if mine := pagesdeployment.ContentType(strings.TrimPrefix(p, "/")); ct != mine {
+				t.Errorf("%s: wrangler sent contentType %q, the operator sends %q", p, ct, mine)
 			}
 		}
 		if string(parts["_headers"]) != files["_headers"] || string(parts["_redirects"]) != files["_redirects"] {

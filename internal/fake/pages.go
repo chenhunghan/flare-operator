@@ -367,7 +367,7 @@ func (p *pagesProject) json(s *Server, now time.Time) map[string]any {
 	if d := p.latest(); d != nil {
 		latest = d.json(s, p, now)
 	}
-	if d := p.canonical(s, now); d != nil {
+	if d := p.canonical(now); d != nil {
 		canonical = d.json(s, p, now)
 	}
 	usesFunctions := any(nil)
