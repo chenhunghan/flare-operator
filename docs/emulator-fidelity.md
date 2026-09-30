@@ -148,6 +148,17 @@ profile (`generic*.go`, 11 UNVERIFIED) is not in the table.
 | Tokens / account (`tokens.go`) | 3 | 0 | 2 | 2 | 4 |
 | Resource Tagging (`tags.go`) | 4 | 0 | 0 | 8 | 8 |
 | Cross-cutting (`server.go`, `spec.go`, `envelope.go`, `state.go`) | — | 14 | 4 | 3 | 9 |
+| Pages projects, Direct Upload assets, deployments (`pages.go`, `pages_assets.go`, `pages_deployments.go`) | 13 | 0 | 12 | 1 | 43 |
+
+**2026-09-30 (FS-pages).** Pages has no recording. Its flow and hashing come from wrangler
+4.143.0's `pages deploy` (SOURCED, relies), which `TestWranglerPages` runs against the profile;
+its response shapes follow the pinned spec, with two new unsatisfiable allowlist entries (18 in
+all), each proven by a probe body that is otherwise valid (`probes`): a project without
+deployments reports `latest_deployment`/`canonical_deployment` null, which
+`allOf(pages_deployment, {nullable})` never accepts, and a Direct Upload deployment reports
+`source` null, which `pages_source` (a GitHub/GitLab repository) never accepts. `LoadSpec` now
+also declares the security scheme `pages_upload_token` that the asset operations require but
+the spec never defines; without it kin-openapi refused every asset request and lost its body.
 
 **2026-09-30 (FX-emu).** UNVERIFIED occurrences in `internal/fake` non-test code went from 97 to
 149. On the files that existed before, they went from 97 to 98: two new D1 query details, one
@@ -258,6 +269,14 @@ reasons:
 - **Rate limiting.** Whether the Workers write policies are separate buckets, and the API's own
   429 body (flarefake sends code 1015; users report 971, which the spec forbids).
 - **Tokens/account.** The account-owned verify message and the `GET /accounts/{id}` values.
+- **Pages.** Everything a recording would show: every error code but 8000007 (project not
+  found) and 8000013 (upload token refused), including the two delete refusals (live production
+  deployment; aliased preview without `force`); the upload JWT's claims besides
+  `max_file_count_allowed` and `exp`, and its lifetime; the stage timing of a Direct Upload
+  (flarefake: queued, then deploy active, then success after `PagesDeployDelay`); the asset
+  store's scope (flarefake: per project); PATCH merge semantics of the deployment-config maps
+  (null removes a key); defaults of a new project's configs; branch alias normalization;
+  subdomain collisions; `aliases` of production deployments; newest-first deployment lists.
 - **Tunnel details.** The `credentials_file` shape (redacted in 0040; cloudflared only tolerates
   its keys) and the cleanup-connections result.
 - **KV.** Jurisdiction read-back and post-sunset legacy routes.

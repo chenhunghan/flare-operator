@@ -76,7 +76,7 @@ toolchain has no helm-docs generator; the test takes its place.
 | `controllers` | array | `[]` | `--controller`, once per entry: run only these controllers. Empty runs all of them. |
 | `baseURLOverride.allowAny` | boolean | `false` | `--allow-base-url-override`: honour any CloudflareAccount `spec.baseURL`. Test clusters only: an override sends the account's token to that URL. |
 | `baseURLOverride.allowed` | array | `[]` | `--allowed-base-url`, once per entry: honour exactly these `spec.baseURL` values. |
-| `reconcile.pollInterval` | string | `""` | `--poll-interval`, a Go duration, minimum `10s`. Empty keeps the controller defaults (5m for generated kinds, 10m for Tunnel, VPCService and WorkerScript). |
+| `reconcile.pollInterval` | string | `""` | `--poll-interval`, a Go duration, minimum `10s`. Empty keeps the controller defaults (5m for generated kinds, 10m for Tunnel, VPCService, WorkerScript, PagesProject and PagesDeployment). |
 | `reconcile.maxConcurrentReconciles` | integer | `1` | `--max-concurrent-reconciles`: parallel reconciles per controller. All workers of a token share its rate limit. |
 | `reconcile.timeout` | string | `"5m"` | `--reconcile-timeout`: context deadline of one reconcile. `"0"` (quoted, or `--set-string`) or `0s` disables it; empty keeps the manager default (5m). |
 | `reconcile.cloudflareRequestTimeout` | string | `"60s"` | `--cloudflare-request-timeout`: timeout of one Cloudflare API HTTP request. |

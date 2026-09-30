@@ -952,6 +952,17 @@ func (r *Reconciler) blockingReferrers(ctx context.Context, ws *workersv1alpha1.
 			out = append(out, "WorkerScript "+o.Name)
 		}
 	}
+	// Referrers of other kinds (a PagesProject's services binding) count as the generic
+	// reconciler counts them, deleting ones included: they cannot reference each other back.
+	others, err := generic.BlockingReferrers(ctx, r.Client, WorkerScriptKind, ws)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range others {
+		if !strings.HasPrefix(o, "WorkerScript ") {
+			out = append(out, o)
+		}
+	}
 	sort.Strings(out)
 	return out, nil
 }

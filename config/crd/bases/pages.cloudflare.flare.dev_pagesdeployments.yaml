@@ -1,0 +1,495 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: pagesdeployments.pages.cloudflare.flare.dev
+spec:
+  group: pages.cloudflare.flare.dev
+  names:
+    categories:
+    - cloudflare
+    - managed
+    - pages
+    kind: PagesDeployment
+    listKind: PagesDeploymentList
+    plural: pagesdeployments
+    shortNames:
+    - cfpagesdeploy
+    - cfpd
+    singular: pagesdeployment
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: READY
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Synced')].status
+      name: SYNCED
+      type: string
+    - description: The Cloudflare deployment ID
+      jsonPath: .status.id
+      name: EXTERNAL-ID
+      type: string
+    - jsonPath: .status.atProvider.project_name
+      name: PROJECT
+      type: string
+    - jsonPath: .status.atProvider.environment
+      name: ENV
+      type: string
+    - jsonPath: .status.atProvider.latest_stage.status
+      name: STAGE
+      type: string
+    - jsonPath: .status.atProvider.url
+      name: URL
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: AGE
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          PagesDeployment is one Cloudflare Pages Direct Upload deployment (x-fern-sdk-group-name
+          "pages.deployments"): the files of an artifact uploaded to a PagesProject. A change of the
+          content or branch makes a new deployment (the previous ones stay in the project's history,
+          for rollbacks in the dashboard); status.id is always the newest one this object made.
+
+          Deleting it deletes its deployment in Cloudflare (default deletion policy Delete), except the
+          project's live production deployment, which Cloudflare refuses to delete: that one is kept,
+          with a Warning event ExternalResourceKept.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PagesDeploymentSpec defines the desired state of a PagesDeployment.
+            properties:
+              accountRef:
+                description: AccountRef names the CloudflareAccount (same namespace)
+                  to use.
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              deletionPolicy:
+                description: DeletionPolicy defaults per kind (Orphan for data-bearing
+                  kinds).
+                enum:
+                - Delete
+                - Orphan
+                type: string
+              forProvider:
+                description: ForProvider is the deployment.
+                properties:
+                  branch:
+                    description: |-
+                      Branch of the deployment. Empty, or the project's production branch, makes a production
+                      deployment; any other branch a preview deployment (served at its branch alias). A change
+                      deploys again.
+                    maxLength: 255
+                    type: string
+                  commit_hash:
+                    description: |-
+                      CommitHash recorded on the deployment (deployment_trigger.metadata.commit_hash). When unset
+                      the operator records a 40-hex identifier derived from this object and the content, which
+                      lets it find a deployment it made but could not record before a restart.
+                    maxLength: 64
+                    pattern: ^[0-9a-fA-F]+$
+                    type: string
+                  commit_message:
+                    description: |-
+                      CommitMessage recorded on the deployment (at most 384 bytes, as wrangler truncates it). A
+                      change alone does not deploy again.
+                    maxLength: 384
+                    type: string
+                  projectRef:
+                    description: |-
+                      ProjectRef names the PagesProject (same namespace, same CloudflareAccount) to deploy to.
+                      Immutable. Nothing is deployed until the project is Ready.
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                    x-kubernetes-validations:
+                    - message: projectRef is immutable
+                      rule: self == oldSelf
+                  source:
+                    description: |-
+                      Source of the site's files. Files at the root named _headers, _redirects and _routes.json
+                      are sent as the deployment's routing files and _worker.js as its advanced-mode Worker (as
+                      is: the operator does not bundle); a _worker.js directory and a functions directory are not
+                      supported. Every other file is uploaded as an asset. A deployment is made when the
+                      artifact's content digest or branch changes (status.deployedHash).
+                    properties:
+                      configMapRef:
+                        description: |-
+                          ConfigMapRef takes the files from one or more ConfigMaps in the object's namespace. Each
+                          ConfigMap must carry the label cloudflare.flare.dev/artifact=true. A ConfigMap holds at
+                          most 1 MiB (data and binaryData together), so larger artifacts belong in ociRef or url.
+                        properties:
+                          configMaps:
+                            description: ConfigMaps in the object's namespace, each
+                              labelled cloudflare.flare.dev/artifact=true.
+                            items:
+                              description: |-
+                                ConfigMapArtifact is one ConfigMap of an artifact. Every key of data and binaryData is a file
+                                (text keys as their UTF-8 bytes, binaryData keys as their bytes). ConfigMap keys cannot hold
+                                "/", so path places the keys in a directory and items maps single keys to nested paths.
+                              properties:
+                                items:
+                                  description: |-
+                                    Items selects keys and gives each its own path (relative to path). When set, only the
+                                    listed keys are used and each must exist; when empty, every key is a file named after it.
+                                  items:
+                                    description: ArtifactKeyToPath maps one ConfigMap
+                                      key to a file path.
+                                    properties:
+                                      key:
+                                        description: Key of the ConfigMap (data or
+                                          binaryData).
+                                        maxLength: 253
+                                        minLength: 1
+                                        type: string
+                                      path:
+                                        description: |-
+                                          Path of the file, relative to the ConfigMap's path. Slash-separated; no "." or ".."
+                                          segments, no leading "/".
+                                        maxLength: 1024
+                                        minLength: 1
+                                        pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                                        type: string
+                                    required:
+                                    - key
+                                    - path
+                                    type: object
+                                  maxItems: 256
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                                name:
+                                  description: Name of the ConfigMap.
+                                  maxLength: 253
+                                  minLength: 1
+                                  type: string
+                                path:
+                                  description: |-
+                                    Path is the directory, relative to the artifact root, that this ConfigMap's files are
+                                    placed in (default: the root). Slash-separated; no "." or ".." segments, no leading "/".
+                                  maxLength: 1024
+                                  pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            maxItems: 64
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        required:
+                        - configMaps
+                        type: object
+                      ociRef:
+                        description: |-
+                          OCIRef takes the files from the layers of an OCI image (e.g. one built FROM scratch with
+                          the site's files). Pin it by digest: a tag is resolved again on every sync, and the digest
+                          it resolved to is reported in status.
+                        properties:
+                          image:
+                            description: |-
+                              Image is the reference: registry/repository[:tag][@sha256:<digest>]. Pinning by digest is
+                              recommended: the content then cannot change under the object, and a cached pull needs one
+                              manifest request per sync. The registry is always contacted over HTTPS.
+                            maxLength: 1024
+                            minLength: 1
+                            type: string
+                          path:
+                            description: |-
+                              Path is the directory of the image's filesystem that becomes the artifact root (default:
+                              the image root). Slash-separated; no "." or ".." segments, no leading "/".
+                            maxLength: 1024
+                            pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                            type: string
+                          pullSecretRef:
+                            description: |-
+                              PullSecretRef names a kubernetes.io/dockerconfigjson Secret in the object's namespace
+                              with the registry credentials. It must carry the label cloudflare.flare.dev/artifact=true.
+                              Without it the image is pulled anonymously.
+                            properties:
+                              name:
+                                description: Name of the Secret.
+                                maxLength: 253
+                                minLength: 1
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        required:
+                        - image
+                        type: object
+                      url:
+                        description: URL downloads a tar, tar.gz or zip archive over
+                          HTTPS and checks its SHA-256.
+                        properties:
+                          path:
+                            description: |-
+                              Path is the directory inside the archive that becomes the artifact root (default: the
+                              archive root). Slash-separated; no "." or ".." segments, no leading "/".
+                            maxLength: 1024
+                            pattern: ^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$
+                            type: string
+                          sha256:
+                            description: SHA256 of the archive, lowercase hex. The
+                              download is rejected unless it matches.
+                            pattern: ^[a-f0-9]{64}$
+                            type: string
+                          url:
+                            description: URL of the archive (https only).
+                            maxLength: 2048
+                            minLength: 9
+                            pattern: ^https://[^\s]+$
+                            type: string
+                        required:
+                        - sha256
+                        - url
+                        type: object
+                    type: object
+                    x-kubernetes-validations:
+                    - message: set exactly one of configMapRef, ociRef or url
+                      rule: '(has(self.configMapRef) ? 1 : 0) + (has(self.ociRef)
+                        ? 1 : 0) + (has(self.url) ? 1 : 0) == 1'
+                required:
+                - projectRef
+                type: object
+              managementPolicies:
+                description: ManagementPolicies default to ["*"]. ["Observe"] makes
+                  the object read-only.
+                items:
+                  description: ManagementAction is one Crossplane-style management
+                    policy.
+                  enum:
+                  - Observe
+                  - Create
+                  - Update
+                  - Delete
+                  - LateInitialize
+                  - '*'
+                  type: string
+                type: array
+              zoneRef:
+                description: ZoneRef is required for zone-scoped kinds and ignored
+                  otherwise.
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                type: object
+            required:
+            - accountRef
+            - forProvider
+            type: object
+            x-kubernetes-validations:
+            - fieldPath: .accountRef.name
+              message: accountRef.name must name a CloudflareAccount in this namespace
+                (1-253 characters)
+              reason: FieldValueInvalid
+              rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
+                253
+            - message: forProvider.source is required unless managementPolicies exclude
+                Create and Update (e.g. ["Observe"])
+              rule: has(self.forProvider.source) || (has(self.managementPolicies)
+                && size(self.managementPolicies) > 0 && !('*' in self.managementPolicies)
+                && !('Create' in self.managementPolicies) && !('Update' in self.managementPolicies))
+          status:
+            description: PagesDeploymentStatus defines the observed state of a PagesDeployment.
+            properties:
+              artifact:
+                description: Artifact is the content last deployed.
+                properties:
+                  bytes:
+                    description: Bytes is the total size of the files.
+                    format: int64
+                    type: integer
+                  digest:
+                    description: |-
+                      Digest of the file tree ("sha256:<hex>" over the sorted paths and contents); the same
+                      files give the same digest whatever the source.
+                    type: string
+                  files:
+                    description: Files is the number of files in the tree.
+                    format: int32
+                    type: integer
+                  resolvedDigest:
+                    description: |-
+                      ResolvedDigest is the manifest digest an ociRef resolved to (the digest of its tag at the
+                      last sync, or the pinned digest).
+                    type: string
+                type: object
+              atProvider:
+                description: AtProvider is the deployment as last read from Cloudflare.
+                properties:
+                  aliases:
+                    description: Aliases are the alias URLs pointing to this deployment
+                      (a preview branch alias).
+                    items:
+                      type: string
+                    type: array
+                  branch:
+                    description: Branch of the deployment (deployment_trigger.metadata.branch).
+                    type: string
+                  commit_hash:
+                    description: CommitHash of the deployment (deployment_trigger.metadata.commit_hash).
+                    type: string
+                  created_on:
+                    type: string
+                  environment:
+                    description: Environment is production or preview.
+                    type: string
+                  id:
+                    description: ID of the deployment.
+                    type: string
+                  latest_stage:
+                    description: LatestStage is the deployment's current stage.
+                    properties:
+                      ended_on:
+                        type: string
+                      name:
+                        description: 'Name of the stage: queued, initialize, clone_repo,
+                          build or deploy.'
+                        type: string
+                      started_on:
+                        type: string
+                      status:
+                        description: 'Status of the stage: success, idle, active,
+                          failure, canceled or skipped.'
+                        type: string
+                    type: object
+                  modified_on:
+                    type: string
+                  production:
+                    description: |-
+                      Production reports that this is the project's live production deployment (its
+                      canonical_deployment). Cloudflare refuses to delete it.
+                    type: boolean
+                  project_name:
+                    description: ProjectName is the Cloudflare project the deployment
+                      belongs to.
+                    type: string
+                  short_id:
+                    description: ShortID is the 8-character short ID (the <short_id>.<project>.pages.dev
+                      host).
+                    type: string
+                  url:
+                    description: URL is the deployment's own URL.
+                    type: string
+                type: object
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              deployedHash:
+                description: |-
+                  DeployedHash is a hash of the artifact digest and branch last deployed: a deployment is
+                  made when it changes.
+                type: string
+              id:
+                description: ID is the Cloudflare ID of the external resource.
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              writeOnlyHash:
+                description: WriteOnlyHash is a hash of write-only forProvider fields
+                  last applied.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - fieldPath: .spec.accountRef.name
+          message: 'spec.accountRef is immutable once the resource exists (status.id
+            is set): the resource lives in that account. To move it, delete this object
+            (deletionPolicy Orphan keeps the resource) and create a new one'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || self.spec.accountRef.name == oldSelf.spec.accountRef.name'
+    served: true
+    storage: true
+    subresources:
+      status: {}

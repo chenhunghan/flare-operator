@@ -48,6 +48,10 @@ type Options struct {
 	// means "example-subdomain", the sanitized value in recording 0001.
 	WorkersSubdomain string
 
+	// PagesDeployDelay is how long (emulated clock) a Pages deployment takes from its create to
+	// deploy/success (pages_deployments.go). Zero means DefaultPagesDeployDelay.
+	PagesDeployDelay time.Duration
+
 	// Generic lists generated kinds to emulate with the descriptor-driven generic profile
 	// (generic.go, UNVERIFIED; e.g. GeneratedGenericKinds()). Kinds with a hand-written profile
 	// are skipped. The profile needs the pinned spec: Spec, else LoadDefaultSpec.
@@ -73,6 +77,8 @@ type Server struct {
 	respViolations  []ResponseViolation // response_validation.go
 	tokens          map[string]*Token   // tokens.go; nil = open mode
 	workerStartupMs int                 // startup_time_ms reported by script uploads (see SetWorkerStartupTime)
+	pagesJWTKey     []byte              // signs Pages upload tokens (pages_assets.go)
+	pagesFailNext   int                 // Pages deployments that will fail (FailPagesDeployments)
 }
 
 // nextSeq returns a monotonically increasing creation number. Callers hold s.mu.
@@ -125,7 +131,10 @@ func New(opts Options) *Server {
 	if opts.WorkersSubdomain == "" {
 		opts.WorkersSubdomain = "example-subdomain"
 	}
-	s := &Server{opts: opts, Clock: &Clock{}, accounts: map[string]*account{}, workerStartupMs: workerDefaultStartupMs}
+	if opts.PagesDeployDelay <= 0 {
+		opts.PagesDeployDelay = DefaultPagesDeployDelay
+	}
+	s := &Server{opts: opts, Clock: &Clock{}, accounts: map[string]*account{}, workerStartupMs: workerDefaultStartupMs, pagesJWTKey: randBytes(32)}
 	s.limiter = newLimiter(opts.RateLimit, opts.RateWindow)
 	s.registerKV()
 	s.registerD1()
@@ -136,6 +145,7 @@ func New(opts Options) *Server {
 	s.registerTokens()
 	s.registerTags()
 	s.registerWorkers()
+	s.registerPages()
 	s.registerGeneric() // last: hand-written profiles take precedence
 	return s
 }
@@ -151,6 +161,7 @@ func (s *Server) Reset() {
 	s.seq = 0
 	s.tokens = nil
 	s.workerStartupMs = workerDefaultStartupMs
+	s.pagesFailNext = 0
 	s.generic.reset()
 	s.ids.reset()
 	s.limiter.reset()

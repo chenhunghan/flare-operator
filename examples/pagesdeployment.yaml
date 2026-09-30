@@ -1,0 +1,79 @@
+# Pages Direct Upload deployments to the project of pagesproject.yaml. Each one uploads the
+# files of an artifact (only the files Cloudflare does not have yet) and creates a deployment;
+# a change of the files or the branch deploys again (commit_message alone does not). Root files
+# _headers, _redirects and _routes.json are sent as the deployment's routing files, _worker.js
+# as its advanced-mode Worker (as is, not bundled). Default deletionPolicy: Delete, except that
+# Cloudflare never deletes the live production deployment: that one is kept.
+#
+# Production (no branch, or the production branch), from ConfigMaps:
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: docs-root
+  labels:
+    cloudflare.flare.dev/artifact: "true"   # opt-in: only labelled ConfigMaps are read
+data:
+  index.html: |
+    <!doctype html><title>Acme docs</title><h1>Hello from Pages</h1>
+  _headers: |
+    /*
+      X-Frame-Options: DENY
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: docs-css
+  labels:
+    cloudflare.flare.dev/artifact: "true"
+data:
+  app.css: "body { font-family: sans-serif }"
+---
+apiVersion: pages.cloudflare.flare.dev/v1alpha1
+kind: PagesDeployment
+metadata:
+  name: docs-production
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    projectRef:
+      name: docs-site
+    commit_message: deployed by flare-operator
+    source:
+      configMapRef:
+        configMaps:
+          - name: docs-root
+          - name: docs-css
+            path: css            # its keys go under css/
+---
+# A preview deployment (https://<branch alias>.acme-docs.pages.dev) from a released archive,
+# pinned by SHA-256.
+apiVersion: pages.cloudflare.flare.dev/v1alpha1
+kind: PagesDeployment
+metadata:
+  name: docs-preview
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    projectRef:
+      name: docs-site
+    branch: next
+    source:
+      url:
+        url: https://github.com/acme/docs/releases/download/v2.0.0-rc1/site.tar.gz
+        sha256: 3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8550
+        path: public
+---
+# Observe the live production deployment of the project (no writes, never deleted).
+apiVersion: pages.cloudflare.flare.dev/v1alpha1
+kind: PagesDeployment
+metadata:
+  name: docs-live
+spec:
+  accountRef:
+    name: main
+  managementPolicies: ["Observe"]
+  forProvider:
+    projectRef:
+      name: docs-site

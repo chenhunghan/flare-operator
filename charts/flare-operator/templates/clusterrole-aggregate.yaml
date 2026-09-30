@@ -45,6 +45,17 @@ rules:
   - list
   - watch
 - apiGroups:
+  - pages.cloudflare.flare.dev
+  resources:
+  - pagesdeployments
+  - pagesdeployments/status
+  - pagesprojects
+  - pagesprojects/status
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - queues.cloudflare.flare.dev
   resources:
   - queues
@@ -151,6 +162,20 @@ rules:
   - kv.cloudflare.flare.dev
   resources:
   - kvnamespaces
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - pages.cloudflare.flare.dev
+  resources:
+  - pagesdeployments
+  - pagesprojects
   verbs:
   - create
   - delete

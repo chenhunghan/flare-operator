@@ -58,9 +58,13 @@ conditions:
     kinds: managed kinds, CloudflareAccount
     meaning: >-
       A referenced object is not Ready yet (a WorkerScript binding's kvNamespaceRef, queueRef,
-      d1DatabaseRef, vpcServiceRef or serviceRef; a VPCService's tunnelRef), so nothing is sent
+      d1DatabaseRef, vpcServiceRef or serviceRef; a VPCService's tunnelRef; a PagesProject
+      binding's reference or a secret_text Secret that is missing or not opted in; a
+      PagesDeployment's projectRef or artifact ConfigMap or pull Secret), so nothing is sent
       until it is; or deletion waits for referrers (a Tunnel or VPCService still used, a
-      CloudflareAccount still used by managed objects).
+      KVNamespace, Queue, D1Database or WorkerScript still bound by a WorkerScript or
+      PagesProject, a PagesProject that still has PagesDeployments, a CloudflareAccount still
+      used by managed objects).
   - reason: ReconcileSuccess
     condition: Synced
     status: "True"
@@ -91,7 +95,7 @@ conditions:
   - reason: NameConflict
     condition: Ready, Synced
     status: "False"
-    kinds: Tunnel, VPCService, WorkerScript, generated kinds without an owner tag (VectorizeIndex, SecretsStore, AIGateway; every generated kind with --ownership-tags=false)
+    kinds: Tunnel, VPCService, WorkerScript, PagesProject, generated kinds without an owner tag (VectorizeIndex, SecretsStore, AIGateway; every generated kind with --ownership-tags=false)
     meaning: >-
       The Cloudflare name (or client-chosen ID) is taken by a resource this object cannot prove
       it owns: no owner tag names this object and it is not the object's own lost create. It is
@@ -111,11 +115,52 @@ conditions:
   - reason: InvalidSpec
     condition: Ready, Synced
     status: "False"
-    kinds: WorkerScript
+    kinds: WorkerScript, PagesProject
     meaning: >-
-      forProvider cannot be uploaded (an invalid module name or type, wasm-base64 content that
-      is not base64, a main_module that is not one of the modules, an unusable sourceRef
-      ConfigMap, ...).
+      forProvider cannot be uploaded (WorkerScript: an invalid module name or type, wasm-base64
+      content that is not base64, a main_module that is not one of the modules, an unusable
+      sourceRef ConfigMap, ...; PagesProject: an invalid project name, one binding name used
+      twice in a deployment config).
+  - reason: Deploying
+    condition: Ready
+    status: "False"
+    kinds: PagesDeployment
+    meaning: >-
+      The deployment was made and its deploy stage has not succeeded yet; the object is
+      re-read every few seconds until it has.
+  - reason: DeploymentFailed
+    condition: Ready, Synced
+    status: "False"
+    kinds: PagesDeployment
+    meaning: >-
+      The deployment's deploy stage ended with failure (or was canceled). It is not retried:
+      change the artifact or the branch to deploy again. The Cloudflare dashboard shows the
+      deployment's logs.
+  - reason: InvalidArtifact
+    condition: Ready, Synced
+    status: "False"
+    kinds: PagesDeployment
+    meaning: >-
+      The artifact cannot be deployed: an invalid source (reference, URL, path), content that
+      breaks a limit or safety rule of the loader (--artifact-max-*), a file larger than
+      Pages' 25 MiB, more files than the upload token allows, or a _worker.js directory (which
+      needs bundling). Only a change of the source or its content fixes it.
+  - reason: ArtifactUnavailable
+    condition: Synced
+    status: "False"
+    kinds: PagesDeployment
+    meaning: >-
+      The artifact could not be fetched (a registry or download server failed, refused the
+      credentials or could not be reached, or its address is refused); retried with backoff.
+  - reason: LiveDeploymentKept
+    condition: Ready
+    status: "False"
+    kinds: PagesDeployment
+    meaning: >-
+      Set while a deleted PagesDeployment is finalized: its deployment is the project's live
+      production deployment, which Cloudflare does not delete, so it is kept (with a Warning
+      event ExternalResourceKept) and the finalizer is removed. It goes when another
+      production deployment replaces it or when the project is deleted.
   - reason: SecretNotFound
     condition: Ready
     status: "False"
