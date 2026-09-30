@@ -589,6 +589,10 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 	// by name or client ID anyway, but an object deleted before that has no ID, and its
 	// finalizer finds the resource through this record (reconcile.AdoptPendingCreate).
 	key := r.pendingKey(desired)
+	// retry: a record for this key stood before this attempt, so an earlier POST of this object
+	// may have created the resource (MarkCreatePending runs before every POST).
+	prior, hadPrior := reconcile.PendingCreate(obj)
+	retry := hadPrior && prior == key
 	if key != "" {
 		if err := reconcile.MarkCreatePending(ctx, r.Client, obj, key); err != nil {
 			return errResult(obj, fmt.Errorf("record the pending create: %w", err))
@@ -596,13 +600,17 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 	}
 	resp, err := sc.do(ctx, cfclient.Request{Method: http.MethodPost, Path: sc.path(d.CreatePath, ""), Body: pick(desired, d.CreateFields)})
 	if err != nil {
-		if key != "" && createRefused(err) {
-			// The API refused the create: nothing was made, so the record must not stand. A
-			// kind that cannot be tagged adopts a same-named resource only as its own lost
-			// create (ownLostCreate); a kept record would let this object take (and, with
-			// deletionPolicy Delete, delete) one that someone else creates later, e.g. while
-			// R2 is not enabled on the account (403). Transient failures (5xx, timeouts, 408,
-			// 429) and possible duplicate-name refusals keep it: the create may have happened.
+		if key != "" && (createRefused(err) || (duplicateRefusal(err) && !retry)) {
+			// The API refused the create and nothing of this object's was made, so the record
+			// must not stand. A kind that cannot be tagged adopts a same-named resource only as
+			// its own lost create (ownLostCreate); a kept record would let this object take
+			// (and, with deletionPolicy Delete, delete) one that someone else creates, e.g.
+			// later while R2 is not enabled on the account (403), or right now: a duplicate-name
+			// refusal (400/409) of a first attempt means another writer has the name (two
+			// clusters or objects applying the same bucket name at once), since no earlier POST
+			// of this object could have made it. Transient failures (5xx, timeouts, 408, 429)
+			// keep the record, and so does a duplicate-name refusal of a retry: the earlier
+			// attempt's create may have happened (and a lagging list missed it).
 			if cerr := reconcile.ClearCreatePending(ctx, r.Client, obj); cerr != nil {
 				return errResult(obj, errors.Join(fmt.Errorf("create: %w", err), cerr))
 			}
@@ -660,12 +668,20 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 
 // createRefused reports whether a create error proves that nothing was created: a permanent
 // 4xx (reconcile.IsPermanent: not 408, 409 or 429) other than 400. A duplicate-name refusal
-// proves nothing (the lookup before the create may have missed this object's own lost create,
-// e.g. in a lagging list), and APIs refuse a duplicate name with 400 (0004: KV 400/10014;
-// 0018: D1 400/7502) or 409, so for both the record is kept.
+// of a retry proves nothing (the lookup before the create may have missed this object's own
+// lost create of an earlier attempt, e.g. in a lagging list), and APIs refuse a duplicate name
+// with 400 (0004: KV 400/10014; 0018: D1 400/7502) or 409 (duplicateRefusal).
 func createRefused(err error) bool {
 	ae, ok := cfclient.AsAPIError(err)
 	return ok && reconcile.IsPermanent(err) && ae.Status != http.StatusBadRequest
+}
+
+// duplicateRefusal reports whether a create error may be a duplicate-name refusal (400 or 409,
+// see createRefused): it proves that nothing was created by this attempt, but not that an
+// earlier attempt of the same object created nothing.
+func duplicateRefusal(err error) bool {
+	ae, ok := cfclient.AsAPIError(err)
+	return ok && (ae.Status == http.StatusBadRequest || ae.Status == http.StatusConflict)
 }
 
 // sync records the observed object, checks ownership and immutable fields, and updates drifted

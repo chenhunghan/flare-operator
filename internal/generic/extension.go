@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"flare.dev/operator/internal/cfclient"
@@ -48,8 +49,15 @@ type HeaderField struct {
 //
 //   - GET <item><Path> → status.atProvider.<Field>. A 404 means "not configured": the field is
 //     absent from atProvider (the item itself was read just before).
-//   - forProvider.<Field> set to a non-empty value that the observed one does not cover (Covers)
-//     → PUT <item><Path> with it as the body. This is an update: managementPolicies must allow
+//   - forProvider.<Field> set to a non-empty value that is not the same document as the observed
+//     one (sameDocument: equal once empty members are dropped) → PUT <item><Path> with it as the
+//     body. The PUT replaces the whole document, so the comparison is exact, not Covers: a member
+//     the desired value leaves out (e.g. a CORS rule's allowed.headers, exposeHeaders or
+//     maxAgeSeconds) is one the write removes, and a narrowed policy must be written. This
+//     assumes the API reads the document back as it was PUT, with no server-set members
+//     (UNVERIFIED for R2 CORS: the spec's optional rule id is not known to be assigned by the
+//     server; the emulator echoes the PUT body). A server-set member would make every reconcile
+//     PUT the same document again, which is harmless but noisy. This is an update: managementPolicies must allow
 //     Update, otherwise Synced=False names the field. Observe-only objects only read.
 //   - forProvider.<Field> set to an empty value (isEmptyValue: {} or, since the generated types
 //     drop empty lists, {"rules": []} for R2 CORS) → clear it: when Cloudflare has a non-empty
@@ -207,7 +215,7 @@ func (r *Reconciler) observeSubResources(ctx context.Context, sc scope, id strin
 }
 
 // changedSubResources lists the sub-resources whose desired value is set and not in sync with
-// the observed one: a non-empty value not covered by it, or an empty value (clear) while
+// the observed one: a non-empty value that is not the same document, or an empty value (clear) while
 // Cloudflare has a non-empty one (see SubResource).
 func (r *Reconciler) changedSubResources(desired, obs map[string]any) []SubResource {
 	var out []SubResource
@@ -219,7 +227,7 @@ func (r *Reconciler) changedSubResources(desired, obs map[string]any) []SubResou
 			if !isEmptyValue(obs[s.Field]) {
 				out = append(out, s)
 			}
-		case !Covers(v, obs[s.Field]):
+		case !sameDocument(v, obs[s.Field]):
 			out = append(out, s)
 		}
 	}
@@ -264,6 +272,39 @@ func isEmptyValue(v any) bool {
 		return true
 	}
 	return false
+}
+
+// sameDocument reports whether two JSON documents are equal once their empty members
+// (isEmptyValue: null, empty lists, objects with only empty members) are dropped. The generated
+// types omit empty lists and unset fields, so a desired value that leaves a member out and an
+// observed one that holds it empty are the same document.
+func sameDocument(want, got any) bool {
+	return reflect.DeepEqual(pruneEmpty(want), pruneEmpty(got))
+}
+
+// pruneEmpty returns v without its empty members (see sameDocument); list elements are kept in
+// place (an empty element is replaced by nil) so that order and length still count.
+func pruneEmpty(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := map[string]any{}
+		for k, m := range t {
+			if isEmptyValue(m) {
+				continue
+			}
+			out[k] = pruneEmpty(m)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, m := range t {
+			if !isEmptyValue(m) {
+				out[i] = pruneEmpty(m)
+			}
+		}
+		return out
+	}
+	return v
 }
 
 func subFields(ss []SubResource) []string {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -83,51 +84,139 @@ func TestR2BucketCORSClear(t *testing.T) {
 // TestR2BucketRefusedCreateDropsRecord: a create the API refuses for good (403, e.g. R2 not
 // enabled) drops the create-pending record, so a bucket of that name that someone else creates
 // later is a NameConflict, not this object's "own lost create" (adopted, and deleted with
-// deletionPolicy Delete). A refusal that may answer a lost create (409, or 400, which some
-// APIs use for a duplicate name) keeps the record.
+// deletionPolicy Delete). So does a duplicate-name refusal (409, or 400, which some APIs use
+// for a duplicate name) of a first attempt: another writer won the race between the list and
+// the POST (two clusters or objects applying the same bucket name), and its bucket must not be
+// adopted.
 func TestR2BucketRefusedCreateDropsRecord(t *testing.T) {
 	x := newExtHarness(t, "R2Bucket")
 	create := "^" + regexp.QuoteMeta(x.path(x.en.CreatePath, "")) + "$"
 	for _, c := range []struct {
-		status int
-		kept   bool
-	}{{http.StatusForbidden, false}, {http.StatusConflict, true}, {http.StatusBadRequest, true}} {
+		status  int
+		code    int
+		message string
+	}{
+		{http.StatusForbidden, 10042, "Please enable R2 through the Cloudflare Dashboard."},
+		{http.StatusConflict, 10004, "The bucket you tried to create already exists, and you own it."},
+		{http.StatusBadRequest, 10004, "The bucket you tried to create already exists, and you own it."},
+	} {
 		name := randName("flare-spike")
 		obj := x.newObj(x.en, fmt.Sprintf("bucket-%d", c.status), fmt.Sprintf(`{"deletionPolicy":"Delete","forProvider":{"name":%q}}`, name))
 		x.create(obj)
-		if err := x.e.Fake.InjectFault(fake.Fault{Method: http.MethodPost, PathRegex: create, Status: c.status, Code: 10042,
-			Message: "Please enable R2 through the Cloudflare Dashboard.", Times: 1}); err != nil {
+		if err := x.e.Fake.InjectFault(fake.Fault{Method: http.MethodPost, PathRegex: create, Status: c.status, Code: c.code,
+			Message: c.message, Times: 1}); err != nil {
 			t.Fatal(err)
 		}
 		if err := x.reconcile(obj, 1); err == nil {
 			t.Fatalf("%d: the refused create returned no error", c.status)
 		}
-		_, pending := reconcile.PendingCreate(obj)
-		if pending != c.kept || obj.GetResourceStatus().ID != "" {
-			t.Errorf("%d: create-pending record kept %v, want %v; status.id %q", c.status, pending, c.kept, obj.GetResourceStatus().ID)
+		if _, pending := reconcile.PendingCreate(obj); pending || obj.GetResourceStatus().ID != "" {
+			t.Errorf("%d: create-pending record kept %v, want dropped; status.id %q", c.status, pending, obj.GetResourceStatus().ID)
 		}
-		if c.kept {
-			continue
-		}
-		// Someone else creates the bucket: it is not this object's.
+		// Someone else creates the bucket (for 400/409: the other writer's bucket becomes
+		// visible): it is not this object's.
 		if _, err := x.bucketAPI(http.MethodPost, x.path(x.en.CreatePath, ""), "", map[string]any{"name": name}); err != nil {
 			t.Fatal(err)
 		}
 		mark := x.rec.mark()
 		x.mustReconcile(obj, 1)
 		if !condIs(obj, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, reconcile.ReasonNameConflict) || obj.GetResourceStatus().ID != "" {
-			t.Errorf("foreign bucket after a refused create: status.id %q\n%s", obj.GetResourceStatus().ID, conditions(obj))
+			t.Errorf("%d: foreign bucket after a refused create: status.id %q\n%s", c.status, obj.GetResourceStatus().ID, conditions(obj))
 		}
 		x.delete(obj)
 		x.mustReconcile(obj, 1)
 		x.waitGone(obj)
 		if w := writesOf(x.rec.since(mark)); len(w) != 0 {
-			t.Errorf("wrote to the foreign bucket:\n%s", summary(w))
+			t.Errorf("%d: wrote to the foreign bucket:\n%s", c.status, summary(w))
 		}
 		if _, err := x.bucketAPI(http.MethodGet, x.path(x.en.ItemPath, name), "", nil); err != nil {
-			t.Errorf("the foreign bucket after the object's deletion: %v", err)
+			t.Errorf("%d: the foreign bucket after the object's deletion: %v", c.status, err)
 		}
 	}
+}
+
+// TestR2BucketRetryDuplicateKeepsRecord: a duplicate-name refusal (409) of a retry keeps the
+// create-pending record. The earlier attempt (here answered 500) may have created the bucket
+// and a lagging list missed it, so when the bucket shows up it is this object's own lost
+// create: adopted, and deleted by its finalizer under deletionPolicy Delete.
+func TestR2BucketRetryDuplicateKeepsRecord(t *testing.T) {
+	x := newExtHarness(t, "R2Bucket")
+	create := "^" + regexp.QuoteMeta(x.path(x.en.CreatePath, "")) + "$"
+	name := randName("flare-spike")
+	obj := x.newObj(x.en, "bucket", fmt.Sprintf(`{"deletionPolicy":"Delete","forProvider":{"name":%q}}`, name))
+	x.create(obj)
+	for _, f := range []fake.Fault{
+		{Method: http.MethodPost, PathRegex: create, Status: http.StatusInternalServerError, Code: 10001, Message: "Internal error", Times: 1},
+		{Method: http.MethodPost, PathRegex: create, Status: http.StatusConflict, Code: 10004, Message: "The bucket you tried to create already exists, and you own it.", Times: 1},
+	} {
+		if err := x.e.Fake.InjectFault(f); err != nil {
+			t.Fatal(err)
+		}
+		if err := x.reconcile(obj, 1); err == nil {
+			t.Fatalf("%d: the failed create returned no error", f.Status)
+		}
+		if key, pending := reconcile.PendingCreate(obj); !pending || key != name {
+			t.Fatalf("after %d: create-pending record %q/%v, want %q kept", f.Status, key, pending, name)
+		}
+	}
+	// The first attempt's bucket becomes visible.
+	if _, err := x.bucketAPI(http.MethodPost, x.path(x.en.CreatePath, ""), "", map[string]any{"name": name}); err != nil {
+		t.Fatal(err)
+	}
+	x.mustReconcile(obj, 1)
+	if obj.GetResourceStatus().ID != name || !condIs(obj, commonv1alpha1.ConditionSynced, metav1.ConditionTrue, commonv1alpha1.ReasonReconcileOK) {
+		t.Fatalf("own lost create not adopted: status.id %q\n%s", obj.GetResourceStatus().ID, conditions(obj))
+	}
+	x.delete(obj)
+	x.mustReconcile(obj, 1)
+	x.waitGone(obj)
+	if _, err := x.bucketAPI(http.MethodGet, x.path(x.en.ItemPath, name), "", nil); !cfclient.IsNotFound(err) {
+		t.Errorf("own lost create after the object's deletion (deletionPolicy Delete): %v, want 404", err)
+	}
+}
+
+// TestR2BucketCORSNarrowed: the CORS PUT replaces the whole policy, so a rule narrowed in
+// forProvider (allowed.headers, exposeHeaders and maxAgeSeconds dropped) is written, and the
+// wider policy does not stay behind an object reporting Synced=True.
+func TestR2BucketCORSNarrowed(t *testing.T) {
+	x := newExtHarness(t, "R2Bucket")
+	name := randName("flare-spike")
+	wide := `{"rules":[{"allowed":{"origins":["https://example.com"],"methods":["GET"],"headers":["*"]},"exposeHeaders":["ETag"],"maxAgeSeconds":3600}]}`
+	narrow := `{"rules":[{"allowed":{"origins":["https://example.com"],"methods":["GET"]}}]}`
+	obj := x.newObj(x.en, "bucket", fmt.Sprintf(`{"forProvider":{"name":%q,"cors":%s}}`, name, wide))
+	x.create(obj)
+	x.mustReconcile(obj, 2)
+	x.setForProvider(obj, fmt.Sprintf(`{"name":%q,"cors":%s}`, name, narrow))
+	mark := x.rec.mark()
+	x.mustReconcile(obj, 2)
+	if w := writesOf(x.rec.since(mark)); len(w) != 1 || w[0].Method != http.MethodPut {
+		t.Errorf("narrowed cors, want one PUT:\n%s", summary(w))
+	}
+	resp, err := x.bucketAPI(http.MethodGet, x.path(x.en.ItemPath, name)+"/cors", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got any
+	if err := json.Unmarshal(resp, &got); err != nil {
+		t.Fatal(err)
+	}
+	var want any
+	if err := json.Unmarshal([]byte(narrow), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("cors on Cloudflare %s, want %s", resp, narrow)
+	}
+	if !condIs(obj, commonv1alpha1.ConditionSynced, metav1.ConditionTrue, commonv1alpha1.ReasonReconcileOK) {
+		t.Errorf("after narrowing:\n%s", conditions(obj))
+	}
+	// In sync now: no further writes.
+	mark = x.rec.mark()
+	x.mustReconcile(obj, 1)
+	if w := writesOf(x.rec.since(mark)); len(w) != 0 {
+		t.Errorf("an in-sync cors policy was written again:\n%s", summary(w))
+	}
+	x.checkSpecViolations()
 }
 
 // TestR2BucketFinalizerJurisdiction: should a jurisdiction change get past the CRD rule, the
