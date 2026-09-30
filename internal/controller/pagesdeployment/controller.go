@@ -512,6 +512,15 @@ func (r *Reconciler) sync(ctx context.Context, pd *pagesv1alpha1.PagesDeployment
 		}
 		cur = d
 	}
+	if cur.deployed() && cur.Environment == "production" && canonical != cur.ID && !wasDeployed(pd, cur.ID) {
+		// The deploy stage finished after the project was read above: re-read which production
+		// deployment is live, once, rather than report a stale production flag until the resync.
+		if p, err := pagesproject.GetProject(ctx, cf, accountID, project); err != nil {
+			return r.fail(pd, err)
+		} else if p != nil && p.CanonicalDeployment != nil {
+			canonical = p.CanonicalDeployment.ID
+		}
+	}
 	observeDeployment(pd, cur, canonical)
 	if prev.hash == hash && pd.Status.Artifact == nil {
 		pd.Status.Artifact = status
@@ -620,6 +629,13 @@ func findByCommit(ctx context.Context, cf cfclient.Client, accountID, project, c
 		}
 	}
 	return best, nil
+}
+
+// wasDeployed reports whether pd's status already showed deployment id with its deploy stage
+// succeeded.
+func wasDeployed(pd *pagesv1alpha1.PagesDeployment, id string) bool {
+	a := pd.Status.AtProvider
+	return a.ID == id && a.LatestStage != nil && a.LatestStage.Name == "deploy" && a.LatestStage.Status == "success"
 }
 
 func observeDeployment(pd *pagesv1alpha1.PagesDeployment, d *apiDeployment, canonical string) {
