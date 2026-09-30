@@ -415,12 +415,12 @@ finalizer could not be added to or removed from the Secret (check the manager's 
 Secret).
 
 **Managed kinds (KVNamespace, Queue, D1Database, VectorizeIndex, SecretsStore, AIGateway,
-Tunnel, VPCService, WorkerScript):**
+Tunnel, VPCService, WorkerScript, PagesProject, PagesDeployment):**
 
 | Condition / reason | Meaning | Fix |
 |---|---|---|
 | `Ready=False` `AccountNotReady` (also on Synced) | The referenced CloudflareAccount is missing or not Ready. Retried every 15 s. | Fix the account first. |
-| `Ready=False` `DependencyNotReady` (also on Synced) | A referenced object is not Ready yet (a WorkerScript binding's `*Ref`, a VPCService's `tunnelRef`), or a deletion waits for referrers (a Tunnel still used by VPCServices; a KVNamespace, Queue, D1Database, VPCService or WorkerScript still bound by a WorkerScript). The message names the object. | Make the referenced object Ready, or delete or change the referrer first. |
+| `Ready=False` `DependencyNotReady` (also on Synced) | A referenced object is not Ready yet (a WorkerScript or PagesProject binding's `*Ref`, a VPCService's `tunnelRef`, a PagesDeployment's `projectRef` or artifact ConfigMap), or a deletion waits for referrers (a Tunnel still used by VPCServices; a KVNamespace, Queue, D1Database, VPCService or WorkerScript still bound by a WorkerScript or PagesProject; a PagesProject that still has PagesDeployments). The message names the object. | Make the referenced object Ready, or delete or change the referrer first. |
 | `Ready=False` `Creating` | A create was sent; the resource has not been read back yet. | Wait. |
 | `Ready=False` `Unavailable` | The resource exists but is not usable yet (a Tunnel whose `cloudflared` replicas are not ready or not connected). | Check the `cloudflared` pods, their logs and their egress. |
 | `Ready=False` `ExternalNotFound` | The resource is gone from Cloudflare, or an `Observe` object's target does not exist. | Recreate it by removing the external-id annotation, or fix the name or ID. |
@@ -428,10 +428,16 @@ Tunnel, VPCService, WorkerScript):**
 | `Synced=False` `RateLimited` | Cloudflare answered 429 with a long `Retry-After`, or the token is still backing off. The object is requeued after the wait. | Nothing, if it clears. If it persists, lower the load: [Reconcile tuning](#reconcile-tuning-and-the-api-budget). |
 | `Synced=False` `ReconcileError` | The last API call failed; the message has the Cloudflare code. 5xx and transport errors are retried with back-off. It also covers a difference the policies or the API do not allow to fix (no update operation, `Update` not in `managementPolicies`). | 403 → [token permissions](../README.md#token-permissions). 400 → a spec value the API rejects. Timeouts → egress, or `reconcile.cloudflareRequestTimeout`. |
 | `Synced=False` `Immutable` | A create-only field changed; nothing was written. | Revert the field, or delete and recreate the object. |
-| `Synced=False` `NameConflict` (Tunnel, VPCService, WorkerScript; VectorizeIndex, SecretsStore, AIGateway; any generated kind with tagging off) | A same-named resource exists and cannot be proven to be this object's. | Set `cloudflare.flare.dev/external-id` to adopt it, or rename. |
+| `Synced=False` `NameConflict` (Tunnel, VPCService, WorkerScript, PagesProject; VectorizeIndex, SecretsStore, AIGateway; any generated kind with tagging off) | A same-named resource exists and cannot be proven to be this object's. | Set `cloudflare.flare.dev/external-id` to adopt it, or rename. |
 | `Synced=False` `InvalidHostname` (VPCService) | `host.hostname` looks like a short in-cluster name; `cloudflared` never applies DNS search domains. | Use the fully qualified name. |
 | `Synced=False` `InvalidScriptName` (WorkerScript) | `forProvider.script_name` (or `metadata.name`) is not a valid Workers script name. | Set a valid `script_name`. |
 | `Synced=False` `InvalidSpec` (WorkerScript) | The modules cannot be uploaded: a bad module name or type, content that is not base64 for `wasm-base64`, a `main_module` that is not a module, an unusable `sourceRef` ConfigMap. | Fix `forProvider` or the ConfigMap. |
+| `Synced=False` `InvalidSpec` (PagesProject) | The project name (`forProvider.name`, or `metadata.name`) is not a valid Pages name, or one binding name is used twice in a deployment config. | Set a valid `name`, or rename the binding. |
+| `Ready=False` `Deploying` (PagesDeployment) | The deployment was made; its deploy stage has not succeeded yet. Re-read every few seconds (every minute after 5 minutes). | Wait. |
+| `Ready=False` `DeploymentFailed` (PagesDeployment, also on Synced) | The deploy stage failed. Not retried. | Read the deployment's logs in the dashboard; change the artifact or branch to deploy again. |
+| `Synced=False` `InvalidArtifact` (PagesDeployment) | The artifact cannot be deployed: a bad source, a loader limit or safety rule, a file over 25 MiB, too many files, a `_worker.js` directory. | Fix the source or its content. |
+| `Synced=False` `ArtifactUnavailable` (PagesDeployment) | The registry or download server failed or could not be reached; retried with back-off. | Check the URL or image, the pull Secret, egress and `--artifact-allowed-cidr`. |
+| `Ready=False` `LiveDeploymentKept` (PagesDeployment, while deleting) | Its deployment is the project's live production deployment, which Cloudflare never deletes; it is kept and the object goes. | Nothing; deploy another production deployment or delete the project to remove it. |
 | `Synced=True` `ObserveOnly` | `managementPolicies: ["Observe"]`: read-only, as intended. | |
 | Warning event `ExternalResourceKept` | Deletion kept the Cloudflare resource: no ownership proof, a permanent error reading the tags, or the CloudflareAccount is gone. | Delete it in Cloudflare by hand if it should go. |
 | Warning event `ForeignOwnerTunnelKept` (Tunnel) | The tunnel's owner tag names another object or cluster, so it was kept. | Delete it by hand if it should go. |
