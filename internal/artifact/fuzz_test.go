@@ -22,6 +22,8 @@ func FuzzExtractArchive(f *testing.F) {
 		gz(f, tarOf(f, file("site/big", string(make([]byte, 1<<16))))),
 		zipOf(f, zent{name: "site/index.html", body: "hi"}, zent{name: "site/l", body: "index.html", mode: fs.ModeSymlink | 0o777}),
 		zipOf(f, zent{name: "../x", body: "y"}),
+		sparseTar("site/big", 1<<30, 2),
+		oldGNUSparseTar("site/big", 1<<30),
 		{},
 	}
 	for _, s := range seeds {

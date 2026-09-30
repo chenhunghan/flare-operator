@@ -37,6 +37,8 @@ type testRegistry struct {
 	host      string
 	manifests atomic.Int32
 	push      []remote.Option
+	// gate, when set, runs before every request is served (a test blocks there).
+	gate atomic.Pointer[func(*http.Request)]
 }
 
 func newTestRegistry(t *testing.T, user, pass string, mut ...func(*Options)) *testRegistry {
@@ -51,6 +53,9 @@ func newTestRegistry(t *testing.T, user, pass string, mut ...func(*Options)) *te
 				http.Error(w, `{"errors":[{"code":"UNAUTHORIZED","message":"authentication required"}]}`, http.StatusUnauthorized)
 				return
 			}
+		}
+		if g := r.gate.Load(); g != nil {
+			(*g)(req)
 		}
 		if strings.Contains(req.URL.Path, "/manifests/") && req.Method == http.MethodGet {
 			r.manifests.Add(1)

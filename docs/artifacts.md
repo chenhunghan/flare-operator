@@ -58,8 +58,8 @@ source:
   `localhost`, IP literals and `*.local`; the loader upgrades those requests to HTTPS instead.
 - Only tar layers are unpacked: uncompressed, gzip or zstd. Foreign and non-distributable
   layers are refused.
-- A multi-platform index uses its only image. If it has several, the loader uses the
-  `linux/amd64` one.
+- A multi-platform index uses its only image, ignoring attestation manifests (BuildKit's
+  provenance and SBOM entries). If it has several images, the loader uses the `linux/amd64` one.
 - Build a small image, for example `FROM scratch` + `COPY dist/ /dist/`. The limits count
   every layer byte, including entries outside `path`.
 
@@ -86,7 +86,7 @@ The loader enforces these rules for every source:
 |---|---|
 | Path traversal | Paths must be relative and slash-separated, with no `.` or `..` segments, backslashes, control characters or invalid UTF-8, and at most 1024 bytes. A path cannot be both a file and a directory. |
 | Links | A symbolic link must resolve, within `path`, to a regular file; its content is copied. A hard link must name an earlier regular file inside `path`. Absolute link targets are refused in archives. In images, absolute targets are relative to the image root. Chains are limited to 16 links. |
-| Special files | Device files, FIFOs and sockets under `path` are refused. |
+| Special files | Device files, FIFOs, sockets and sparse files under `path` are refused (a sparse file's holes are not in the archive stream the limits count). |
 | Zip/tar bombs | Limits on downloaded bytes, decompressed bytes (including entries outside `path`) and the decompressed/compressed ratio (after the first 1 MiB), plus limits on file count and total size. |
 | SSRF | Addresses are checked at connect time, after DNS resolution, for every redirect and every token-server request. Loopback, private (RFC 1918, ULA), link-local and cloud metadata (169.254.169.254, fd00:ec2::254), carrier-grade NAT (including 100.100.100.200), multicast, documentation, benchmarking and reserved ranges are refused. So are the IPv6 ranges that embed IPv4 (NAT64, 6to4, Teredo, IPv4-mapped). Use `--artifact-allowed-cidr` to permit, for example, an in-cluster registry. |
 | Opt-in | ConfigMaps and pull Secrets are read only with `cloudflare.flare.dev/artifact=true`. A missing, unlabelled or wrongly typed object gets the same message, so a spec cannot probe which objects exist. |
@@ -103,9 +103,11 @@ The loader enforces these rules for every source:
 | `--artifact-cache-bytes` | `128Mi` | `artifacts.cacheBytes` |
 | `--artifact-allowed-cidr` | none | `artifacts.allowedCIDRs` |
 
-A tree is held in memory while it loads, and loaded OCI and URL trees are cached by digest.
-Size the manager's memory limit above `maxBytes` × the parallel reconciles of the content
-kinds, plus `cacheBytes`. With `networkPolicy.enabled`, add egress to your registries and
+A url load holds the downloaded archive (up to `maxArchiveBytes`) and the tree it unpacks
+(up to `maxBytes`) in memory together; an OCI load streams its layers but holds the tree.
+Loaded OCI and URL trees are cached by digest. Size the manager's memory limit above
+(`maxArchiveBytes` + `maxBytes`) × the parallel reconciles of the content kinds, plus
+`cacheBytes`. With `networkPolicy.enabled`, add egress to your registries and
 download hosts through `networkPolicy.extraEgress`.
 
 ## Errors

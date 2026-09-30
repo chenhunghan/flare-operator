@@ -241,6 +241,11 @@ func (x *extractor) addTar(r io.Reader) error {
 		if err != nil {
 			return x.fail(err, "read tar archive")
 		}
+		if hdr.Typeflag == tar.TypeXGlobalHeader {
+			// A PAX global header (release tarballs made from a repository carry one): metadata
+			// of the archive, not a file.
+			continue
+		}
 		p, err := cleanRel(hdr.Name, true)
 		if err != nil {
 			return newErr(KindRejected, err, "tar entry")
@@ -260,6 +265,11 @@ func (x *extractor) addTar(r io.Reader) error {
 			}
 		}
 		_, in := under(p, x.root)
+		if in && isSparse(hdr) {
+			// archive/tar expands a sparse file's holes into zeros that are not in the (counted)
+			// stream, so they would escape the expanded-size and ratio limits.
+			return rejected("%q is a sparse file, which artifacts do not support", p)
+		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			continue
@@ -321,6 +331,20 @@ func (x *extractor) addTar(r io.Reader) error {
 		return x.err
 	}
 	return nil
+}
+
+// isSparse reports whether hdr is a GNU sparse file: the old GNU type, or GNU sparse PAX
+// records of any version (archive/tar keeps them in PAXRecords).
+func isSparse(hdr *tar.Header) bool {
+	if hdr.Typeflag == tar.TypeGNUSparse {
+		return true
+	}
+	for k := range hdr.PAXRecords {
+		if strings.HasPrefix(k, "GNU.sparse.") {
+			return true
+		}
+	}
+	return false
 }
 
 // addZip reads a zip archive held in memory into the staged layer.

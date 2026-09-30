@@ -60,8 +60,9 @@ reconcile:
 
 # Artifact sources: the ConfigMaps, OCI images and HTTPS archives that kinds deploying content
 # (Worker modules, static assets, Pages sites) read (--artifact-* flags, docs/artifacts.md). An
-# artifact is held in memory while it loads and loaded OCI and url artifacts are cached, so keep
-# resources.limits.memory above maxBytes x the parallel reconciles plus cacheBytes. Byte sizes
+# artifact (and a url source's archive) is held in memory while it loads and loaded OCI and url
+# artifacts are cached, so keep resources.limits.memory above (maxArchiveBytes + maxBytes) x the
+# parallel reconciles plus cacheBytes. Byte sizes
 # are Kubernetes quantities (64Mi). With networkPolicy.enabled, allow egress to your registries
 # and download hosts through networkPolicy.extraEgress.
 artifacts:

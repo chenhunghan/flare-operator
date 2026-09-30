@@ -11,7 +11,6 @@ import (
 	"path"
 	"regexp"
 
-	"golang.org/x/sync/singleflight"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,7 +25,7 @@ type Loader struct {
 	download  *http.Client
 	oci       http.RoundTripper
 	cache     *cache
-	flights   singleflight.Group
+	flights   flights
 }
 
 // NewLoader returns a Loader. Zero limits take the defaults.
@@ -102,7 +101,12 @@ func (l *Loader) loadConfigMaps(ctx context.Context, c client.Reader, ns string,
 			return nil, unusable("ConfigMap", ref.Name, "")
 		}
 		add := func(key, rel string, b []byte) error {
-			p, err := cleanRel(path.Join(dir, rel), false)
+			// Check rel before joining: path.Join would resolve its ".." segments away.
+			r, err := cleanRel(rel, false)
+			if err != nil {
+				return newErr(KindInvalid, err, "ConfigMap %s key %s", cm.Name, key)
+			}
+			p, err := cleanRel(path.Join(dir, r), false)
 			if err != nil {
 				return newErr(KindInvalid, err, "ConfigMap %s key %s", cm.Name, key)
 			}
@@ -177,7 +181,7 @@ func (l *Loader) loadURL(ctx context.Context, s *sharedv1alpha1.URLArtifactSourc
 	if t, ok := l.cache.get(key); ok {
 		return t, nil
 	}
-	v, err, _ := l.flights.Do(key, func() (any, error) {
+	return l.flights.do(ctx, key, func(ctx context.Context) (*Tree, error) {
 		b, err := l.fetchArchive(ctx, u)
 		if err != nil {
 			return nil, err
@@ -197,10 +201,6 @@ func (l *Loader) loadURL(ctx context.Context, s *sharedv1alpha1.URLArtifactSourc
 		l.cache.put(key, t)
 		return t, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	return v.(*Tree), nil
 }
 
 // fetchArchive downloads u into memory, at most MaxArchiveBytes.

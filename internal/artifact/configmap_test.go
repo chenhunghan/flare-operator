@@ -76,6 +76,8 @@ func TestConfigMapSource(t *testing.T) {
 		"traversal path": {cmSource(sharedv1alpha1.ConfigMapArtifact{Name: "root", Path: "../x"}), KindInvalid, ""},
 		"traversal item": {cmSource(sharedv1alpha1.ConfigMapArtifact{Name: "css", Items: []sharedv1alpha1.ArtifactKeyToPath{{Key: "a.css", Path: "a/../../b"}}}),
 			KindInvalid, ""},
+		"traversal item under path": {cmSource(sharedv1alpha1.ConfigMapArtifact{Name: "css", Path: "d/e", Items: []sharedv1alpha1.ArtifactKeyToPath{{Key: "a.css", Path: "a/../../x"}}}),
+			KindInvalid, `".." segment`},
 		"absolute item": {cmSource(sharedv1alpha1.ConfigMapArtifact{Name: "css", Items: []sharedv1alpha1.ArtifactKeyToPath{{Key: "a.css", Path: "/etc/x"}}}),
 			KindInvalid, ""},
 		"no files":      {cmSource(sharedv1alpha1.ConfigMapArtifact{Name: "empty"}), KindRejected, "no files"},

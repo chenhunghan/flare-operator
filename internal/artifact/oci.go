@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -63,8 +64,14 @@ func (l *Loader) loadOCI(ctx context.Context, c client.Reader, ns string, s *sha
 	if t, ok := l.cache.get(key); ok {
 		return t, nil
 	}
-	v, err, _ := l.flights.Do(key, func() (any, error) {
-		img, err := imageOf(desc)
+	return l.flights.do(ctx, key, func(fctx context.Context) (*Tree, error) {
+		// desc fetches with the caller's context; the shared load gets the manifest again, by
+		// digest, under the flight's own context.
+		fdesc, err := remote.Get(ref.Context().Digest(resolved), append(slices.Clip(opts), remote.WithContext(fctx))...)
+		if err != nil {
+			return nil, fetchErr(err, "get manifest of %s", ref.Name())
+		}
+		img, err := imageOf(fdesc)
 		if err != nil {
 			return nil, err
 		}
@@ -80,15 +87,20 @@ func (l *Loader) loadOCI(ctx context.Context, c client.Reader, ns string, s *sha
 		l.cache.put(key, t)
 		return t, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	return v.(*Tree), nil
 }
 
-// imageOf returns the image of desc: the image itself, the only image of an index, or the
-// linux/amd64 image of a multi-platform index (the content of a static-site image is the same
-// on every platform).
+// isAttestation reports whether an index entry is an attestation manifest (BuildKit's
+// provenance and SBOM, platform unknown/unknown) rather than a platform image.
+func isAttestation(m v1.Descriptor) bool {
+	if m.Annotations["vnd.docker.reference.type"] == "attestation-manifest" {
+		return true
+	}
+	return m.Platform != nil && m.Platform.OS == "unknown" && m.Platform.Architecture == "unknown"
+}
+
+// imageOf returns the image of desc: the image itself, the only image of an index (attestation
+// manifests aside), or the linux/amd64 image of a multi-platform index (the content of a
+// static-site image is the same on every platform).
 func imageOf(desc *remote.Descriptor) (v1.Image, error) {
 	switch {
 	case desc.MediaType.IsIndex():
@@ -102,7 +114,7 @@ func imageOf(desc *remote.Descriptor) (v1.Image, error) {
 		}
 		var images []v1.Descriptor
 		for _, m := range im.Manifests {
-			if m.MediaType.IsImage() {
+			if m.MediaType.IsImage() && !isAttestation(m) {
 				images = append(images, m)
 			}
 		}

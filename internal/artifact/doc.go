@@ -11,7 +11,8 @@
 //   - Links: a symbolic link must resolve, within the selected root, to a regular file (its
 //     content is copied); a hard link must name an earlier regular file inside the root.
 //     Absolute link targets are refused for archives; in OCI images they are relative to the
-//     image root. Device files, FIFOs and sockets are refused.
+//     image root. Device files, FIFOs, sockets and sparse files (whose holes the size limits
+//     would not see) are refused.
 //   - Size (Limits, from the manager's --artifact-* flags): files and bytes of the tree, bytes
 //     downloaded, bytes decompressed and the decompressed/compressed ratio (zip and tar bombs).
 //   - Network: HTTPS only, redirects only to HTTPS, no proxy from the environment, and every

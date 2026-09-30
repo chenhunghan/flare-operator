@@ -3,9 +3,11 @@ package artifact
 import (
 	"archive/tar"
 	"bytes"
+	"fmt"
 	"io/fs"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -177,4 +179,140 @@ func TestDetectFormat(t *testing.T) {
 	if f := detectFormat([]byte("BZh9")); f != "" {
 		t.Errorf("bzip2 detected as %q", f)
 	}
+}
+
+// rawTarHeader builds a 512-byte tar header (ustar magic, or GNU magic with gnu set) by hand,
+// for entries archive/tar's Writer refuses to write.
+func rawTarHeader(name string, typ byte, size int64, gnu bool) []byte {
+	h := make([]byte, 512)
+	copy(h[0:100], name)
+	copy(h[100:108], "0000644\x00")
+	copy(h[108:116], "0000000\x00")
+	copy(h[116:124], "0000000\x00")
+	copy(h[124:136], fmt.Sprintf("%011o\x00", size))
+	copy(h[136:148], "00000000000\x00")
+	h[156] = typ
+	if gnu {
+		copy(h[257:265], "ustar  \x00")
+	} else {
+		copy(h[257:265], "ustar\x0000")
+	}
+	return h
+}
+
+// finishTarHeader writes the checksum of a header built by rawTarHeader.
+func finishTarHeader(h []byte) []byte {
+	copy(h[148:156], "        ")
+	var s int64
+	for _, c := range h {
+		s += int64(c)
+	}
+	copy(h[148:156], fmt.Sprintf("%06o\x00 ", s))
+	return h
+}
+
+func padBlock(b []byte) []byte {
+	if r := len(b) % 512; r != 0 {
+		b = append(b, make([]byte, 512-r)...)
+	}
+	return b
+}
+
+// paxRecord formats one PAX record ("<len> <key>=<value>\n", the length counting itself).
+func paxRecord(k, v string) string {
+	rest := " " + k + "=" + v + "\n"
+	n := len(rest) + 1
+	for len(strconv.Itoa(n))+len(rest) != n {
+		n++
+	}
+	return strconv.Itoa(n) + rest
+}
+
+// sparseTar is a tar of count GNU PAX 0.1 sparse entries named name, each declaring a logical
+// size of size bytes that is all hole (no data in the stream).
+func sparseTar(name string, size int64, count int) []byte {
+	recs := paxRecord("GNU.sparse.numblocks", "1") + paxRecord("GNU.sparse.map", "0,0") +
+		paxRecord("GNU.sparse.size", strconv.FormatInt(size, 10))
+	var b []byte
+	for range count {
+		b = append(b, finishTarHeader(rawTarHeader("PaxHeaders/"+name, tar.TypeXHeader, int64(len(recs)), false))...)
+		b = padBlock(append(b, recs...))
+		b = append(b, finishTarHeader(rawTarHeader(name, tar.TypeReg, 0, false))...)
+	}
+	return append(b, make([]byte, 1024)...)
+}
+
+// oldGNUSparseTar is a tar with one old-GNU-format sparse entry ('S') of the given logical
+// size and no data.
+func oldGNUSparseTar(name string, size int64) []byte {
+	h := rawTarHeader(name, tar.TypeGNUSparse, 0, true)
+	copy(h[483:495], fmt.Sprintf("%011o\x00", size)) // realsize
+	return append(finishTarHeader(h), make([]byte, 1024)...)
+}
+
+func TestExtractArchiveSparse(t *testing.T) {
+	// Holes are not in the stream the limits count: a 2.5 KiB tar would expand to 32 MiB per
+	// entry, and repeating the entry at one path would never grow the tree.
+	lim := Limits{MaxExpandedBytes: 4 << 20, MaxCompressionRatio: 2}.withDefaults()
+	for name, b := range map[string][]byte{
+		"pax sparse":            sparseTar("big", 32<<20, 1),
+		"pax sparse repeated":   sparseTar("big", 32<<20, 200),
+		"old gnu sparse":        oldGNUSparseTar("big", 32<<20),
+		"pax sparse gzip":       gz(t, sparseTar("big", 32<<20, 1)),
+		"pax sparse, other dir": sparseTar("site/big", 32<<20, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := ""
+			if strings.HasSuffix(name, "other dir") {
+				root = "site"
+			}
+			_, err := extractArchive(b, root, lim)
+			wantKind(t, err, KindRejected, "sparse")
+		})
+	}
+	// Outside the selected path a sparse entry is skipped without being expanded.
+	b := sparseTar("other/big", 32<<20, 1)
+	b = append(b[:len(b)-1024], tarOf(t, file("site/index.html", "ok"))...)
+	files, err := extractArchive(b, "site", lim)
+	if err != nil || string(files["index.html"]) != "ok" {
+		t.Fatalf("files %v, err %v", files, err)
+	}
+}
+
+func TestExtractArchiveGlobalHeader(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeXGlobalHeader, Name: "pax_global_header",
+		PAXRecords: map[string]string{"comment": "0123456789abcdef"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: "index.html", Size: 2, Mode: 0o644}); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = tw.Write([]byte("ok"))
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	files, err := extractArchive(buf.Bytes(), "", testLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || string(files["index.html"]) != "ok" {
+		t.Errorf("files = %v", files)
+	}
+}
+
+func TestExtractZipBomb(t *testing.T) {
+	big := strings.Repeat("a", 3<<20) // deflates ~1000:1
+	t.Run("ratio", func(t *testing.T) {
+		_, err := extractArchive(zipOf(t, zent{name: "big", body: big}), "", testLimits())
+		wantKind(t, err, KindRejected, "--artifact-max-compression-ratio")
+	})
+	t.Run("expanded bytes", func(t *testing.T) {
+		lim := testLimits()
+		lim.MaxExpandedBytes = 2 << 20
+		lim.MaxCompressionRatio = 1 << 40
+		_, err := extractArchive(zipOf(t, zent{name: "big", body: big}), "", lim)
+		wantKind(t, err, KindRejected, "--artifact-max-expanded-bytes")
+	})
 }
