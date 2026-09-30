@@ -88,6 +88,13 @@ cases fail. `TestCrashThenDeleteBeforeRestart` runs the same cases but deletes t
 no manager runs and checks that the restarted manager deletes the resource (none left, one
 create); without `AdoptPendingCreate` all 14 cases leak.
 
+A WorkerScript with static assets (case `WorkerScript/assets`) uploads its assets before the
+create-pending record: its record carries the assets hash too, so the adopted script is neither
+uploaded again nor are its assets. `TestCrashAfterAssetsBeforeScriptUpload` crashes at the
+create-pending record, after the bucket uploads and before the script upload: the restarted
+manager opens one new session, which finds every file uploaded (no bucket), and uploads the
+script once.
+
 ## 2. Faults
 
 Every fault test also checks the flarefake journal against a call budget: `kvCreateBudget`

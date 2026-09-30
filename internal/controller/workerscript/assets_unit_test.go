@@ -186,6 +186,22 @@ func TestAssetsFlowAgainstSpec(t *testing.T) {
 	}
 }
 
+// FuzzIgnoreMatcher: any .assetsignore content and path is handled without a panic, and the
+// root metafiles stay ignored unless a pattern negates.
+func FuzzIgnoreMatcher(f *testing.F) {
+	for _, s := range []string{"*.map\n!keep.map\n", "[z-a]\n[[:alpha:]\n\\", "**/\n/**\n**", "a/**/b\n#x\n\\#y  \n"} {
+		f.Add(s, "a/b/c.map")
+	}
+	f.Fuzz(func(t *testing.T, ignore, p string) {
+		m := newIgnoreMatcher(append([]string{"/" + assetsIgnoreFile, "/" + assetsHeadersFile}, strings.Split(ignore, "\n")...))
+		_ = m.ignored(p)
+		// (A negated pattern may re-include them, as in wrangler's ignore package.)
+		if !strings.Contains(ignore, "!") && (!m.ignored(assetsIgnoreFile) || !m.ignored(assetsHeadersFile)) {
+			t.Fatalf("a root metafile is not ignored with %q", ignore)
+		}
+	})
+}
+
 func TestAssetPlanHash(t *testing.T) {
 	m, _ := buildAssetManifest(files(map[string]string{"index.html": "x"}))
 	a := newAssetPlan(m, nil)

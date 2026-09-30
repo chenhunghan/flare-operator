@@ -252,7 +252,9 @@ func TestModuleSourceArtifact(t *testing.T) {
 	h.waitScript("bundled", func(ws *workersv1alpha1.WorkerScript) bool {
 		return hasCond(ws.Status.Conditions, ws.Generation, "Synced", metav1.ConditionFalse, "InvalidSpec")
 	})
-	h.updateScript("bundled", func(ws *workersv1alpha1.WorkerScript) { ws.Spec.ForProvider.ModuleTypes = map[string]string{"notes.rst": "text"} })
+	h.updateScript("bundled", func(ws *workersv1alpha1.WorkerScript) {
+		ws.Spec.ForProvider.ModuleTypes = map[string]string{"notes.rst": "text"}
+	})
 	h.waitScript("bundled", scriptReady)
 }
 

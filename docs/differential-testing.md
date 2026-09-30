@@ -15,6 +15,7 @@ Each mismatch is recorded as a **known discrepancy**. It becomes a skipped subte
 |---|---|
 | `test/differential/harness/` | In-process flarefake on a random port (`harness.Start`). It captures every request (method, path, query, Content-Type, User-Agent, body prefix, status, envelope error codes). It also holds `Discrepancy`, `KnownSpecDefects`, and shims (test-local answers for a route flarefake lacks, registered only together with the discrepancy they name; none is in use). There is no build tag, and its unit tests run in `make test`. |
 | `test/differential/wrangler_test.go` | wrangler scenario (build tag `differential`) |
+| `test/differential/wrangler_assets_test.go` | wrangler static-assets scenario (a Worker with assets, an assets-only site) |
 | `test/differential/cloudflared_test.go` | cloudflared management-API scenario |
 | `test/differential/go/` | A **separate Go module** (its own `go.mod`, with `replace flare.dev/operator => ../../..`) that pins cloudflare-go. The operator's `go.mod` stays free of the SDK. |
 | `test/differential/npm/` | `package.json` and `package-lock.json` that pin wrangler and its dependency tree |
