@@ -1,0 +1,42 @@
+# The Pages variant of the app: the same frontend and the same API code, deployed as a Pages
+# project with Direct Upload (pages/deployment.yaml) instead of as a Worker. It binds the same
+# D1 database, R2 bucket and KV namespace (data.yaml) under the same names, so both variants
+# share one set of data.
+#
+# For a new project Cloudflare recommends Workers static assets (worker.yaml) over Pages; this
+# variant is for teams that already run on Pages. To deploy only the Worker, drop the pages/
+# resources and the notes-pages-site generator from kustomization.yaml.
+apiVersion: pages.cloudflare.flare.dev/v1alpha1
+kind: PagesProject
+metadata:
+  name: notes-pages
+spec:
+  accountRef:
+    name: main
+  # deletionPolicy: Delete is the default. Deleting the project waits for this namespace's
+  # PagesDeployments of it; Cloudflare deletes the project's deployments with it.
+  forProvider:
+    name: flare-notes-example            # immutable, and the <name>.pages.dev subdomain, so it
+                                         # must be free on all of Pages: pick your own
+    production_branch: main
+    deployment_configs:
+      production:                        # authoritative: bindings not listed here are removed
+        compatibility_date: "2026-09-01"
+        env_vars:
+          - name: SESSION_SECRET
+            type: secret_text
+            secretKeyRef:                # the Worker's Secret (it carries the opt-in label)
+              name: notes-app-secrets
+              key: session-secret
+        d1_databases:
+          - name: DB
+            d1DatabaseRef:
+              name: notes-db
+        r2_buckets:
+          - name: FILES
+            r2BucketRef:
+              name: notes-files
+        kv_namespaces:
+          - name: SESSIONS
+            kvNamespaceRef:
+              name: notes-sessions

@@ -80,6 +80,7 @@ func TestEndToEnd(t *testing.T) {
 		{"Update", func(t *testing.T) { s.testUpdate(t, o) }},
 		{"ForeignOwnerKept", s.testForeignOwner},
 		{"ObserveOnly", s.testObserveOnly},
+		{"FullStack", s.testFullStack}, // examples/fullstack, in a namespace and account of its own
 		{"DeleteOrder", func(t *testing.T) { s.testDeleteOrder(t, o) }},
 		{"AccountProtection", func(t *testing.T) { s.testAccountProtection(t, o) }},
 		{"NamespaceTeardown", func(t *testing.T) { s.testNamespaceTeardown(t, o) }},

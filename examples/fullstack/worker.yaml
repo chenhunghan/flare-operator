@@ -1,0 +1,53 @@
+# The whole app as one Worker, the layout Cloudflare recommends for a new full-stack app: the
+# frontend (public/) is the Worker's static assets, served by Cloudflare without running any
+# code, and the API (worker/index.js) runs only for /api/*. Both come from ConfigMaps that
+# kustomization.yaml generates from the files, labelled cloudflare.flare.dev/artifact=true
+# (only labelled ConfigMaps are read). Editing a file and applying again uploads only what
+# changed: a code change uploads no asset, and an asset change uploads only the changed files.
+apiVersion: workers.cloudflare.flare.dev/v1alpha1
+kind: WorkerScript
+metadata:
+  name: notes-app
+spec:
+  accountRef:
+    name: main
+  # deletionPolicy: Delete is the default for Workers (a script is code, not data).
+  forProvider:
+    main_module: index.js
+    compatibility_date: "2026-09-01"
+    moduleSource:                        # the API: worker/index.js
+      configMapRef:
+        configMaps:
+          - name: notes-app-api
+    assets:                              # the frontend: public/
+      source:
+        configMapRef:
+          configMaps:
+            - name: notes-app-site
+      config:
+        not_found_handling: single-page-application   # deep links get index.html
+        run_worker_first_paths: ["/api/*"]            # only the API runs the code
+    bindings:
+      - name: ASSETS
+        type: assets
+      - name: DB
+        type: d1
+        d1DatabaseRef:
+          name: notes-db                 # bound as its database_id once it is Ready
+      - name: FILES
+        type: r2_bucket
+        r2BucketRef:
+          name: notes-files              # bound as its bucket name (and jurisdiction)
+      - name: SESSIONS
+        type: kv_namespace
+        kvNamespaceRef:
+          name: notes-sessions           # bound as its namespace_id
+      - name: SESSION_SECRET
+        type: secret_text
+        secretKeyRef:
+          name: notes-app-secrets        # labelled cloudflare.flare.dev/worker-binding=true
+          key: session-secret
+    observability:
+      enabled: true                      # Workers Logs (the API's console.error)
+    workersDev:
+      enabled: true                      # https://notes-app.<your subdomain>.workers.dev
