@@ -1,0 +1,38 @@
+# kubectl apply -k examples/fullstack   (README.md has the whole walkthrough)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: flare-fullstack
+resources:
+  - namespace.yaml
+  - account.yaml
+  - secrets.yaml
+  - data.yaml
+  - worker.yaml
+  # The Pages variant. To deploy only the Worker, remove these two and the notes-pages-site
+  # generator below.
+  - pages/project.yaml
+  - pages/deployment.yaml
+# The app's files as ConfigMaps. Their names stay fixed (no hash suffix) because the
+# WorkerScript and the PagesDeployment refer to them by name: a change of a file updates the
+# ConfigMap in place, and the operator uploads the change. The label opts them in as artifact
+# sources.
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    cloudflare.flare.dev/artifact: "true"
+configMapGenerator:
+  - name: notes-app-site               # the Worker's static assets
+    files:
+      - public/index.html
+      - public/app.js
+      - public/style.css
+  - name: notes-app-api                # the Worker's module
+    files:
+      - worker/index.js
+  - name: notes-pages-site             # the Pages deployment: the same site and the same code
+    files:
+      - public/index.html
+      - public/app.js
+      - public/style.css
+      - _worker.js=worker/index.js
+      - pages/site/_routes.json

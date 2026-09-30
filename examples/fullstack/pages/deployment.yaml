@@ -1,0 +1,30 @@
+# A production deployment of the Pages variant (no branch: the production branch). Its files
+# come from the notes-pages-site ConfigMap that kustomization.yaml generates: public/ as the
+# static site, worker/index.js as _worker.js (Pages' advanced mode: one Worker handles the
+# requests that _routes.json sends to it) and pages/site/_routes.json (only /api/* invokes the
+# Worker). A path that matches no file gets index.html, because the site has no 404.html (the
+# single-page-application behaviour of Pages).
+#
+# A change of the files deploys again. For a release built by CI, use an archive instead:
+#   source:
+#     url:
+#       url: https://github.com/<you>/<repo>/releases/download/v1.0.0/site.tar.gz
+#       sha256: <the archive's SHA-256>
+#
+# Cloudflare never deletes a project's live production deployment, so deleting this object
+# keeps it; it goes when the PagesProject is deleted.
+apiVersion: pages.cloudflare.flare.dev/v1alpha1
+kind: PagesDeployment
+metadata:
+  name: notes-pages-production
+spec:
+  accountRef:
+    name: main
+  forProvider:
+    projectRef:
+      name: notes-pages
+    commit_message: deployed by flare-operator (examples/fullstack)
+    source:
+      configMapRef:
+        configMaps:
+          - name: notes-pages-site

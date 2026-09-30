@@ -1,13 +1,16 @@
 // Package examples_test checks that every manifest in examples/ is accepted by a real API server
 // (envtest) with the CRDs of config/crd/bases: OpenAPI schema, CEL rules and strict field
 // validation (unknown fields fail), through a server-side dry-run create. It also requires an
-// example for every kind in config/crd/bases.
+// example for every kind in config/crd/bases. For examples/fullstack it validates every file
+// and the kustomize output, and runs the whole app against the operator's controllers and
+// flarefake (fullstack_test.go).
 package examples_test
 
 import (
 	"bufio"
 	"bytes"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -25,12 +28,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
+	"flare.dev/operator/internal/fake"
 	"flare.dev/operator/internal/testenv"
 )
 
 var env *testenv.Env
 
-func TestMain(m *testing.M) { testenv.Main(m, &env, testenv.Options{}) }
+func TestMain(m *testing.M) {
+	flag.Parse()
+	opts := testenv.Options{}
+	if !testing.Short() {
+		// R2 buckets (TestFullStack) are served by the fake's generic profile, which loads the
+		// pinned spec; TestFullStack skips with -short. The fake also checks every request
+		// against the spec (as the e2e flarefake does), and TestFullStack fails on violations.
+		spec, err := fake.LoadDefaultSpec()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "load spec:", err)
+			os.Exit(1)
+		}
+		opts.Fake.Spec = spec
+		opts.Fake.Generic = fake.GeneratedGenericKinds()
+	}
+	testenv.Main(m, &env, opts)
+}
 
 // docs returns the non-empty YAML documents of file.
 func docs(t *testing.T, file string) []*unstructured.Unstructured {

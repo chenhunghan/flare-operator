@@ -1,0 +1,25 @@
+# The Cloudflare account every object of the example uses (spec.accountRef.name: main).
+# Placeholders only. Put your account ID below, and an API token with the permissions listed
+# in README.md ("Token permissions") in the Secret. Or better, create the Secret yourself and
+# delete only the Secret document below from this file, keeping CloudflareAccount main, so the
+# token is never committed. The namespace must exist first:
+#
+#   kubectl apply -f examples/fullstack/namespace.yaml
+#   kubectl -n flare-fullstack create secret generic cloudflare-token --from-literal=token=...
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudflare-token
+type: Opaque
+stringData:
+  token: REPLACE-WITH-YOUR-API-TOKEN
+---
+apiVersion: cloudflare.flare.dev/v1alpha1
+kind: CloudflareAccount
+metadata:
+  name: main
+spec:
+  accountID: 0123456789abcdef0123456789abcdef   # your 32-character account ID
+  tokenSecretRef:
+    name: cloudflare-token
+    key: token

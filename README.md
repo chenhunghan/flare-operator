@@ -230,6 +230,7 @@ against the CRDs on an envtest API server: schema, CEL rules and strict field va
 | [workerscript-fullstack.yaml](examples/workerscript-fullstack.yaml) | a static site with an API Worker (static assets, an `assets`, an `r2_bucket` and a `send_email` binding), an `R2Bucket` bound through `r2BucketRef`, an assets-only site from an archive, and modules from an OCI image |
 | [pagesproject.yaml](examples/pagesproject.yaml) | a `PagesProject` with environment variables (one from a Secret) and `*Ref` bindings, and an observe-only one |
 | [pagesdeployment.yaml](examples/pagesdeployment.yaml) | a production `PagesDeployment` from ConfigMaps, a preview one from an HTTPS archive, and one observing the live deployment |
+| [fullstack/](examples/fullstack/README.md) | a complete notes app for `kubectl apply -k`: one Worker with static assets (SPA) and an API bound to D1, R2, KV and a secret, plus a Pages variant of it. Its README covers token permissions, deploying, the D1 schema, checking status and teardown. `TestFullStack` runs it against flarefake. |
 
 ### Trying it without a Cloudflare account
 
@@ -750,6 +751,7 @@ validated and what remains UNVERIFIED. In short:
 | `POST` / `DELETE /_fake/faults` | `{"method":"POST","path_regex":"/queues$","status":500,"code":10001,"message":"…","times":1}` fails matching requests (`times` ≤ 0: until cleared) |
 | `POST` / `DELETE /_fake/tokens` | Register tokens (`{"token":"…","kind":"account","account_id":"…"}`), which switches token checks to strict mode, or clear them |
 | `POST /_fake/accounts/{account}/tunnels/{id}/connect` / `…/disconnect` | Simulate `cloudflared` connecting (`{"replicas":1,"connections":4}`) or disconnecting |
+| `GET /_fake/accounts/{account}/workers/{script}/assets` | The deployed version's static-assets manifest (path to hash) and assets config, which the API cannot read back |
 
 ### Differential testing
 
@@ -823,7 +825,8 @@ internal/fake/           flarefake
 internal/testenv/        envtest + in-process flarefake test harness
 config/crd/bases/        generated CRDs;  config/rbac/  generated RBAC
 charts/flare-operator/   Helm chart (crds/ and ClusterRoles synced by make chart-sync)
-examples/                one annotated manifest per kind, validated by go test ./examples/
+examples/                one annotated manifest per kind, validated by go test ./examples/;
+                         fullstack/ is a whole app for kubectl apply -k
 spec/                    pinned Cloudflare OpenAPI spec (gzipped) + LOCK
 test/recordings/         sanitized real-API recordings replayed by make conformance
 test/chart/              chart rendering and values-table tests

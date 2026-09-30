@@ -11,6 +11,13 @@ the chart version in `charts/flare-operator/Chart.yaml` is bumped on every chart
 Nothing has been released yet. This section collects what the first release will contain.
 
 ### Added
+- `examples/fullstack`: a complete notes app for `kubectl apply -k`. One Worker serves the
+  static-assets SPA and an API bound to D1, R2, KV and a `secret_text` Secret, with workers.dev
+  on. A Pages variant binds the same data. Its README covers token permissions, deploying,
+  applying the D1 schema with wrangler, status fields and teardown per `deletionPolicy`.
+  `go test ./examples/` validates every file and the kustomize output. `TestFullStack` applies
+  it against flarefake and checks readiness, wiring, zero writes on re-reconcile and teardown,
+  and the e2e suite has a `FullStack` step that does the same.
 - Kinds: `CloudflareAccount` (token verification, rate-limit settings, usage protection),
   generated `KVNamespace`, `Queue` and `D1Database`, and hand-written `Tunnel` (with a managed
   `cloudflared` Deployment and an egress NetworkPolicy) and `VPCService`.

@@ -64,6 +64,7 @@ type workerResources struct {
 	Etag        string
 	StartupMs   int
 	Assets      *workerAssets // nil without static assets (workers_assets.go)
+	MainCode    []byte        // the entry module's source as uploaded (inspection only, see WorkerMainModule)
 }
 
 type workerVersion struct {

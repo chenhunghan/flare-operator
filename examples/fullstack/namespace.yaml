@@ -1,0 +1,6 @@
+# Everything of the example lives in this namespace (kustomization.yaml sets it on every
+# object). Deleting it tears the app down; see README.md, "Teardown".
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flare-fullstack

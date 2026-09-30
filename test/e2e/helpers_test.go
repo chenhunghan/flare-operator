@@ -34,7 +34,9 @@ import (
 	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
 	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
 	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
+	pagesv1alpha1 "flare.dev/operator/api/pages/v1alpha1"
 	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
+	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
 	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
 	vectorizev1alpha1 "flare.dev/operator/api/vectorize/v1alpha1"
 	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
@@ -86,6 +88,7 @@ func scheme() *runtime.Scheme {
 	for _, add := range []func(*runtime.Scheme) error{
 		clientgoscheme.AddToScheme, cloudflarev1alpha1.AddToScheme, kvv1alpha1.AddToScheme, queuesv1alpha1.AddToScheme,
 		d1v1alpha1.AddToScheme, tunnelsv1alpha1.AddToScheme, workersvpcv1alpha1.AddToScheme, workersv1alpha1.AddToScheme, vectorizev1alpha1.AddToScheme,
+		pagesv1alpha1.AddToScheme, r2v1alpha1.AddToScheme,
 	} {
 		if err := add(s); err != nil {
 			panic(err)
@@ -227,6 +230,12 @@ func (e journalEntry) write() bool { return e.Method != "GET" && e.Method != "HE
 // operator made for it, plus the suite's own X-Auth-Key GETs).
 func (s *suite) journal() []journalEntry {
 	s.t.Helper()
+	return s.journalFor(s.accountID)
+}
+
+// journalFor returns flarefake's journal entries for the account accountID.
+func (s *suite) journalFor(accountID string) []journalEntry {
+	s.t.Helper()
 	b, err := s.fake("GET", "/_fake/journal", nil)
 	if err != nil {
 		s.t.Fatalf("read flarefake journal: %v", err)
@@ -235,7 +244,7 @@ func (s *suite) journal() []journalEntry {
 	if err := json.Unmarshal(b, &all); err != nil {
 		s.t.Fatalf("decode journal: %v", err)
 	}
-	prefix := "/accounts/" + s.accountID
+	prefix := "/accounts/" + accountID
 	var out []journalEntry
 	for _, e := range all {
 		if e.Path == prefix || strings.HasPrefix(e.Path, prefix+"/") {
@@ -268,6 +277,8 @@ var knownSpecDefects = []struct{ method, pathPart, contains, why string }{
 	{"POST", "/d1/database", `"/primary_location_hint": value is not one of the allowed values`, "spec enum is lower-case; the API wants upper-case (0019)"},
 	{"", "/d1/database/", `parameter "database_id" in path has an error: input matches more than one oneOf schemas`, "UUID matches the oneOf twice (0020)"},
 	{"DELETE", "/storage/kv/namespaces/", "request body has an error: value is required but missing", "the API deletes without a body (0013)"},
+	{"POST", "/pages/projects/", "path manifest: not matching content types",
+		"wrangler sends the deployment manifest as a plain form field; the spec's encoding says application/json (internal/controller/pagesdeployment/spec_test.go)"},
 }
 
 func knownDefect(e journalEntry) bool {

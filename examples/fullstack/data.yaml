@@ -1,0 +1,44 @@
+# The app's data: a D1 database for the notes, an R2 bucket for attachments and a KV namespace
+# for sessions and the note-list cache. The Worker (worker.yaml) and the Pages variant
+# (pages/project.yaml) bind them by reference: they wait until these are Ready, then bind
+# their Cloudflare IDs.
+#
+# The operator creates the D1 database but runs no SQL in it: apply schema.sql yourself
+# (README.md, "Apply the D1 schema").
+apiVersion: d1.cloudflare.flare.dev/v1alpha1
+kind: D1Database
+metadata:
+  name: notes-db
+spec:
+  accountRef:
+    name: main
+  # deletionPolicy: Orphan is the default for D1 (the database holds data): deleting this
+  # object, or the namespace, keeps the database in Cloudflare.
+  forProvider:
+    name: notes-db                 # the Cloudflare name (wrangler d1 execute notes-db ...)
+    primary_location_hint: WEUR    # create-only: WNAM ENAM WEUR EEUR APAC OC
+---
+apiVersion: r2.cloudflare.flare.dev/v1alpha1
+kind: R2Bucket
+metadata:
+  name: notes-files
+spec:
+  accountRef:
+    name: main
+  # deletionPolicy: Orphan is the default for R2 (a bucket holds data). With Delete, a bucket
+  # that still holds objects cannot be deleted (Synced=False, DeleteFailed) until it is empty.
+  forProvider:
+    name: notes-files              # unique per account; the Worker binds it as env.FILES
+---
+apiVersion: kv.cloudflare.flare.dev/v1alpha1
+kind: KVNamespace
+metadata:
+  name: notes-sessions
+spec:
+  accountRef:
+    name: main
+  # Sessions and a 60-second cache are disposable, so this namespace is deleted with the app
+  # (the default for KV is Orphan).
+  deletionPolicy: Delete
+  forProvider:
+    title: notes-sessions

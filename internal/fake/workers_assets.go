@@ -129,6 +129,24 @@ func (s *Server) WorkerAssets(accountID, script string) (map[string]string, map[
 	return m, as.Config, true
 }
 
+// WorkerMainModule returns the main_module name and the entry module's source of the deployed
+// version of script, and whether the script exists. It is for tests only; the API's GET of the
+// script content is not emulated.
+func (s *Server) WorkerMainModule(accountID, script string) (string, []byte, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.accounts[accountID]
+	if !ok {
+		return "", nil, false
+	}
+	w, ok := a.scripts[script]
+	if !ok {
+		return "", nil, false
+	}
+	res := w.deployedVersion().res
+	return res.MainModule, append([]byte(nil), res.MainCode...), true
+}
+
 // UploadedAsset returns an asset uploaded for script by its hash.
 func (s *Server) UploadedAsset(accountID, script, hash string) (AssetFile, bool) {
 	s.mu.Lock()

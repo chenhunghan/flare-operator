@@ -116,6 +116,12 @@ func TestWorkerUploadLifecycle(t *testing.T) {
 	if up2["tag"] != tag || up2["created_on"] != created || up2["etag"] == etag1 || up2["deployment_id"] == v1 {
 		t.Errorf("re-upload: %v", up2)
 	}
+	if mm, code, ok := s.WorkerMainModule(acctID, "w1"); !ok || mm != "index.js" || string(code) != moduleSrc+"// v2\n" {
+		t.Errorf("WorkerMainModule = %q, %q, %v; want the re-uploaded index.js", mm, code, ok)
+	}
+	if _, _, ok := s.WorkerMainModule(acctID, "nope"); ok {
+		t.Error("WorkerMainModule found a script that does not exist")
+	}
 
 	st, env, _ = c.do("GET", acct+"/workers/scripts/w1/versions", nil)
 	items := resultMap(t, env)["items"].([]any)

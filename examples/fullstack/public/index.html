@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notes</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header>
+    <a href="/" data-link class="brand">Notes</a>
+    <span class="hint">deployed with flare-operator</span>
+  </header>
+  <main id="app">
+    <p class="muted">Loading…</p>
+  </main>
+  <template id="list-view">
+    <form id="new-note" class="card">
+      <input name="title" placeholder="Title" required maxlength="200">
+      <textarea name="body" placeholder="Write something…" rows="3" maxlength="10000"></textarea>
+      <label class="file">Attachment <input name="file" type="file"></label>
+      <button>Add note</button>
+      <p class="error" hidden></p>
+    </form>
+    <ul id="notes"></ul>
+  </template>
+  <template id="note-view">
+    <article class="card">
+      <h2></h2>
+      <p class="body"></p>
+      <p class="attachment" hidden><a download>Download attachment</a></p>
+      <p class="muted created"></p>
+      <button class="danger" data-action="delete">Delete</button>
+      <a href="/" data-link>Back</a>
+    </article>
+  </template>
+</body>
+</html>
