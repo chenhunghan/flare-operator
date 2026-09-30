@@ -23,7 +23,8 @@
 // (Setup nil), e.g. for API groups whose controllers are registered elsewhere.
 //
 // Deps carries the shared runtime: the Accounts cache/resolver, the ownership Tagger (a
-// NoopTagger when --ownership-tags=false) and the cluster name used in owner tags.
+// NoopTagger when --ownership-tags=false), the cluster name used in owner tags and the artifact
+// Loader.
 //
 // Leader election needs leases:
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
@@ -40,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"flare.dev/operator/internal/artifact"
 	"flare.dev/operator/internal/reconcile"
 )
 
@@ -51,6 +53,9 @@ type Deps struct {
 	// PollInterval is how often an in-sync object is re-read from Cloudflare to detect drift
 	// (the manager's --poll-interval); 0 keeps each controller's default.
 	PollInterval time.Duration
+	// Artifacts loads the deployable content of kinds with a sharedv1alpha1.ArtifactSource
+	// (the manager's --artifact-* flags). Shared, so its cache is too.
+	Artifacts *artifact.Loader
 }
 
 // Registration describes one controller (and/or API scheme).

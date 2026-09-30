@@ -391,3 +391,32 @@ func TestReuseValuesFrom010(t *testing.T) {
 	}
 	manager(t, docs)
 }
+
+// TestArtifactArgs checks that the artifacts values reach the manager's --artifact-* flags,
+// that "0" disables the cache, and that the schema refuses malformed sizes and CIDRs.
+func TestArtifactArgs(t *testing.T) {
+	args := manager(t, mustRender(t)).Spec.Template.Spec.Containers[0].Args
+	for _, want := range []string{"--artifact-max-bytes=64Mi", "--artifact-max-files=20000", "--artifact-max-archive-bytes=64Mi",
+		"--artifact-max-expanded-bytes=256Mi", "--artifact-max-compression-ratio=100", "--artifact-cache-bytes=128Mi"} {
+		if !slices.Contains(args, want) {
+			t.Errorf("default args %v lack %s", args, want)
+		}
+	}
+	args = manager(t, mustRender(t, "string:artifacts.cacheBytes=0", "artifacts.allowedCIDRs={10.96.0.0/12,fd00::/8}",
+		"artifacts.maxBytes=")).Spec.Template.Spec.Containers[0].Args
+	for _, want := range []string{"--artifact-cache-bytes=0", "--artifact-allowed-cidr=10.96.0.0/12", "--artifact-allowed-cidr=fd00::/8"} {
+		if !slices.Contains(args, want) {
+			t.Errorf("args %v lack %s", args, want)
+		}
+	}
+	if slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "--artifact-max-bytes") }) {
+		t.Errorf("empty artifacts.maxBytes still passed: %v", args)
+	}
+	for _, set := range []string{"artifacts.maxBytes=lots", "artifacts.maxFiles=0", "artifacts.allowedCIDRs={nope}", "artifacts.cacheBytes=0", "artifacts.maxbytes=1Mi"} {
+		if _, stderr, err := render(t, set); err == nil {
+			t.Errorf("--set %s rendered; want a schema error", set)
+		} else if !strings.Contains(stderr, "schema") {
+			t.Errorf("--set %s: error does not mention the schema: %s", set, stderr)
+		}
+	}
+}

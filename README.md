@@ -527,6 +527,13 @@ suggests alerts.
 | `--max-concurrent-reconciles` | `1` | `reconcile.maxConcurrentReconciles` | Parallel reconciles per controller. |
 | `--reconcile-timeout` | `5m` | `reconcile.timeout` | Context deadline of one reconcile (`0` disables it). |
 | `--cloudflare-request-timeout` | `60s` | `reconcile.cloudflareRequestTimeout` | Timeout of one Cloudflare API HTTP request. |
+| `--artifact-max-bytes` | `64Mi` | `artifacts.maxBytes` | Largest total size of one artifact's files (a quantity); held in memory. See [docs/artifacts.md](docs/artifacts.md). |
+| `--artifact-max-files` | `20000` | `artifacts.maxFiles` | Most files in one artifact. |
+| `--artifact-max-archive-bytes` | `64Mi` | `artifacts.maxArchiveBytes` | Largest download of one artifact (a url archive, or an image's compressed layers). |
+| `--artifact-max-expanded-bytes` | `256Mi` | `artifacts.maxExpandedBytes` | Most bytes decompressed from one archive or image (zip/tar bomb limit). |
+| `--artifact-max-compression-ratio` | `100` | `artifacts.maxCompressionRatio` | Largest decompressed/compressed ratio (zip/tar bomb limit; checked after the first 1Mi). |
+| `--artifact-cache-bytes` | `128Mi` | `artifacts.cacheBytes` | Memory for cached OCI and url artifacts, by digest; `0` disables it. |
+| `--artifact-allowed-cidr` | `[]` | `artifacts.allowedCIDRs` | A non-public range url and ociRef sources may connect to (repeatable). Loopback, private, link-local and metadata addresses are refused otherwise. |
 | `--version` | `false` | | Print the version, commit and build date, and exit. |
 | `--kubeconfig` | `""` | | Kubeconfig path, only needed out of cluster (controller-runtime). |
 | `--zap-log-level` | | `logging.level` | `debug`, `info`, `error`, `panic`, or an integer verbosity (zap). |

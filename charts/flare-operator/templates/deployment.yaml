@@ -86,6 +86,30 @@ spec:
             - --cloudflare-request-timeout={{ . }}
             {{- end }}
             {{- end }}
+            {{- /* default dict: values reused from a chart version without artifacts (helm upgrade --reuse-values). */}}
+            {{- with (.Values.artifacts | default dict) }}
+            {{- with .maxBytes }}
+            - --artifact-max-bytes={{ . }}
+            {{- end }}
+            {{- with .maxFiles }}
+            - --artifact-max-files={{ . }}
+            {{- end }}
+            {{- with .maxArchiveBytes }}
+            - --artifact-max-archive-bytes={{ . }}
+            {{- end }}
+            {{- with .maxExpandedBytes }}
+            - --artifact-max-expanded-bytes={{ . }}
+            {{- end }}
+            {{- with .maxCompressionRatio }}
+            - --artifact-max-compression-ratio={{ . }}
+            {{- end }}
+            {{- with .cacheBytes }}
+            - --artifact-cache-bytes={{ . }}
+            {{- end }}
+            {{- range .allowedCIDRs }}
+            - --artifact-allowed-cidr={{ . }}
+            {{- end }}
+            {{- end }}
             - --zap-log-level={{ .Values.logging.level }}
             - --zap-encoder={{ .Values.logging.encoder }}
             {{- range .Values.extraArgs }}

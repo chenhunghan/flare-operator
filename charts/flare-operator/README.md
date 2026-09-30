@@ -80,6 +80,13 @@ toolchain has no helm-docs generator; the test takes its place.
 | `reconcile.maxConcurrentReconciles` | integer | `1` | `--max-concurrent-reconciles`: parallel reconciles per controller. All workers of a token share its rate limit. |
 | `reconcile.timeout` | string | `"5m"` | `--reconcile-timeout`: context deadline of one reconcile. `"0"` (quoted, or `--set-string`) or `0s` disables it; empty keeps the manager default (5m). |
 | `reconcile.cloudflareRequestTimeout` | string | `"60s"` | `--cloudflare-request-timeout`: timeout of one Cloudflare API HTTP request. |
+| `artifacts.maxBytes` | string | `"64Mi"` | `--artifact-max-bytes`: largest total size of one artifact's files (ConfigMaps, OCI image, archive), a quantity. The tree is held in memory. |
+| `artifacts.maxFiles` | integer | `20000` | `--artifact-max-files`: most files in one artifact. |
+| `artifacts.maxArchiveBytes` | string | `"64Mi"` | `--artifact-max-archive-bytes`: largest download of one artifact (a url archive, or the sum of an image's compressed layers). |
+| `artifacts.maxExpandedBytes` | string | `"256Mi"` | `--artifact-max-expanded-bytes`: most bytes decompressed from one archive or image, entries outside the selected path included (zip/tar bomb limit). |
+| `artifacts.maxCompressionRatio` | integer | `100` | `--artifact-max-compression-ratio`: largest decompressed/compressed ratio, checked after the first 1Mi. |
+| `artifacts.cacheBytes` | string | `"128Mi"` | `--artifact-cache-bytes`: memory for cached OCI and url artifacts, by digest; `"0"` (quoted, or `--set-string`) disables the cache. Byte sizes are quantity strings; empty keeps the manager default. |
+| `artifacts.allowedCIDRs` | array | `[]` | `--artifact-allowed-cidr`, once per entry: non-public ranges url and ociRef sources may connect to (e.g. an in-cluster registry). Loopback, private, link-local (cloud metadata) and other special-purpose addresses are refused otherwise. |
 | `logging.level` | string or integer | `"info"` | `--zap-log-level`: `debug`, `info`, `error`, `panic`, or an integer verbosity. |
 | `logging.encoder` | string | `"json"` | `--zap-encoder`: `json` or `console`. |
 | `extraArgs` | array | `[]` | Extra manager command-line arguments. |

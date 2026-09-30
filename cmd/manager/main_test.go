@@ -48,6 +48,7 @@ func TestOptionsValidate(t *testing.T) {
 		"zero workers":               func(o *Options) { o.MaxConcurrentReconciles = 0 },
 		"negative reconcile timeout": func(o *Options) { o.ReconcileTimeout = -1 },
 		"negative request timeout":   func(o *Options) { o.CloudflareTimeout = -1 },
+		"negative artifact limit":    func(o *Options) { o.Artifacts.Limits.MaxFiles = -1 },
 	} {
 		o := ok
 		mut(&o)

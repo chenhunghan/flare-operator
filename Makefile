@@ -77,9 +77,10 @@ spec-check:      ## verify spec/openapi.json.gz matches spec/LOCK
 generate: controller-gen ## deepcopy methods for api/...
 	$(CONTROLLER_GEN) object paths="./api/..."
 
-manifests: controller-gen ## CRDs into config/crd/bases, RBAC into config/rbac
+manifests: controller-gen ## CRDs into config/crd/bases, RBAC into config/rbac (and the test-only ArtifactHolder CRD into internal/artifact/apitest/testdata)
 	$(CONTROLLER_GEN) rbac:roleName=flare-operator-manager crd paths="./api/..." paths="./internal/controller/..." paths="./internal/generic/kinds/..." \
 		output:crd:artifacts:config=config/crd/bases output:rbac:artifacts:config=config/rbac
+	$(CONTROLLER_GEN) crd paths="./internal/artifact/apitest/..." output:crd:artifacts:config=internal/artifact/apitest/testdata
 
 envtest: setup-envtest ## fetch envtest assets (kube-apiserver, etcd) into $(ENVTEST_DIR)/k8s
 	@echo "envtest assets: $(ENVTEST_ASSETS)"
@@ -128,7 +129,7 @@ fmt-check:       ## fail if gofmt would change anything in api, cmd, internal, t
 	@out="$$(gofmt -l api cmd internal test/e2e test/live test/differential)"; if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi; echo "gofmt OK"
 
 # Directories written by `make generate manifests` (controller-gen) and `make generate-crds` (flaregen).
-GENERATED_PATHS ?= api config internal/generic
+GENERATED_PATHS ?= api config internal/generic internal/artifact/apitest/testdata
 
 verify-generated: ## regenerate deepcopy/CRDs/RBAC, run flaregen -check and api-docs-check, fail if GENERATED_PATHS differ from HEAD
 	$(MAKE) generate manifests
