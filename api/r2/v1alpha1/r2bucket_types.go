@@ -11,7 +11,7 @@ import (
 // R2BucketParameters are the configurable fields of a R2Bucket: the request
 // bodies of POST /accounts/{account_id}/r2/buckets and PATCH /accounts/{account_id}/r2/buckets/{bucket_name}.
 type R2BucketParameters struct {
-	// cors is managed through PUT /accounts/{account_id}/r2/buckets/{bucket_name}/cors (and read with GET); unset leaves it as it is.
+	// cors is managed through PUT /accounts/{account_id}/r2/buckets/{bucket_name}/cors (and read with GET); unset leaves it as it is; an empty value ({}, or with empty lists only) removes it with DELETE.
 	// +optional
 	Cors *R2BucketCorsParameters `json:"cors,omitempty"`
 	// Jurisdiction where objects in this bucket are guaranteed to be stored. Sent as the cf-r2-jurisdiction header of every request; it selects where the resource lives, so it cannot be set, changed or removed once the resource exists.
@@ -37,7 +37,7 @@ type R2BucketParameters struct {
 
 // R2BucketCorsParameters is a nested object of the Cloudflare API schema.
 //
-// cors is managed through PUT /accounts/{account_id}/r2/buckets/{bucket_name}/cors (and read with GET); unset leaves it as it is.
+// cors is managed through PUT /accounts/{account_id}/r2/buckets/{bucket_name}/cors (and read with GET); unset leaves it as it is; an empty value ({}, or with empty lists only) removes it with DELETE.
 type R2BucketCorsParameters struct {
 	// +optional
 	Rules []R2BucketCorsRulesParameters `json:"rules,omitempty"`

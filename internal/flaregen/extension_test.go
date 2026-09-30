@@ -43,7 +43,7 @@ func TestExtensionsR2(t *testing.T) {
 			{Header: "cf-r2-storage-class", Field: "storageClass", Update: true},
 		},
 		ObservedAs:   map[string]string{"storageClass": "storage_class"},
-		SubResources: []generic.SubResource{{Field: "cors", Path: "/cors"}},
+		SubResources: []generic.SubResource{{Field: "cors", Path: "/cors", Delete: true}},
 	}
 	if !reflect.DeepEqual(m.Extension, want) {
 		t.Errorf("Extension %+v\nwant %+v", m.Extension, want)

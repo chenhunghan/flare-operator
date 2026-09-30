@@ -183,7 +183,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, name string) error {
 	}
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named(name).
-		For(r.New(), builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{})))
+		For(r.New(), builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, annotationsChanged())))
 	if r.NewList != nil {
 		b = b.Watches(&cloudflarev1alpha1.CloudflareAccount{}, handler.EnqueueRequestsFromMapFunc(r.objectsForAccount),
 			builder.WithPredicates(accountReadinessChanged()))
@@ -193,6 +193,32 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, name string) error {
 		b = b.Watches(ref.Object, ReferrerWatch(ref))
 	}
 	return b.Complete(r)
+}
+
+// annotationsChanged passes updates that change the object's annotations other than the
+// create-pending record. The reconciler writes and drops that record itself around a create
+// the API refuses (createRefused); reacting to those writes would retry the create at once,
+// again and again, instead of after the error backoff.
+func annotationsChanged() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return false
+			}
+			o, n := e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations()
+			for k, v := range o {
+				if nv, ok := n[k]; k != reconcile.AnnotationCreatePending && (!ok || nv != v) {
+					return true
+				}
+			}
+			for k := range n {
+				if _, ok := o[k]; k != reconcile.AnnotationCreatePending && !ok {
+					return true
+				}
+			}
+			return false
+		},
+	}
 }
 
 // accountReadinessChanged passes account events that can unblock (or block) managed objects:
@@ -297,6 +323,12 @@ func (r *Reconciler) scopeFor(obj reconcile.ManagedObject, acct *reconcile.Resol
 			return s, err
 		}
 		s.header = r.Extension.scopeHeader(desired)
+		if obj.GetDeletionTimestamp() != nil {
+			// The finalizer addresses the resource where it was last read: a header field
+			// changed past the CRD's immutability rule would look (and delete) elsewhere, find
+			// nothing, and let the resource go without a word.
+			s.header = r.Extension.observedScopeHeader(desired, lastObserved(obj))
+		}
 	}
 	if r.Descriptor.Scope == "zone" {
 		z := obj.GetResourceSpec().ZoneRef
@@ -555,17 +587,26 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 	reconcile.MarkCreating(obj, "")
 	// Announce the create (reconcile.MarkCreatePending): the next reconcile adopts a lost create
 	// by name or client ID anyway, but an object deleted before that has no ID, and its
-	// finalizer finds the resource through this record (reconcile.AdoptPendingCreate). The
-	// record is kept when the API refuses the create: this reconciler takes any resource with
-	// the name (or ID) for the object's own anyway, so the record claims nothing more, and a
-	// duplicate-name refusal may be the answer to a lost create that a lagging list missed.
-	if key := r.pendingKey(desired); key != "" {
+	// finalizer finds the resource through this record (reconcile.AdoptPendingCreate).
+	key := r.pendingKey(desired)
+	if key != "" {
 		if err := reconcile.MarkCreatePending(ctx, r.Client, obj, key); err != nil {
 			return errResult(obj, fmt.Errorf("record the pending create: %w", err))
 		}
 	}
 	resp, err := sc.do(ctx, cfclient.Request{Method: http.MethodPost, Path: sc.path(d.CreatePath, ""), Body: pick(desired, d.CreateFields)})
 	if err != nil {
+		if key != "" && createRefused(err) {
+			// The API refused the create: nothing was made, so the record must not stand. A
+			// kind that cannot be tagged adopts a same-named resource only as its own lost
+			// create (ownLostCreate); a kept record would let this object take (and, with
+			// deletionPolicy Delete, delete) one that someone else creates later, e.g. while
+			// R2 is not enabled on the account (403). Transient failures (5xx, timeouts, 408,
+			// 429) and possible duplicate-name refusals keep it: the create may have happened.
+			if cerr := reconcile.ClearCreatePending(ctx, r.Client, obj); cerr != nil {
+				return errResult(obj, errors.Join(fmt.Errorf("create: %w", err), cerr))
+			}
+		}
 		return errResult(obj, fmt.Errorf("create: %w", err))
 	}
 	created, err := decodeObject(resp.Result)
@@ -615,6 +656,16 @@ func (r *Reconciler) create(ctx context.Context, obj reconcile.ManagedObject, sc
 		return errResult(obj, err)
 	}
 	return r.sync(ctx, obj, sc, desired, id, observed, false)
+}
+
+// createRefused reports whether a create error proves that nothing was created: a permanent
+// 4xx (reconcile.IsPermanent: not 408, 409 or 429) other than 400. A duplicate-name refusal
+// proves nothing (the lookup before the create may have missed this object's own lost create,
+// e.g. in a lagging list), and APIs refuse a duplicate name with 400 (0004: KV 400/10014;
+// 0018: D1 400/7502) or 409, so for both the record is kept.
+func createRefused(err error) bool {
+	ae, ok := cfclient.AsAPIError(err)
+	return ok && reconcile.IsPermanent(err) && ae.Status != http.StatusBadRequest
 }
 
 // sync records the observed object, checks ownership and immutable fields, and updates drifted
@@ -716,7 +767,7 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 		}
 		for _, s := range subChanged {
 			log.FromContext(ctx).Info("updating", "id", id, "fields", []string{s.Field})
-			if err := r.putSubResource(ctx, sc, id, s, desired); err != nil {
+			if err := r.writeSubResource(ctx, sc, id, s, desired); err != nil {
 				return errResult(obj, err)
 			}
 		}
@@ -943,8 +994,9 @@ func (r *Reconciler) finalize(ctx context.Context, obj reconcile.ManagedObject) 
 			_, err := sc.do(ctx, cfclient.Request{Method: http.MethodDelete, Path: sc.path(d.ItemPath, id)})
 			if err == nil {
 				log.FromContext(ctx).Info("deleted", "id", id)
-			} else if ae, ok := cfclient.AsAPIError(err); ok && ae.Status != http.StatusNotFound && ae.Status != http.StatusTooManyRequests {
-				refused = err
+			} else if ae, ok := cfclient.AsAPIError(err); ok && ae.Status >= 400 && ae.Status < 500 &&
+				ae.Status != http.StatusNotFound && ae.Status != http.StatusRequestTimeout && ae.Status != http.StatusTooManyRequests {
+				refused = err // a 4xx answer; 5xx and transport errors are plain errors
 			}
 			return err
 		}

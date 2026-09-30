@@ -122,7 +122,7 @@ func extensionLiteral(extType, headerType, subType, headersName, subsName string
 	if len(x.SubResources) > 0 {
 		fmt.Fprintf(&b, "%s%s: []%s{\n", in, subsName, subType)
 		for _, s := range x.SubResources {
-			fmt.Fprintf(&b, "%s\t{Field: %q, Path: %q},\n", in, s.Field, s.Path)
+			fmt.Fprintf(&b, "%s\t{Field: %q, Path: %q, Delete: %t},\n", in, s.Field, s.Path, s.Delete)
 		}
 		fmt.Fprintf(&b, "%s},\n", in)
 	}

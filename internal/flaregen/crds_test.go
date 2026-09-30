@@ -341,7 +341,7 @@ func TestDescriptorsMatchEmulator(t *testing.T) {
 				{Header: "cf-r2-storage-class", Field: "storageClass", Update: true},
 			},
 			ObservedAs:   map[string]string{"storageClass": "storage_class"},
-			SubResources: []generic.SubResource{{Field: "cors", Path: "/cors"}},
+			SubResources: []generic.SubResource{{Field: "cors", Path: "/cors", Delete: true}},
 		},
 	}
 	for _, e := range descriptors.Entries() {
@@ -358,7 +358,7 @@ func TestDescriptorsMatchEmulator(t *testing.T) {
 			}
 			var ss []generic.SubResource
 			for _, s := range k.SubResources {
-				ss = append(ss, generic.SubResource{Field: s.Field, Path: s.Path})
+				ss = append(ss, generic.SubResource{Field: s.Field, Path: s.Path, Delete: s.Delete})
 			}
 			if got := (generic.Extension{Headers: hs, ObservedAs: k.ObservedAs, SubResources: ss}); !reflect.DeepEqual(got, e.Extension) {
 				t.Errorf("%s: emulator extension %+v, descriptor %+v", e.Kind, got, e.Extension)

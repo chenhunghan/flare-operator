@@ -680,9 +680,14 @@ func buildExtension(r *Resource, kc KindConfig, upd *Operation, createT, params,
 		if in == nil || out == nil {
 			return ext, fmt.Errorf("subResources %s: no JSON PUT body or GET result at %s", sr.Field, p)
 		}
-		addField(params, sr.Field, in, fmt.Sprintf("%s is managed through %s %s (and read with GET); unset leaves it as it is.", sr.Field, put.Method, p))
+		del := findPath(r.all, p, http.MethodDelete) != nil
+		clear := "an empty value ({}) is PUT to clear it"
+		if del {
+			clear = "an empty value ({}, or with empty lists only) removes it with DELETE"
+		}
+		addField(params, sr.Field, in, fmt.Sprintf("%s is managed through %s %s (and read with GET); unset leaves it as it is; %s.", sr.Field, put.Method, p, clear))
 		addField(obs, sr.Field, out, fmt.Sprintf("%s as returned by GET %s (absent when not configured).", sr.Field, p))
-		ext.SubResources = append(ext.SubResources, generic.SubResource{Field: sr.Field, Path: sr.Path})
+		ext.SubResources = append(ext.SubResources, generic.SubResource{Field: sr.Field, Path: sr.Path, Delete: del})
 	}
 	return ext, nil
 }

@@ -25,7 +25,8 @@ spec:
     storageClass: Standard       # Standard | InfrequentAccess; changed with a PATCH
     # jurisdiction: eu           # default | eu | us | fedramp | fedramp-high; sent as the
     #                            # cf-r2-jurisdiction header, fixed once the bucket exists
-    cors:                        # the bucket's CORS policy; leave it out to not manage it
+    cors:                        # the bucket's CORS policy; leave it out to not manage it,
+                                 # or set cors: {} to remove it
       rules:
         - allowed:
             origins: ["https://app.example.com"]

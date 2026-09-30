@@ -90,7 +90,7 @@ must not delete the index or store.
 - `forProvider.storageClass` is changed with a bodiless `PATCH` carrying `cf-r2-storage-class`,
   and read back as `status.atProvider.storage_class`. `locationHint` is create-only.
 - `forProvider.cors` manages the bucket's CORS policy (`PUT …/cors`); leaving it out leaves the
-  policy alone.
+  policy alone, and `cors: {}` (or `cors: {rules: []}`) removes it (`DELETE …/cors`).
 - With `deletionPolicy: Delete`, Cloudflare refuses to delete a bucket that still holds objects.
   The object then reports `Synced=False` with reason `DeleteFailed` and keeps its finalizer.
 - R2 must be enabled on the account first (in the dashboard, possibly with a payment method).

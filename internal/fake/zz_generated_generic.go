@@ -28,7 +28,7 @@ var generatedGenericKinds = []GenericKind{
 		},
 		ObservedAs: map[string]string{"storageClass": "storage_class"},
 		SubResources: []GenericSubResource{
-			{Field: "cors", Path: "/cors"},
+			{Field: "cors", Path: "/cors", Delete: true},
 		},
 	},
 	{

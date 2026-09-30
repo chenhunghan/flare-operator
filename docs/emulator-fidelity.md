@@ -117,7 +117,7 @@ R2Bucket (2026-09-30) uses the generic profile's per-kind extensions
 (UNVERIFIED), and `TestGenericR2Bucket` checks it under strict validation: buckets partitioned
 by `cf-r2-jurisdiction`, the storage class set by the bodiless PATCH's `cf-r2-storage-class`,
 the `{"buckets": [...]}` list with cursor paging, and the CORS policy as a sub-resource document
-(404 when absent). The one exception is the missing-bucket error code 10006, which is SOURCED
+(404 with the generic code 7003 when absent, not the bucket's 10006). The one exception is the missing-bucket error code 10006, which is SOURCED
 (relies) from wrangler 4.143.0 (`generic_quirks.go`). Its HTTP status and message are
 UNVERIFIED.
 

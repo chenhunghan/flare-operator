@@ -87,7 +87,8 @@ spec:
                 properties:
                   cors:
                     description: cors is managed through PUT /accounts/{account_id}/r2/buckets/{bucket_name}/cors
-                      (and read with GET); unset leaves it as it is.
+                      (and read with GET); unset leaves it as it is; an empty value
+                      ({}, or with empty lists only) removes it with DELETE.
                     properties:
                       rules:
                         items:

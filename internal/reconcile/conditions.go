@@ -16,8 +16,8 @@ const MaxConditionMessage = 1024
 // external-id annotation.
 const ReasonNameConflict = "NameConflict"
 
-// ReasonDeleteFailed marks an object being deleted whose Cloudflare DELETE the API refused
-// (Synced=False; e.g. an R2 bucket that is not empty). The finalizer stays and retries.
+// ReasonDeleteFailed marks an object being deleted whose Cloudflare DELETE the API refused with
+// a 4xx other than 404, 408 and 429 (Synced=False; e.g. an R2 bucket that is not empty). The finalizer stays and retries.
 const ReasonDeleteFailed = "DeleteFailed"
 
 // SetCondition sets (or updates) a condition on mg, stamped with mg's generation. The

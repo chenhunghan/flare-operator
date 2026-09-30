@@ -104,8 +104,9 @@ conditions:
       The object is being deleted (deletionPolicy Delete) and Cloudflare refused the DELETE of its
       resource; the message quotes the API error. The finalizer stays and retries with backoff.
       R2Bucket: a bucket that still holds objects cannot be deleted (the error code, e.g. 10008,
-      is UNVERIFIED): empty the bucket, or set deletionPolicy Orphan to keep it. Rate limits
-      (429) and a resource already gone (404) are not reported this way.
+      is UNVERIFIED): empty the bucket, or set deletionPolicy Orphan to keep it. Only 4xx answers
+      are reported this way: rate limits (429), timeouts (408), server errors (5xx), transport
+      errors and a resource already gone (404) are not.
   - reason: InvalidHostname
     condition: Ready, Synced
     status: "False"

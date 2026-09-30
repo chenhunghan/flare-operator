@@ -105,6 +105,9 @@ type GenericHeader struct {
 // (internal/generic.SubResource).
 type GenericSubResource struct {
 	Field, Path string
+	// Delete mirrors generic.SubResource.Delete (the spec has a DELETE at the path); the
+	// emulator serves DELETE whenever the spec has one.
+	Delete bool
 }
 
 // GeneratedGenericKinds returns the generator.yaml kinds marked `emulate: generic`
@@ -722,8 +725,8 @@ func (m *genericModel) setHeaderFields(c *reqCtx, obj map[string]any, update boo
 // ---- sub-resources (GenericSubResource) --------------------------------------------------------
 //
 // UNVERIFIED throughout (spec only): a sub-resource is a document stored with its item. GET of an
-// item without one → 404 (the item's notFound error with a sub-resource message; the real code
-// for R2 CORS is not known), PUT replaces it (the body shaped by the GET result schema), DELETE
+// item without one → 404 with the generic not-found code (the real code for R2 CORS is not
+// known; the kind's item quirk code would claim "the item is missing"), PUT replaces it (the body shaped by the GET result schema), DELETE
 // removes it. PUT and DELETE answer the spec's result: {} for a free-form object result.
 
 func (m *genericModel) subItem(c *reqCtx) (*genericObject, *response) {
@@ -759,10 +762,9 @@ func (m *genericModel) subGetH(sub *genericSub) handler {
 		}
 		doc, found := o.subs[sub.res.Field]
 		if !found {
+			// UNVERIFIED: the generic not-found code, not the kind's item quirk (R2's 10006
+			// means "the bucket does not exist" to wrangler; a missing CORS policy is not that).
 			code := genericNotFoundCode
-			if q := m.quirk.notFound; q != nil {
-				code = q.Code
-			}
 			return fail(http.StatusNotFound, code, fmt.Sprintf("flarefake(generic): %s %q has no %s", m.kind.Kind, c.params["id"], sub.res.Field))
 		}
 		return ok(deepCopyJSON(doc))

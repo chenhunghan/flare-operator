@@ -35,7 +35,11 @@ too). A create that Tunnel, VPCService or WorkerScript sees refused for good (a 
 clears the record, so a later same-named resource of someone else is not adopted; VPCService
 keeps it on a duplicate-name refusal (400/5101 "… already exists", 0059), which proves only that
 the name is taken, possibly by the object's own lost create that a lagging list missed. The
-generic reconciler keeps it on every refusal, since it adopts any same-named resource anyway.
+generic reconciler clears it on a permanent 4xx other than 400 (e.g. 403 when R2 is not enabled)
+and keeps it on 400 and 409, the statuses of recorded duplicate-name refusals (0004 KV
+400/10014, 0018 D1 400/7502; its own emulator answers 409). Its watch ignores changes of the
+record alone, so writing and clearing it around a refused create does not retry the create at
+once.
 WorkerScript's key also carries the hashes of the content, settings and secrets it uploaded, so
 the adopted script is not uploaded again. With tagging, a readable owner tag naming another
 object still wins (NameConflict).

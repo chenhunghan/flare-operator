@@ -48,15 +48,23 @@ type HeaderField struct {
 //
 //   - GET <item><Path> → status.atProvider.<Field>. A 404 means "not configured": the field is
 //     absent from atProvider (the item itself was read just before).
-//   - forProvider.<Field> set and not covered by the observed value (Covers) → PUT <item><Path>
-//     with it as the body. This is an update: managementPolicies must allow Update, otherwise
-//     Synced=False names the field. Observe-only objects only read.
+//   - forProvider.<Field> set to a non-empty value that the observed one does not cover (Covers)
+//     → PUT <item><Path> with it as the body. This is an update: managementPolicies must allow
+//     Update, otherwise Synced=False names the field. Observe-only objects only read.
+//   - forProvider.<Field> set to an empty value (isEmptyValue: {} or, since the generated types
+//     drop empty lists, {"rules": []} for R2 CORS) → clear it: when Cloudflare has a non-empty
+//     value, DELETE <item><Path> if the spec has that operation (Delete), else PUT the empty
+//     value. An empty or absent observed value is in sync. (Covers alone cannot see this: the
+//     empty value covers everything, so a policy the user meant to revoke would stay and the
+//     object would report Synced=True.)
 //   - forProvider.<Field> unset → not managed: whatever Cloudflare has is left as is (and shown
-//     in atProvider). To clear it, set the empty value the API accepts (R2 CORS: {"rules": []}).
-//   - The sub-resource goes with the item: nothing is deleted separately.
+//     in atProvider).
+//   - The sub-resource goes with the item: nothing is deleted when the object is.
 type SubResource struct {
 	Field string // top-level forProvider/atProvider field, e.g. "cors"
 	Path  string // appended to ItemPath, e.g. "/cors"
+	// Delete: the spec has a DELETE at <item><Path>; an empty desired value is applied with it.
+	Delete bool
 }
 
 // ObservedName is the atProvider field that reads back forProvider field f.
@@ -80,6 +88,31 @@ func (x Extension) scopeHeader(desired map[string]any) http.Header {
 				h = http.Header{}
 			}
 			h.Set(hf.Header, v)
+		}
+	}
+	return h
+}
+
+// observedScopeHeader is scopeHeader with every non-Update header field that addresses another
+// place than the one the resource was last read from (headerChanges) set back to the observed
+// value (the header dropped when that is the field's Default).
+func (x Extension) observedScopeHeader(desired, lastObserved map[string]any) http.Header {
+	h := x.scopeHeader(desired)
+	for _, hf := range x.Headers {
+		if hf.Update {
+			continue
+		}
+		was, ok := lastObserved[x.ObservedName(hf.Field)].(string)
+		if !ok || was == "" || hf.effective(desired[hf.Field]) == was {
+			continue
+		}
+		if h == nil {
+			h = http.Header{}
+		}
+		if was == hf.Default {
+			h.Del(hf.Header)
+		} else {
+			h.Set(hf.Header, was)
 		}
 	}
 	return h
@@ -173,25 +206,64 @@ func (r *Reconciler) observeSubResources(ctx context.Context, sc scope, id strin
 	return nil
 }
 
-// changedSubResources lists the sub-resources whose desired value is set and not covered by
-// the observed one.
+// changedSubResources lists the sub-resources whose desired value is set and not in sync with
+// the observed one: a non-empty value not covered by it, or an empty value (clear) while
+// Cloudflare has a non-empty one (see SubResource).
 func (r *Reconciler) changedSubResources(desired, obs map[string]any) []SubResource {
 	var out []SubResource
 	for _, s := range r.Extension.SubResources {
-		if v, ok := desired[s.Field]; ok && v != nil && !Covers(v, obs[s.Field]) {
+		v, ok := desired[s.Field]
+		switch {
+		case !ok || v == nil:
+		case isEmptyValue(v):
+			if !isEmptyValue(obs[s.Field]) {
+				out = append(out, s)
+			}
+		case !Covers(v, obs[s.Field]):
 			out = append(out, s)
 		}
 	}
 	return out
 }
 
-// putSubResource writes the desired value of one sub-resource.
-func (r *Reconciler) putSubResource(ctx context.Context, sc scope, id string, s SubResource, desired map[string]any) error {
-	_, err := sc.do(ctx, cfclient.Request{Method: http.MethodPut, Path: s.subPath(sc, r.Descriptor.ItemPath, id), Body: desired[s.Field]})
+// writeSubResource applies the desired value of one sub-resource: PUT, or for an empty value
+// with a DELETE operation, DELETE (a 404 means it is already gone).
+func (r *Reconciler) writeSubResource(ctx context.Context, sc scope, id string, s SubResource, desired map[string]any) error {
+	req := cfclient.Request{Method: http.MethodPut, Path: s.subPath(sc, r.Descriptor.ItemPath, id), Body: desired[s.Field]}
+	if s.Delete && isEmptyValue(desired[s.Field]) {
+		req.Method, req.Body = http.MethodDelete, nil
+	}
+	_, err := sc.do(ctx, req)
+	if req.Method == http.MethodDelete && cfclient.IsNotFound(err) {
+		err = nil
+	}
 	if err != nil {
-		return fmt.Errorf("update %s: %w", s.Field, err)
+		verb := "update"
+		if req.Method == http.MethodDelete {
+			verb = "remove"
+		}
+		return fmt.Errorf("%s %s: %w", verb, s.Field, err)
 	}
 	return nil
+}
+
+// isEmptyValue reports whether a JSON value holds no data: null, an empty list, or an object
+// whose members are all empty ({} and {"rules": []}).
+func isEmptyValue(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case []any:
+		return len(t) == 0
+	case map[string]any:
+		for _, m := range t {
+			if !isEmptyValue(m) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func subFields(ss []SubResource) []string {
