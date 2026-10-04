@@ -1,4 +1,4 @@
-// Package v1alpha1 contains the flare.dev API group (x-fern-sdk-group-name
+// Package v1alpha1 contains kinds of the flare.dev API group (x-fern-sdk-group-name
 // "pages" of /accounts/{account_id}/pages/projects): PagesProject, a Cloudflare Pages project
 // with its build and deployment settings, and PagesDeployment, one Direct Upload deployment of
 // an artifact to a project.

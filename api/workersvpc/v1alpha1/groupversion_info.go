@@ -1,4 +1,4 @@
-// Package v1alpha1 contains the flare.dev API group
+// Package v1alpha1 contains a kind of the flare.dev API group
 // (x-fern-sdk-group-name "workers-vpc.services"): VPCService, a Workers VPC connectivity
 // service that routes Worker traffic through a Tunnel to a private backend.
 //

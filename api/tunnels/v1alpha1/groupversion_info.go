@@ -1,4 +1,4 @@
-// Package v1alpha1 contains the flare.dev API group (x-fern-sdk-group-name
+// Package v1alpha1 contains kinds of the flare.dev API group (x-fern-sdk-group-name
 // "tunnels"): Tunnel, a remotely managed Cloudflare Tunnel (cfd_tunnel) together with the
 // cloudflared connector Deployment, its token Secret and an egress NetworkPolicy.
 //

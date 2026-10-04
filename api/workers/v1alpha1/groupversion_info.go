@@ -1,4 +1,4 @@
-// Package v1alpha1 contains the flare.dev API group (x-fern-sdk-group-name
+// Package v1alpha1 contains kinds of the flare.dev API group (x-fern-sdk-group-name
 // "workers.legacy.scripts", first segment "workers"): WorkerScript, a Cloudflare Workers script
 // with its modules, bindings and settings.
 //

@@ -1,4 +1,4 @@
-// Package v1alpha1 contains the flare.dev API group: CloudflareAccount, the
+// Package v1alpha1 contains CloudflareAccount, a kind of the flare.dev API group: the
 // credentials and account binding every managed kind refers to through spec.accountRef.
 //
 // +kubebuilder:object:generate=true
