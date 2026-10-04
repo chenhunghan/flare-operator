@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"flare.dev/operator/internal/generic"
+	"github.com/chenhunghan/flare-operator/internal/generic"
 )
 
 // r2Config is generator.yaml's R2Bucket entry, reduced to what the extensions need.

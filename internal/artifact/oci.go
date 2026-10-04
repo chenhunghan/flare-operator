@@ -16,7 +16,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
+	sharedv1alpha1 "github.com/chenhunghan/flare-operator/api/shared/v1alpha1"
 )
 
 // tarLayers are the layer media types the loader unpacks. Foreign and non-distributable layers

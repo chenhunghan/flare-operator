@@ -17,7 +17,7 @@ Each mismatch is recorded as a **known discrepancy**. It becomes a skipped subte
 | `test/differential/wrangler_test.go` | wrangler scenario (build tag `differential`) |
 | `test/differential/wrangler_assets_test.go` | wrangler static-assets scenario (a Worker with assets, an assets-only site) |
 | `test/differential/cloudflared_test.go` | cloudflared management-API scenario |
-| `test/differential/go/` | A **separate Go module** (its own `go.mod`, with `replace flare.dev/operator => ../../..`) that pins cloudflare-go. The operator's `go.mod` stays free of the SDK. |
+| `test/differential/go/` | A **separate Go module** (its own `go.mod`, with `replace github.com/chenhunghan/flare-operator => ../../..`) that pins cloudflare-go. The operator's `go.mod` stays free of the SDK. |
 | `test/differential/npm/` | `package.json` and `package-lock.json` that pin wrangler and its dependency tree |
 | `test/differential/versions.go` | Pinned versions. `TestPinnedVersionsMatch` (run by `make test`) checks them against the Makefile and the npm lockfile. |
 | `hack/differential-tools.sh` | Installer used by `make differential-tools` |

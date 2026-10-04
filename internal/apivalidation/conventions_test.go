@@ -10,8 +10,8 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/yaml"
 
-	"flare.dev/operator/internal/flaregen"
-	"flare.dev/operator/internal/testenv"
+	"github.com/chenhunghan/flare-operator/internal/flaregen"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 // TestCRDConventions checks the API conventions every CRD in config/crd/bases follows,

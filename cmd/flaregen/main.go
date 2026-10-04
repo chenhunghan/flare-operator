@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"flare.dev/operator/internal/flaregen"
+	"github.com/chenhunghan/flare-operator/internal/flaregen"
 )
 
 func main() {

@@ -5,8 +5,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	sharedv1alpha1 "github.com/chenhunghan/flare-operator/api/shared/v1alpha1"
 )
 
 // Module types of WorkerModule.Type and the upload part Content-Type each one is sent with.

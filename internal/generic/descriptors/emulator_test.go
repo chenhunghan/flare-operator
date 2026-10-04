@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/generic/descriptors"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/generic/descriptors"
 )
 
 const accountID = "0123456789abcdef0123456789abcdef"

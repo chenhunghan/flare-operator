@@ -28,8 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/testenv"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 var env *testenv.Env

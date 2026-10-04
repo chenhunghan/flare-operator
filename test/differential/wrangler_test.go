@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"flare.dev/operator/test/differential/harness"
+	"github.com/chenhunghan/flare-operator/test/differential/harness"
 )
 
 // Evidence citations into wrangler's source use the pinned release: tag wrangler@4.143.0 =

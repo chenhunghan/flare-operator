@@ -30,7 +30,7 @@ import (
 	"sync"
 	"testing"
 
-	"flare.dev/operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/fake"
 )
 
 // AccountID is the account every differential scenario uses (the example ID from the spec).

@@ -9,10 +9,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/controller/workerscript"
-	"flare.dev/operator/internal/testenv"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/controller/workerscript"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 // TestSecretBindingOptIn: a secret_text binding reads only a Secret labelled

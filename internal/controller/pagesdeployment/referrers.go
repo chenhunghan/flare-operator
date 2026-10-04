@@ -3,9 +3,9 @@ package pagesdeployment
 import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	pagesv1alpha1 "flare.dev/operator/api/pages/v1alpha1"
-	"flare.dev/operator/internal/controller/pagesproject"
-	"flare.dev/operator/internal/generic"
+	pagesv1alpha1 "github.com/chenhunghan/flare-operator/api/pages/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/controller/pagesproject"
+	"github.com/chenhunghan/flare-operator/internal/generic"
 )
 
 // Deleting a Pages project deletes its deployments with it. PagesDeployments are registered as

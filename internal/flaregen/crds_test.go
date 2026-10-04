@@ -23,10 +23,10 @@ import (
 	"sigs.k8s.io/randfill"
 	"sigs.k8s.io/yaml"
 
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/flaregen"
-	"flare.dev/operator/internal/generic"
-	"flare.dev/operator/internal/generic/descriptors"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/flaregen"
+	"github.com/chenhunghan/flare-operator/internal/generic"
+	"github.com/chenhunghan/flare-operator/internal/generic/descriptors"
 )
 
 const crdDir = "../../config/crd/bases"

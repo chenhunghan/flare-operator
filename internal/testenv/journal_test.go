@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/fake"
 )
 
 // FakeControl and the journal helpers work without envtest.

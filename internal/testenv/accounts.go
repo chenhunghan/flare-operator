@@ -13,9 +13,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	"flare.dev/operator/internal/fake"
+	cloudflarev1alpha1 "github.com/chenhunghan/flare-operator/api/cloudflare/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/fake"
 )
 
 // RandomHex returns n random bytes hex-encoded (2n characters).

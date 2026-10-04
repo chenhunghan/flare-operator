@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"flare.dev/operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
 )
 
 // Pages project API calls (x-fern-sdk-group-name "pages"). No real-API recording of Pages

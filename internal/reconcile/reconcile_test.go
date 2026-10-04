@@ -16,11 +16,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/reconcile"
+	cloudflarev1alpha1 "github.com/chenhunghan/flare-operator/api/cloudflare/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 func scheme(t *testing.T) *runtime.Scheme {

@@ -50,19 +50,19 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
-	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
-	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
-	"flare.dev/operator/internal/controller/tunnel"
-	"flare.dev/operator/internal/controller/vpcservice"
-	"flare.dev/operator/internal/fake"
-	_ "flare.dev/operator/internal/generic/kinds" // KVNamespace, Queue, D1Database controllers
-	"flare.dev/operator/internal/reconcile"
-	"flare.dev/operator/internal/testenv"
+	cloudflarev1alpha1 "github.com/chenhunghan/flare-operator/api/cloudflare/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	d1v1alpha1 "github.com/chenhunghan/flare-operator/api/d1/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	queuesv1alpha1 "github.com/chenhunghan/flare-operator/api/queues/v1alpha1"
+	tunnelsv1alpha1 "github.com/chenhunghan/flare-operator/api/tunnels/v1alpha1"
+	workersvpcv1alpha1 "github.com/chenhunghan/flare-operator/api/workersvpc/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/controller/tunnel"
+	"github.com/chenhunghan/flare-operator/internal/controller/vpcservice"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	_ "github.com/chenhunghan/flare-operator/internal/generic/kinds" // KVNamespace, Queue, D1Database controllers
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 const (

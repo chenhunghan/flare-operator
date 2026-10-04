@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 
-	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
+	tunnelsv1alpha1 "github.com/chenhunghan/flare-operator/api/tunnels/v1alpha1"
 )
 
 // Labels and annotations on owned objects.

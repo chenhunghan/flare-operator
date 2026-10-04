@@ -21,18 +21,18 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller"
-	"flare.dev/operator/internal/controller/vpcservice"
-	"flare.dev/operator/internal/controller/workerscript"
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/generic"
-	_ "flare.dev/operator/internal/generic/kinds" // KVNamespace, Queue, D1Database controllers
-	"flare.dev/operator/internal/testenv"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	workersvpcv1alpha1 "github.com/chenhunghan/flare-operator/api/workersvpc/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller"
+	"github.com/chenhunghan/flare-operator/internal/controller/vpcservice"
+	"github.com/chenhunghan/flare-operator/internal/controller/workerscript"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/generic"
+	_ "github.com/chenhunghan/flare-operator/internal/generic/kinds" // KVNamespace, Queue, D1Database controllers
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 var env *testenv.Env

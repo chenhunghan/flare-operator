@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"flare.dev/operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/fake"
 )
 
 // FakeControl drives a flarefake through its HTTP control API (/_fake/…). It works the same

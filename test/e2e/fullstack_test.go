@@ -16,7 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"flare.dev/operator/internal/kustomizelite"
+	"github.com/chenhunghan/flare-operator/internal/kustomizelite"
 )
 
 // fullstackManaged are the kinds of examples/fullstack that the operator reconciles.

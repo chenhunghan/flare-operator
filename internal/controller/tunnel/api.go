@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"net/url"
 
-	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/reconcile"
+	tunnelsv1alpha1 "github.com/chenhunghan/flare-operator/api/tunnels/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // Cloudflare Tunnel API calls (x-fern-sdk-group-name "tunnels"). Shapes follow recordings

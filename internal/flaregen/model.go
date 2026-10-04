@@ -9,7 +9,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 
-	"flare.dev/operator/internal/generic"
+	"github.com/chenhunghan/flare-operator/internal/generic"
 )
 
 // Operation is one spec operation annotated with fern SDK names.

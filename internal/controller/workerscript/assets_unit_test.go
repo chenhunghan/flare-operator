@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/artifact"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/fake"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/artifact"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/fake"
 )
 
 // TestAssetHashMatchesWrangler: golden hashes computed with the blake3-wasm of the pinned

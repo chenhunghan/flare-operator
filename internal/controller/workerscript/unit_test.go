@@ -8,7 +8,7 @@ import (
 	"mime/multipart"
 	"testing"
 
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
 )
 
 type part struct {

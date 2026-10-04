@@ -7,10 +7,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	pagesv1alpha1 "flare.dev/operator/api/pages/v1alpha1"
-	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
-	"flare.dev/operator/internal/controller/pagesdeployment"
-	"flare.dev/operator/internal/testenv"
+	pagesv1alpha1 "github.com/chenhunghan/flare-operator/api/pages/v1alpha1"
+	sharedv1alpha1 "github.com/chenhunghan/flare-operator/api/shared/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/controller/pagesdeployment"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 // An artifact that needs a build step wrangler would run is refused, not deployed without it:

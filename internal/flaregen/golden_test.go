@@ -18,7 +18,7 @@ func TestGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := Generate(loadFragment(t), cfg, Options{Module: "flare.dev/operator"})
+	out, err := Generate(loadFragment(t), cfg, Options{Module: "github.com/chenhunghan/flare-operator"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestGeneratedUpToDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := Generate(doc, cfg, Options{Module: "flare.dev/operator"})
+	out, err := Generate(doc, cfg, Options{Module: "github.com/chenhunghan/flare-operator"})
 	if err != nil {
 		t.Fatal(err)
 	}

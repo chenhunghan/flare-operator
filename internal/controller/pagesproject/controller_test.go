@@ -11,13 +11,13 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	pagesv1alpha1 "flare.dev/operator/api/pages/v1alpha1"
-	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
-	"flare.dev/operator/internal/reconcile"
-	"flare.dev/operator/internal/testenv"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	d1v1alpha1 "github.com/chenhunghan/flare-operator/api/d1/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	pagesv1alpha1 "github.com/chenhunghan/flare-operator/api/pages/v1alpha1"
+	queuesv1alpha1 "github.com/chenhunghan/flare-operator/api/queues/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 func (h *harness) kv(name string, policy commonv1alpha1.DeletionPolicy) *kvv1alpha1.KVNamespace {

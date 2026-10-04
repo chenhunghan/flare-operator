@@ -17,7 +17,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 
-	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
+	sharedv1alpha1 "github.com/chenhunghan/flare-operator/api/shared/v1alpha1"
 )
 
 // waitWaiters waits until the loader's shared loads have n waiting callers in total.

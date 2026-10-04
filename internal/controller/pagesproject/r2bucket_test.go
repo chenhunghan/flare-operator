@@ -8,10 +8,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	pagesv1alpha1 "flare.dev/operator/api/pages/v1alpha1"
-	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
-	"flare.dev/operator/internal/testenv"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	pagesv1alpha1 "github.com/chenhunghan/flare-operator/api/pages/v1alpha1"
+	r2v1alpha1 "github.com/chenhunghan/flare-operator/api/r2/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 // An r2_buckets binding's r2BucketRef waits (DependencyNotReady) for the R2Bucket, then binds

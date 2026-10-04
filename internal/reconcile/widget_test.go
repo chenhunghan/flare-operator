@@ -5,7 +5,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
 )
 
 // Widget is a minimal managed kind for helper tests.

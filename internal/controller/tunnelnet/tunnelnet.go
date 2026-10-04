@@ -12,7 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
+	workersvpcv1alpha1 "github.com/chenhunghan/flare-operator/api/workersvpc/v1alpha1"
 )
 
 // ClusterDNS locates the cluster DNS Service and names the cluster domain.

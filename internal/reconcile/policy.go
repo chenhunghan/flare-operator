@@ -1,7 +1,7 @@
 package reconcile
 
 import (
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
 )
 
 // Policies is the effective set of management actions of a managed object.

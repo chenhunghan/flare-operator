@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
 
-	"flare.dev/operator/internal/testenv"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 var env *testenv.Env

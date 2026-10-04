@@ -29,7 +29,7 @@ import (
 	"github.com/cloudflare/cloudflare-go/v7/workers"
 	"github.com/cloudflare/cloudflare-go/v7/zero_trust"
 
-	"flare.dev/operator/test/differential/harness"
+	"github.com/chenhunghan/flare-operator/test/differential/harness"
 )
 
 // SDKVersion is the cloudflare-go version pinned in go.mod (keep them in sync).

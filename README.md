@@ -19,8 +19,7 @@ It ships as one Go manager binary and one Helm chart (`charts/flare-operator`).
 - **API.** Every kind is `v1alpha1` and may change without notice. There is no conversion
   webhook; [docs/api-versioning.md](docs/api-versioning.md) describes the path to `v1beta1`.
 - **Releases.** There are no releases and no published images, so you build the images
-  yourself. The Go module path `flare.dev/operator` is a placeholder until the repository has a
-  permanent home.
+  yourself. The Go module path is `github.com/chenhunghan/flare-operator`.
 - **How it is verified.** Every controller is tested against `flarefake`, an in-memory
   emulator of the Cloudflare API, in envtest suites and in fault, crash and scale tests. The
   chart has an e2e suite (`test/e2e`) that runs on a real cluster with flarefake in the

@@ -13,12 +13,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
-	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller/vpcservice"
-	"flare.dev/operator/internal/testenv"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	tunnelsv1alpha1 "github.com/chenhunghan/flare-operator/api/tunnels/v1alpha1"
+	workersvpcv1alpha1 "github.com/chenhunghan/flare-operator/api/workersvpc/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller/vpcservice"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 func hostnameParams(host string, port int32, tunnel string) *workersvpcv1alpha1.VPCServiceParameters {

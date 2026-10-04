@@ -9,8 +9,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
 )
 
 // Ownership proof and the deletion decision shared by every managed kind (the generic

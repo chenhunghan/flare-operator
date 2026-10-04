@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"flare.dev/operator/internal/generic"
+	"github.com/chenhunghan/flare-operator/internal/generic"
 )
 
 func goStrings(ss []string) string {

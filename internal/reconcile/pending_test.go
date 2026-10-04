@@ -12,9 +12,9 @@ import (
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/reconcile"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // TestCreatePending: the record names the object's UID and key, survives as metadata, is not

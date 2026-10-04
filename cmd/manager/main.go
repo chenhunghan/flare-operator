@@ -18,10 +18,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"flare.dev/operator/internal/artifact"
-	"flare.dev/operator/internal/controller"
-	"flare.dev/operator/internal/reconcile"
-	"flare.dev/operator/internal/version"
+	"github.com/chenhunghan/flare-operator/internal/artifact"
+	"github.com/chenhunghan/flare-operator/internal/controller"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/version"
 )
 
 // Options are the manager's command-line settings.

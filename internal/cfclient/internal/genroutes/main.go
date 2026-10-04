@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"flare.dev/operator/internal/cfclient/internal/routespec"
+	"github.com/chenhunghan/flare-operator/internal/cfclient/internal/routespec"
 )
 
 func main() {

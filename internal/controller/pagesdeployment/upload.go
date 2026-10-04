@@ -14,9 +14,9 @@ import (
 
 	"lukechampine.com/blake3"
 
-	"flare.dev/operator/internal/artifact"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller/pagesproject"
+	"github.com/chenhunghan/flare-operator/internal/artifact"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller/pagesproject"
 )
 
 // The Pages Direct Upload flow, as wrangler's `pages deploy` runs it (SOURCED, relies:

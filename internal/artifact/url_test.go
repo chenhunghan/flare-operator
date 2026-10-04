@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
+	sharedv1alpha1 "github.com/chenhunghan/flare-operator/api/shared/v1alpha1"
 )
 
 func sum(b []byte) string {

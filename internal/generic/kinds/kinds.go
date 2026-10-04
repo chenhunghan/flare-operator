@@ -13,10 +13,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"flare.dev/operator/internal/controller"
-	"flare.dev/operator/internal/generic"
-	"flare.dev/operator/internal/generic/descriptors"
-	"flare.dev/operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/controller"
+	"github.com/chenhunghan/flare-operator/internal/generic"
+	"github.com/chenhunghan/flare-operator/internal/generic/descriptors"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // SchemeRegistration is the registry name of the scheme-only registration of all generated API

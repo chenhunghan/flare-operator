@@ -6,8 +6,8 @@ package descriptors
 import (
 	"k8s.io/apimachinery/pkg/runtime"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	"flare.dev/operator/internal/generic"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/generic"
 )
 
 // Entry binds a generated Descriptor to its Go types.

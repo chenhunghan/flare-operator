@@ -11,8 +11,8 @@ import (
 	"net/url"
 	"strings"
 
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
 )
 
 // Workers script API calls (x-fern-sdk-group-name "workers.legacy.scripts"). Shapes follow the

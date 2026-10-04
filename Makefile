@@ -208,7 +208,7 @@ KUBECONFORM_K8S_VERSION ?= 1.36.0
 KUBECONFORM_CACHE ?= $(HOME)/.cache/flare-operator/kubeconform
 
 # Version stamp (internal/version) for local builds, the images and .goreleaser.yaml.
-VERSION_PKG = flare.dev/operator/internal/version
+VERSION_PKG = github.com/chenhunghan/flare-operator/internal/version
 LDFLAGS ?= -s -w -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$(COMMIT) -X $(VERSION_PKG).Date=$(BUILD_DATE)
 IMAGE_BUILD_ARGS = --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg BUILD_DATE=$(BUILD_DATE) --build-arg SOURCE_URL=$(SOURCE_URL)
 

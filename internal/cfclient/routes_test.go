@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"flare.dev/operator/internal/cfclient/internal/routespec"
+	"github.com/chenhunghan/flare-operator/internal/cfclient/internal/routespec"
 )
 
 func TestRouteTemplate(t *testing.T) {

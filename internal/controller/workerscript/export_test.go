@@ -5,7 +5,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
 )
 
 // RegisterIndexes registers the field index SetupWithManager registers, for a Reconciler that

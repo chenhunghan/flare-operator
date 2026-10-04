@@ -23,15 +23,15 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller/pagesdeployment"
-	"flare.dev/operator/internal/controller/pagesproject"
-	"flare.dev/operator/internal/controller/workerscript"
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/generic"
-	_ "flare.dev/operator/internal/generic/kinds" // KVNamespace, D1Database, R2Bucket controllers
-	"flare.dev/operator/internal/kustomizelite"
-	"flare.dev/operator/internal/testenv"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller/pagesdeployment"
+	"github.com/chenhunghan/flare-operator/internal/controller/pagesproject"
+	"github.com/chenhunghan/flare-operator/internal/controller/workerscript"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/generic"
+	_ "github.com/chenhunghan/flare-operator/internal/generic/kinds" // KVNamespace, D1Database, R2Bucket controllers
+	"github.com/chenhunghan/flare-operator/internal/kustomizelite"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 const fullstackDir = "fullstack"

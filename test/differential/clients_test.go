@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"flare.dev/operator/test/differential/harness"
+	"github.com/chenhunghan/flare-operator/test/differential/harness"
 )
 
 // cacheDir is where `make differential-tools` puts the pinned clients.

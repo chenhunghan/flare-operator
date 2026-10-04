@@ -5,8 +5,8 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	"flare.dev/operator/internal/reconcile"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // TestRecordCreatedSurvivesConflict runs reconcile.RecordCreated against a real API server: the

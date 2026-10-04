@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"flare.dev/operator/test/differential/harness"
+	"github.com/chenhunghan/flare-operator/test/differential/harness"
 )
 
 // Static assets: `wrangler deploy` of a Worker with an assets directory and of an assets-only

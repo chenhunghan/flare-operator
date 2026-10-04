@@ -17,14 +17,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/generic"
-	"flare.dev/operator/internal/generic/descriptors"
-	"flare.dev/operator/internal/generic/kindsuite"
-	"flare.dev/operator/internal/reconcile"
-	"flare.dev/operator/internal/testenv"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/generic"
+	"github.com/chenhunghan/flare-operator/internal/generic/descriptors"
+	"github.com/chenhunghan/flare-operator/internal/generic/kindsuite"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 var env *testenv.Env

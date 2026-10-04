@@ -6,10 +6,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/reconcile"
-	"flare.dev/operator/internal/testenv"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 // TestConcurrentCreateSameName: two objects with the same script_name reconciled at once by

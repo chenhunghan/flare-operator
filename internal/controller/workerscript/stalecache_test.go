@@ -9,14 +9,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller"
-	"flare.dev/operator/internal/controller/workerscript"
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/reconcile"
-	"flare.dev/operator/internal/testenv"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller"
+	"github.com/chenhunghan/flare-operator/internal/controller/workerscript"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 // Stale-cache safety of the create-pending record (reconcile.FreshCreatePending): the

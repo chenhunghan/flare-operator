@@ -19,17 +19,17 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
-	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
-	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
-	"flare.dev/operator/internal/artifact"
-	"flare.dev/operator/internal/controller/r2bind"
-	"flare.dev/operator/internal/reconcile"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	d1v1alpha1 "github.com/chenhunghan/flare-operator/api/d1/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	queuesv1alpha1 "github.com/chenhunghan/flare-operator/api/queues/v1alpha1"
+	r2v1alpha1 "github.com/chenhunghan/flare-operator/api/r2/v1alpha1"
+	sharedv1alpha1 "github.com/chenhunghan/flare-operator/api/shared/v1alpha1"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	workersvpcv1alpha1 "github.com/chenhunghan/flare-operator/api/workersvpc/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/artifact"
+	"github.com/chenhunghan/flare-operator/internal/controller/r2bind"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // desired is the resolved upload of a WorkerScript: modules, metadata with the IDs its

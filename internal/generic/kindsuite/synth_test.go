@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"testing"
 
-	"flare.dev/operator/internal/generic/descriptors"
-	"flare.dev/operator/internal/testenv"
+	"github.com/chenhunghan/flare-operator/internal/generic/descriptors"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 // Every generated kind either synthesizes a forProvider with its required fields or has a

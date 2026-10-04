@@ -5,15 +5,15 @@ package descriptors
 import (
 	"k8s.io/apimachinery/pkg/runtime"
 
-	aigatewayv1alpha1 "flare.dev/operator/api/aigateway/v1alpha1"
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
-	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
-	secretsstorev1alpha1 "flare.dev/operator/api/secretsstore/v1alpha1"
-	vectorizev1alpha1 "flare.dev/operator/api/vectorize/v1alpha1"
-	"flare.dev/operator/internal/generic"
+	aigatewayv1alpha1 "github.com/chenhunghan/flare-operator/api/aigateway/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	d1v1alpha1 "github.com/chenhunghan/flare-operator/api/d1/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	queuesv1alpha1 "github.com/chenhunghan/flare-operator/api/queues/v1alpha1"
+	r2v1alpha1 "github.com/chenhunghan/flare-operator/api/r2/v1alpha1"
+	secretsstorev1alpha1 "github.com/chenhunghan/flare-operator/api/secretsstore/v1alpha1"
+	vectorizev1alpha1 "github.com/chenhunghan/flare-operator/api/vectorize/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/generic"
 )
 
 var generated = []Entry{

@@ -12,7 +12,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/yaml"
 
-	"flare.dev/operator/internal/generic/descriptors"
+	"github.com/chenhunghan/flare-operator/internal/generic/descriptors"
 )
 
 // Schema is a kind's forProvider schema from its generated CRD, plus the top-level fields the

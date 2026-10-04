@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 const tagAcct = "0123456789abcdef0123456789abcdef"

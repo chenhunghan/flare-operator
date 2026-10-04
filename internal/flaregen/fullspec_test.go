@@ -100,7 +100,7 @@ func TestWholeSpecGenerates(t *testing.T) {
 }
 
 // checkModule is the module path of the scratch module compileGenerated builds.
-const checkModule = "flare.dev/operator"
+const checkModule = "github.com/chenhunghan/flare-operator"
 
 // compileGenerated writes the generated packages into a scratch copy of this
 // module (go.mod, go.sum and api/common only, so the imports resolve) and runs

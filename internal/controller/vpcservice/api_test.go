@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"flare.dev/operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
 )
 
 // The observed shape is recording 0176's response (nulls included).
