@@ -44,6 +44,9 @@ func installNotes(t *testing.T, sets ...string) string {
 	if err != nil {
 		t.Skip("helm not on PATH")
 	}
+	if v, err := exec.Command(helm, "version", "--short").Output(); err == nil && strings.HasPrefix(strings.TrimSpace(string(v)), "v3.") {
+		t.Skipf("helm %s: `install --dry-run=client` needs a cluster before helm 4", strings.TrimSpace(string(v)))
+	}
 	args := []string{"install", "flare-operator", chartDir(t), "-n", "flare-system", "--dry-run=client", "--set", "clusterName=test"}
 	for _, s := range sets {
 		args = append(args, "--set", s)
