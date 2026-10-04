@@ -125,7 +125,8 @@ without authentication; it exposes only controller-runtime metrics, no tokens. S
   attestations. `make sbom` writes SPDX SBOMs, with syft when it is installed. The release
   config (`.goreleaser.yaml`) produces checksums and SBOMs for every archive and SBOM
   attestations for the images.
-- Releases are built by `.github/workflows/release.yml` from a `v*` tag and published to GHCR
+- Releases are cut by release-please and built by `.github/workflows/release.yml` from the
+  release tag, then published to GHCR
   (`ghcr.io/chenhunghan/flare-operator`, `ghcr.io/chenhunghan/flarefake`, and the chart at
   `oci://ghcr.io/chenhunghan/charts/flare-operator`). Images and binaries are not signed yet;
   signing (cosign keyless) is planned.

@@ -268,7 +268,7 @@ sbom:            ## SPDX SBOMs for $(IMG) and $(FAKE_IMG) into $(SBOM_DIR) (syft
 	fi
 
 ## Release (.goreleaser.yaml): binaries for manager and flarefake, multi-arch images, the chart.
-## Tags v* publish through .github/workflows/release.yml (GHCR images, GitHub release, OCI chart).
+## release-please cuts releases; .github/workflows/release.yml then publishes (GHCR images, release artifacts, OCI chart).
 .PHONY: release-check release-snapshot
 GORELEASER ?= $(shell command -v goreleaser 2>/dev/null)
 release-check:   ## goreleaser check (skipped with a note when goreleaser is not installed)

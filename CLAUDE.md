@@ -8,6 +8,9 @@ It is a standalone Go operator (module `github.com/chenhunghan/flare-operator`, 
 
 Project status, known limits and UNVERIFIED assumptions are in `docs/known-issues.md`. Personal, machine-specific notes go in `CLAUDE.local.md` (gitignored), never in this file.
 
+## Commits
+Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `chore:`, `feat!:` for breaking changes). release-please reads them to pick the next version and write CHANGELOG.md; non-conventional commits are left out of the changelog.
+
 ## Commands
 ```sh
 make test            # all tests (the full run loads the 26 MB spec, ~3 s); make test-short skips that

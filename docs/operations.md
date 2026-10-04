@@ -532,12 +532,19 @@ stamps commit `none` and date `0001-01-01T00:00:00Z`, and names the artifacts
 `<version>-snapshot.none`. Treat such a snapshot as a local build without provenance; a
 release build (`goreleaser release`, from a tagged clone with a remote) stamps both.
 
-**Publishing.** Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`. It logs in to
-`ghcr.io` with the workflow's `GITHUB_TOKEN` (`packages: write`), runs `goreleaser release`
-(images to `ghcr.io/chenhunghan`, archives, checksums, SBOMs and the chart `.tgz` on the GitHub
-release), then pushes the chart to `oci://ghcr.io/chenhunghan/charts/flare-operator`. A tag with
-a pre-release suffix (`v0.2.0-rc.1`) is published as a pre-release and does not move `:latest`.
+**Publishing.** Releases are managed by release-please (`release-please-config.json`,
+`.github/workflows/release.yml`). Every push to `main` updates a release PR that bumps the
+version from the Conventional Commit messages (`feat:` → minor, `fix:` → patch; before 1.0 a
+breaking change `feat!:` bumps the minor), writes `CHANGELOG.md` and bumps `version` and
+`appVersion` in `charts/flare-operator/Chart.yaml`. Merging that PR tags `vX.Y.Z` and creates
+the GitHub release. The same workflow then logs in to `ghcr.io` with its `GITHUB_TOKEN`
+(`packages: write`), runs `goreleaser release` on the tag (images to `ghcr.io/chenhunghan`;
+archives, checksums, SBOMs and the chart `.tgz` attached to the release) and pushes the chart to
+`oci://ghcr.io/chenhunghan/charts/flare-operator`. To force a version, add a `Release-As: X.Y.Z`
+footer to a commit. A pre-release version (`0.2.0-rc.1`) is published as a pre-release and does
+not move `:latest`. The release PR is opened with `GITHUB_TOKEN`, so CI does not run on it
+automatically; its only changes are the version and changelog.
 The images carry `org.opencontainers.image.source`, which links each GHCR package to the
 repository. GHCR creates new packages as **private**: after the first release, make the
 `flare-operator`, `flarefake` and `charts/flare-operator` packages public once, in each
-package's settings. Record changes in [CHANGELOG.md](../CHANGELOG.md).
+package's settings.

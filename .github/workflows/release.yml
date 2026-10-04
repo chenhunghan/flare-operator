@@ -1,37 +1,56 @@
-# Release for a pushed v* tag (.goreleaser.yaml does the build):
-#   - multi-arch images ghcr.io/chenhunghan/flare-operator and ghcr.io/chenhunghan/flarefake
-#     (linux/amd64 + linux/arm64, SBOM attestations, OCI labels linking them to this repository);
-#   - a GitHub release with the manager and flarefake archives, checksums, SBOMs and the chart .tgz;
-#   - the Helm chart pushed as an OCI artifact to oci://ghcr.io/chenhunghan/charts/flare-operator.
+# Releases are managed by release-please (release-please-config.json):
+#   1. every push to main updates a release PR that bumps the version (Conventional Commits),
+#      CHANGELOG.md and charts/flare-operator/Chart.yaml;
+#   2. merging that PR tags vX.Y.Z and creates the GitHub release;
+#   3. the publish job then runs goreleaser on the tag (.goreleaser.yaml):
+#      - multi-arch images ghcr.io/chenhunghan/flare-operator and ghcr.io/chenhunghan/flarefake
+#        (linux/amd64 + linux/arm64, SBOM attestations, OCI labels linking them to this repository)
+#      - archives, checksums, SBOMs and the chart .tgz, attached to the release
+#      and pushes the Helm chart as an OCI artifact to oci://ghcr.io/chenhunghan/charts/flare-operator.
+# A tag created with GITHUB_TOKEN triggers no other workflow, so publishing runs in this one.
 # GHCR creates new packages as private: after the first release, make the flare-operator,
 # flarefake and charts/flare-operator packages public once in their package settings.
 name: release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
 
 permissions:
-  contents: write # the GitHub release
+  contents: write # release PR branch, tag and GitHub release
+  pull-requests: write # the release PR
   packages: write # GHCR images and the OCI chart
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
-env:
-  CGO_ENABLED: "0"
-  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-  CHART_REPO: oci://ghcr.io/${{ github.repository_owner }}/charts
-
 jobs:
-  release:
-    name: goreleaser + chart
+  release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+      IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+      CHART_REPO: oci://ghcr.io/${{ github.repository_owner }}/charts
+      TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
           # goreleaser reads the tags and the commit history.
           fetch-depth: 0
       - uses: actions/setup-go@v6
@@ -67,7 +86,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${TAG#v}"
           chart="bin/chart/flare-operator-${version}.tgz"
           test -f "$chart" || { echo "missing $chart"; ls -l bin/chart; exit 1; }
           echo "$GITHUB_TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin

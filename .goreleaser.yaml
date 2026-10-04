@@ -7,9 +7,10 @@
 #     (linux/amd64 + linux/arm64) with OCI labels and BuildKit SBOM attestations
 #   - the Helm chart packaged as flare-operator-X.Y.Z.tgz (chart version = appVersion = X.Y.Z)
 #
-# A pushed v* tag runs .github/workflows/release.yml: `goreleaser release` pushes the images to
-# IMAGE_REGISTRY (default ghcr.io/chenhunghan) and creates the GitHub release with the archives
-# and the chart .tgz; the workflow then pushes the chart to oci://ghcr.io/chenhunghan/charts.
+# Releases are cut by release-please (.github/workflows/release.yml): merging its release PR
+# tags vX.Y.Z and creates the GitHub release, then `goreleaser release` runs on the tag, pushes
+# the images to IMAGE_REGISTRY (default ghcr.io/chenhunghan) and attaches the archives and the
+# chart .tgz to that release; the workflow then pushes the chart to oci://ghcr.io/chenhunghan/charts.
 # `make release-snapshot` builds everything locally into dist/ and publishes nothing (without a
 # git remote goreleaser stamps a snapshot with commit "none" and date 0001-01-01: it ignores
 # the git state it cannot fully read). See docs/operations.md "Releases".
@@ -120,7 +121,7 @@ dockers_v2:
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot.{{ .ShortCommit }}"
 
-# CHANGELOG.md is written by hand.
+# release-please writes CHANGELOG.md and the release notes.
 changelog:
   disable: true
 
@@ -128,6 +129,8 @@ release:
   github:
     owner: chenhunghan
     name: flare-operator
+  # release-please has created the release (and its notes): only attach the artifacts.
+  mode: keep-existing
   # A vX.Y.Z-rc.N tag is published as a pre-release (and does not move :latest).
   prerelease: auto
   extra_files:

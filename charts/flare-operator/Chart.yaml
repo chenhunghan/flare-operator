@@ -2,10 +2,10 @@ apiVersion: v2
 name: flare-operator
 description: Kubernetes-native interface to Cloudflare resources and settings, one CRD per Cloudflare resource.
 type: application
-# Chart version; bump on any chart change.
-version: 0.2.0
+# Chart version = appVersion = the release version; release-please bumps both (release PR).
+version: 0.1.0 # x-release-please-version
 # Default tag for the manager and flarefake images.
-appVersion: "0.1.0"
+appVersion: "0.1.0" # x-release-please-version
 kubeVersion: ">=1.30.0-0"
 keywords:
   - cloudflare

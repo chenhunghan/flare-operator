@@ -19,9 +19,10 @@ It ships as one Go manager binary and one Helm chart (`charts/flare-operator`).
 - **API.** Every kind is `v1alpha1` and may change without notice. There is no conversion
   webhook; [docs/api-versioning.md](docs/api-versioning.md) describes the path to `v1beta1`.
 - **Releases.** The project lives at
-  [github.com/chenhunghan/flare-operator](https://github.com/chenhunghan/flare-operator). A `v*`
-  tag publishes multi-arch images and the Helm chart to GHCR (see the [Quickstart](#quickstart));
-  until the first tag, build the images yourself. The Go module path is
+  [github.com/chenhunghan/flare-operator](https://github.com/chenhunghan/flare-operator). Releases are
+  cut by [release-please](https://github.com/googleapis/release-please) from Conventional
+  Commits; each one publishes multi-arch images and the Helm chart to GHCR (see the
+  [Quickstart](#quickstart)). Until the first release, build the images yourself. The Go module path is
   `github.com/chenhunghan/flare-operator`.
 - **How it is verified.** Every controller is tested against `flarefake`, an in-memory
   emulator of the Cloudflare API, in envtest suites and in fault, crash and scale tests. The
@@ -113,7 +114,7 @@ with an API token. Building from source also needs `docker` (or another builder,
 
 ### 1. Install the chart
 
-Each release (a `v*` tag) publishes multi-arch images (linux/amd64, linux/arm64) to GHCR,
+Each release (a `vX.Y.Z` tag, cut by release-please) publishes multi-arch images (linux/amd64, linux/arm64) to GHCR,
 `ghcr.io/chenhunghan/flare-operator` and `ghcr.io/chenhunghan/flarefake`, and the chart as an
 OCI artifact. Pick a version from the
 [releases](https://github.com/chenhunghan/flare-operator/releases); the chart's default image

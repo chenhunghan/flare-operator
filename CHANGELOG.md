@@ -3,12 +3,14 @@
 All notable changes to flare-operator are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/). Every API is `v1alpha1`: until 1.0, a minor version
-may change the API. Chart versions are listed with the release they belong to. Before a release,
-the chart version in `charts/flare-operator/Chart.yaml` is bumped on every chart change.
+may change the API. The chart version equals the release version.
 
-## [Unreleased]
+From the first release on, [release-please](https://github.com/googleapis/release-please) writes
+this file from Conventional Commit messages; new entries are added above the pre-release notes.
 
-Nothing has been released yet. This section collects what the first release will contain.
+## [Pre-release] development history
+
+Everything below was built before the first public release, 0.1.0, and ships in it.
 
 ### Added
 - `examples/fullstack`: a complete notes app for `kubectl apply -k`. One Worker serves the
