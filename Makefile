@@ -196,8 +196,8 @@ COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 # The commit time, not the wall clock, so rebuilding a commit gives the same stamp and labels
 # (goreleaser uses .CommitDate the same way).
 BUILD_DATE ?= $(shell TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
-# org.opencontainers.image.source; empty until the repository has a permanent home.
-SOURCE_URL ?=
+# org.opencontainers.image.source (links a GHCR package to the repository).
+SOURCE_URL ?= https://github.com/chenhunghan/flare-operator
 CHART ?= charts/flare-operator
 HELM ?= helm
 KUBECTL ?= kubectl
@@ -268,7 +268,7 @@ sbom:            ## SPDX SBOMs for $(IMG) and $(FAKE_IMG) into $(SBOM_DIR) (syft
 	fi
 
 ## Release (.goreleaser.yaml): binaries for manager and flarefake, multi-arch images, the chart.
-## Nothing is published: release.disable is true until the repository has a permanent home.
+## Tags v* publish through .github/workflows/release.yml (GHCR images, GitHub release, OCI chart).
 .PHONY: release-check release-snapshot
 GORELEASER ?= $(shell command -v goreleaser 2>/dev/null)
 release-check:   ## goreleaser check (skipped with a note when goreleaser is not installed)
@@ -362,8 +362,8 @@ e2e-images:      ## build flare-operator, flarefake and the cloudflared stub as 
 e2e-install:     ## helm install the chart with flarefake into $(E2E_NAMESPACE) (CRDs from the chart)
 	$(HELM) upgrade --install $(E2E_RELEASE) $(CHART) -n $(E2E_NAMESPACE) --create-namespace --wait --timeout 5m \
 		-f $(CHART)/ci/flarefake-values.yaml --set clusterName=$(E2E_CLUSTER_NAME) \
-		--set image.tag=$(E2E_TAG) --set image.pullPolicy=$(E2E_PULL_POLICY) \
-		--set flarefake.image.tag=$(E2E_TAG) --set flarefake.image.pullPolicy=$(E2E_PULL_POLICY)
+		--set image.repository=flare-operator --set image.tag=$(E2E_TAG) --set image.pullPolicy=$(E2E_PULL_POLICY) \
+		--set flarefake.image.repository=flarefake --set flarefake.image.tag=$(E2E_TAG) --set flarefake.image.pullPolicy=$(E2E_PULL_POLICY)
 
 ## Upgrade e2e: previous ref's chart and manager -> this checkout (hack/e2e-upgrade.sh). It
 ## builds and loads the images itself. At the end it uninstalls (with E2E_IMAGE_REMOVE) only what

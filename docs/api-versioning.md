@@ -29,7 +29,7 @@ A kind moves to `v1beta1` when all of these hold:
 1. **Evidence.** Every Cloudflare route the kind's controller calls on its normal path (create,
    read, update, delete, adopt, ownership tagging) is emulated by flarefake with evidence of tier
    recording or SOURCED (CLAUDE.md, "Emulator fidelity"), not DOCS or UNVERIFIED. The kind's
-   UNVERIFIED items in `docs/STATUS.md` (e.g. Queue `jurisdiction` read-back, the Resource Tagging
+   UNVERIFIED items in `docs/known-issues.md` (e.g. Queue `jurisdiction` read-back, the Resource Tagging
    `resource_type` values) are resolved or explicitly accepted as documented limitations.
 2. **Differential tests.** The real Cloudflare clients (wrangler, cloudflare-go) agree with
    flarefake on the kind's routes (`test/differential`).

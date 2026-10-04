@@ -7,8 +7,9 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  # -- Manager image repository. Build it with `make docker-build`.
-  repository: flare-operator
+  # -- Manager image repository: the published multi-arch image. For a local build
+  # (`make docker-build`), set it to `flare-operator`.
+  repository: ghcr.io/chenhunghan/flare-operator
   # -- Image tag (default: the chart appVersion).
   tag: ""
   pullPolicy: IfNotPresent
@@ -252,8 +253,9 @@ clusterDomain: cluster.local
 flarefake:
   enabled: false
   image:
-    # -- flarefake image repository. Build it with `make docker-build-fake`.
-    repository: flarefake
+    # -- flarefake image repository: the published multi-arch image. For a local build
+    # (`make docker-build-fake`), set it to `flarefake`.
+    repository: ghcr.io/chenhunghan/flarefake
     # -- Image tag (default: the chart appVersion).
     tag: ""
     pullPolicy: IfNotPresent

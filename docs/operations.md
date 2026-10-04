@@ -24,15 +24,17 @@ validated by `values.schema.json`; every manager flag in the README's
 
 ## Install
 
-1. **Images.** There are no published images yet. Build them with `make docker-build`
-   (host platform) or `make docker-buildx` (linux/amd64 and linux/arm64, with SBOM and
-   provenance attestations; `BUILDX_OUTPUT=--push IMG=<registry>/flare-operator:<tag>` pushes
-   the multi-arch index). The nodes must be able to pull the image.
+1. **Images.** Releases publish multi-arch images (linux/amd64 and linux/arm64) to
+   `ghcr.io/chenhunghan/flare-operator` and `ghcr.io/chenhunghan/flarefake`; the chart uses them
+   by default. To run your own build, use `make docker-build` (host platform) or
+   `make docker-buildx` (linux/amd64 and linux/arm64, with SBOM and provenance attestations;
+   `BUILDX_OUTPUT=--push IMG=<registry>/flare-operator:<tag>` pushes the multi-arch index), and
+   set `image.repository` and `image.tag`. The nodes must be able to pull the image.
 2. **Install the chart** into its own namespace, and give the cluster a unique `clusterName`:
 
    ```sh
-   helm install flare-operator charts/flare-operator -n flare-system --create-namespace \
-     --set image.repository=<registry>/flare-operator --set image.tag=<tag> \
+   helm install flare-operator oci://ghcr.io/chenhunghan/charts/flare-operator --version <version> \
+     -n flare-system --create-namespace \
      --set clusterName=<unique-cluster-name> \
      --set reconcile.pollInterval=10m      # optional; see "Reconcile tuning and the API budget"
    kubectl -n flare-system rollout status deploy/flare-operator
@@ -64,6 +66,15 @@ make crds-apply                       # kubectl apply --server-side --force-conf
 helm upgrade flare-operator charts/flare-operator -n flare-system --reset-then-reuse-values \
   --set image.tag=<new tag>
 kubectl -n flare-system rollout status deploy/flare-operator
+```
+
+With the published chart, take the CRDs from the new chart version instead of a checkout:
+
+```sh
+helm pull oci://ghcr.io/chenhunghan/charts/flare-operator --version <new> --untar --untardir /tmp/flare-chart
+kubectl apply --server-side --force-conflicts --field-manager=flare-operator-crds -f /tmp/flare-chart/flare-operator/crds/
+helm upgrade flare-operator oci://ghcr.io/chenhunghan/charts/flare-operator --version <new> \
+  -n flare-system --reset-then-reuse-values
 ```
 
 Use `--reset-then-reuse-values` (Helm 3.14 or later), or pass your own values file with `-f`.
@@ -516,9 +527,17 @@ tag, are covered by the controller tests and e2e).
   version.
 
 `make release-snapshot` builds all of it into `dist/` and `bin/chart/`, and publishes nothing.
-In a checkout without a git remote (as today), goreleaser cannot read the git state for a
-snapshot: it stamps commit `none` and date `0001-01-01T00:00:00Z`, and names the artifacts
+In a checkout without a git remote, goreleaser cannot read the git state for a snapshot: it
+stamps commit `none` and date `0001-01-01T00:00:00Z`, and names the artifacts
 `<version>-snapshot.none`. Treat such a snapshot as a local build without provenance; a
 release build (`goreleaser release`, from a tagged clone with a remote) stamps both.
-Publishing stays disabled (`release.disable: true`, placeholder `IMAGE_REGISTRY`) until the
-repository has a permanent home. Record changes in [CHANGELOG.md](../CHANGELOG.md).
+
+**Publishing.** Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`. It logs in to
+`ghcr.io` with the workflow's `GITHUB_TOKEN` (`packages: write`), runs `goreleaser release`
+(images to `ghcr.io/chenhunghan`, archives, checksums, SBOMs and the chart `.tgz` on the GitHub
+release), then pushes the chart to `oci://ghcr.io/chenhunghan/charts/flare-operator`. A tag with
+a pre-release suffix (`v0.2.0-rc.1`) is published as a pre-release and does not move `:latest`.
+The images carry `org.opencontainers.image.source`, which links each GHCR package to the
+repository. GHCR creates new packages as **private**: after the first release, make the
+`flare-operator`, `flarefake` and `charts/flare-operator` packages public once, in each
+package's settings. Record changes in [CHANGELOG.md](../CHANGELOG.md).

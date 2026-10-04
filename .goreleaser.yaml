@@ -7,17 +7,18 @@
 #     (linux/amd64 + linux/arm64) with OCI labels and BuildKit SBOM attestations
 #   - the Helm chart packaged as flare-operator-X.Y.Z.tgz (chart version = appVersion = X.Y.Z)
 #
-# Nothing is published yet: the repository has no permanent home (README "Status"), so
-# release.disable is true and IMAGE_REGISTRY defaults to a placeholder. `make release-snapshot`
-# builds everything locally into dist/ (without a git remote goreleaser stamps a snapshot with
-# commit "none" and date 0001-01-01: it ignores the git state it cannot fully read). To publish, set IMAGE_REGISTRY, a release target and
-# drop release.disable; see docs/operations.md "Releases".
+# A pushed v* tag runs .github/workflows/release.yml: `goreleaser release` pushes the images to
+# IMAGE_REGISTRY (default ghcr.io/chenhunghan) and creates the GitHub release with the archives
+# and the chart .tgz; the workflow then pushes the chart to oci://ghcr.io/chenhunghan/charts.
+# `make release-snapshot` builds everything locally into dist/ and publishes nothing (without a
+# git remote goreleaser stamps a snapshot with commit "none" and date 0001-01-01: it ignores
+# the git state it cannot fully read). See docs/operations.md "Releases".
 version: 2
 project_name: flare-operator
 
 env:
   - CGO_ENABLED=0
-  - IMAGE_REGISTRY={{ envOrDefault "IMAGE_REGISTRY" "registry.example.com/flare-operator" }}
+  - IMAGE_REGISTRY={{ envOrDefault "IMAGE_REGISTRY" "ghcr.io/chenhunghan" }}
 
 before:
   hooks:
@@ -64,8 +65,12 @@ archives:
     formats: [tar.gz]
     # flarefake validates requests against the pinned spec (-spec).
     files:
+      - LICENSE
+      - NOTICE
+      - README.md
       - spec/openapi.json.gz
       - spec/LOCK
+      - spec/LICENSE
 
 checksum:
   name_template: checksums.txt
@@ -89,6 +94,8 @@ dockers_v2:
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .CommitDate }}"
       org.opencontainers.image.base.name: gcr.io/distroless/static-debian12:nonroot
+      org.opencontainers.image.source: https://github.com/chenhunghan/flare-operator
+      org.opencontainers.image.licenses: Apache-2.0
   - id: flarefake
     ids: [flarefake]
     dockerfile: hack/release/Dockerfile.flarefake
@@ -99,6 +106,7 @@ dockers_v2:
     extra_files:
       - spec/openapi.json.gz
       - spec/LOCK
+      - spec/LICENSE
     labels:
       org.opencontainers.image.title: flarefake
       org.opencontainers.image.description: Cloudflare API emulator for flare-operator e2e tests
@@ -106,6 +114,8 @@ dockers_v2:
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .CommitDate }}"
       org.opencontainers.image.base.name: gcr.io/distroless/static-debian12:nonroot
+      org.opencontainers.image.source: https://github.com/chenhunghan/flare-operator
+      org.opencontainers.image.licenses: Apache-2.0
 
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot.{{ .ShortCommit }}"
@@ -115,6 +125,10 @@ changelog:
   disable: true
 
 release:
-  disable: true
+  github:
+    owner: chenhunghan
+    name: flare-operator
+  # A vX.Y.Z-rc.N tag is published as a pre-release (and does not move :latest).
+  prerelease: auto
   extra_files:
     - glob: bin/chart/*.tgz

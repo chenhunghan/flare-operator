@@ -7,5 +7,6 @@
 !internal/
 !spec/openapi.json.gz
 !spec/LOCK
+!spec/LICENSE
 **/*_test.go
 **/testdata/

@@ -1,6 +1,6 @@
 // Package v1alpha1 contains types shared by every flare-operator kind.
 //
-// CONTRACT (docs/plan-parallel.md §2.3). Frozen by the orchestrator.
+// Stable contract shared by all controllers; change deliberately.
 //
 // Conventions for every kind, generated or hand-written:
 //   - API group flare.dev, version v1alpha1, for every kind (CloudflareAccount

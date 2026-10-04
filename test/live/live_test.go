@@ -846,7 +846,7 @@ func redactAll(ss []string) []string {
 
 // ---- direct probes of UNVERIFIED behaviours ----
 
-// TestLiveProbes records behaviours flarefake models without recordings (docs/STATUS.md
+// TestLiveProbes records behaviours flarefake models without recordings (docs/known-issues.md
 // UNVERIFIED): tokens/verify, Resource Tagging (never tagged, PUT, If-Match, DELETE, index,
 // deleted resources), tunnel token and duplicate names, VPC services without ports, and Workers
 // script settings PATCH (multipart vs JSON). It asserts only what the operator relies on; the

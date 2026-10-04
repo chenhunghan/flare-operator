@@ -7,13 +7,13 @@ keep both as small as possible. Operating procedures (install, upgrade, troubles
 
 ## Reporting a vulnerability
 
-The project is alpha and has no permanent home or security contact yet (see the README
-"Status"). Until it does, report a vulnerability privately to the maintainers. Don't open a
-public issue, and don't put a real token, account ID or recording in a report.
+Report a vulnerability privately through GitHub's
+[private vulnerability reporting](https://github.com/chenhunghan/flare-operator/security/advisories/new).
+Don't open a public issue, and don't put a real token, account ID or recording in a report.
 
 ## Supported versions
 
-There are no releases yet. Only the current `main` branch gets fixes.
+The project is alpha. Only the latest release and the `main` branch get fixes.
 
 ## API tokens
 
@@ -125,5 +125,7 @@ without authentication; it exposes only controller-runtime metrics, no tokens. S
   attestations. `make sbom` writes SPDX SBOMs, with syft when it is installed. The release
   config (`.goreleaser.yaml`) produces checksums and SBOMs for every archive and SBOM
   attestations for the images.
-- Images and binaries are not signed yet. No release has been published, so there is nothing
-  to sign. Signing (cosign keyless) is planned for the first published release.
+- Releases are built by `.github/workflows/release.yml` from a `v*` tag and published to GHCR
+  (`ghcr.io/chenhunghan/flare-operator`, `ghcr.io/chenhunghan/flarefake`, and the chart at
+  `oci://ghcr.io/chenhunghan/charts/flare-operator`). Images and binaries are not signed yet;
+  signing (cosign keyless) is planned.

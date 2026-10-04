@@ -1,0 +1,15 @@
+flare-operator
+Copyright 2026 Hung-Han (Henry) Chen
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+Source: https://github.com/chenhunghan/flare-operator
+
+-------------------------------------------------------------------------------
+
+This product includes the Cloudflare API OpenAPI schema, stored as
+spec/openapi.json.gz, from https://github.com/cloudflare/api-schemas at the
+commit recorded in spec/LOCK. It is distributed under the BSD 3-Clause License,
+Copyright (c) 2022, Cloudflare; the full license text is in spec/LICENSE.
+
+The release archives and the flarefake container image ship this file
+(spec/openapi.json.gz) together with spec/LOCK and spec/LICENSE.

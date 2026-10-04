@@ -5,7 +5,7 @@
 FROM gcr.io/distroless/static-debian12:nonroot
 ARG TARGETPLATFORM
 COPY ${TARGETPLATFORM}/flarefake /flarefake
-COPY spec/openapi.json.gz spec/LOCK /spec/
+COPY spec/openapi.json.gz spec/LOCK spec/LICENSE /spec/
 USER 65532:65532
 EXPOSE 8787
 ENTRYPOINT ["/flarefake"]

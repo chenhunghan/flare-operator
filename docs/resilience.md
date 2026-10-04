@@ -85,7 +85,7 @@ Residual risks, by design:
   create (its create-pending record), recorded with `RecordCreated`; any other name match is a
   NameConflict. The operator therefore never writes an external-id pin for a resource it did
   not create, so a pin (which lets deletion proceed, `reconcile.MayDeleteExternal`) is either
-  the user's or the record of the object's own create. Objects adopted by name by an older
+  set by hand or the record of the object's own create. Objects adopted by name by an older
   build carry such a pin already and keep it.
 - If a list lags a create (eventual consistency, UNVERIFIED for every product), a lost create can
   be missed and re-sent: for unique names the API refuses the duplicate, the record survives the

@@ -10,3 +10,11 @@ kubeVersion: ">=1.30.0-0"
 keywords:
   - cloudflare
   - operator
+home: https://github.com/chenhunghan/flare-operator
+sources:
+  - https://github.com/chenhunghan/flare-operator
+maintainers:
+  - name: Hung-Han (Henry) Chen
+    url: https://github.com/chenhunghan
+annotations:
+  artifacthub.io/license: Apache-2.0

@@ -56,8 +56,12 @@ Nothing has been released yet. This section collects what the first release will
 - Multi-arch images (`make docker-buildx`, linux/amd64 and linux/arm64) with BuildKit SBOM and
   provenance attestations. `make sbom` writes SPDX SBOMs.
 - Release configuration (`.goreleaser.yaml`): binaries, archives, checksums, SBOMs, multi-arch
-  images and the packaged chart. Publishing is disabled until the repository has a permanent
-  home.
+  images and the packaged chart. A `v*` tag runs `.github/workflows/release.yml`, which publishes
+  the images to `ghcr.io/chenhunghan`, the GitHub release, and the chart to
+  `oci://ghcr.io/chenhunghan/charts`.
+- Apache License 2.0 (`LICENSE`, `NOTICE`); the pinned Cloudflare OpenAPI schema keeps its
+  BSD-3-Clause license (`spec/LICENSE`). The chart's default image repositories are
+  `ghcr.io/chenhunghan/flare-operator` and `ghcr.io/chenhunghan/flarefake`.
 - `make lint-static` (staticcheck) and `make vulncheck` (govulncheck), in `make ci` and the CI
   workflow. `make crds-apply` and `make crds-diff` for CRD upgrades. `make e2e-upgrade` tests
   an upgrade from a previous git ref.

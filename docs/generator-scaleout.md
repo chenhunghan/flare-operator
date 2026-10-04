@@ -96,7 +96,7 @@ generic profile wraps its pages the way the spec's list result declares.
 
 R2Bucket's lifecycle rules (`/lifecycle`), bucket locks (`/lock`) and similar documents are
 further `subResources` with the same shape. Custom domains and event notifications have their own
-IDs and need nested-resource support (G-gen).
+IDs and need nested-resource support in the generator (planned).
 
 ## How the generic profile behaves
 

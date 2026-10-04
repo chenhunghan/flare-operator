@@ -133,9 +133,10 @@ if [ -n "$E2E_IMAGE_LOAD" ]; then
 fi
 "$MAKE" e2e-images E2E_TAG="$E2E_TAG" E2E_IMAGE_LOAD="$E2E_IMAGE_LOAD"
 
+# The images are the locally built, node-loaded ones (not the chart's GHCR defaults).
 helm_args=(-n "$E2E_NAMESPACE" --wait --timeout 5m --set clusterName="$E2E_CLUSTER_NAME"
-	--set image.pullPolicy="$E2E_PULL_POLICY"
-	--set flarefake.image.tag="$E2E_TAG" --set flarefake.image.pullPolicy="$E2E_PULL_POLICY")
+	--set image.repository=flare-operator --set image.pullPolicy="$E2E_PULL_POLICY"
+	--set flarefake.image.repository=flarefake --set flarefake.image.tag="$E2E_TAG" --set flarefake.image.pullPolicy="$E2E_PULL_POLICY")
 
 # 3. Claim the namespace atomically (another run may have started during the image builds),
 # then install the previous chart (its CRDs come from its crds/ on this first install).

@@ -1,8 +1,6 @@
 // Package cfclient is the only way controllers talk to the Cloudflare API.
 //
-// CONTRACT (docs/plan-parallel.md §2.1). This file is frozen by the
-// orchestrator: workstreams implement against it but do not edit it. Ask for
-// changes in your report instead.
+// Stable contract shared by all controllers; change deliberately.
 package cfclient
 
 import (
