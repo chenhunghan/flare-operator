@@ -19,7 +19,7 @@ import (
 var generated = []Entry{
 	{
 		Descriptor: generic.Descriptor{
-			Group: "aigateway.cloudflare.flare.dev", Version: "v1alpha1", Kind: "AIGateway",
+			Group: "flare.dev", Version: "v1alpha1", Kind: "AIGateway",
 			Scope:                 "account",
 			CreatePath:            "/accounts/{account_id}/ai-gateway/gateways",
 			ItemPath:              "/accounts/{account_id}/ai-gateway/gateways/{id}",
@@ -37,7 +37,7 @@ var generated = []Entry{
 	},
 	{
 		Descriptor: generic.Descriptor{
-			Group: "d1.cloudflare.flare.dev", Version: "v1alpha1", Kind: "D1Database",
+			Group: "flare.dev", Version: "v1alpha1", Kind: "D1Database",
 			Scope:                 "account",
 			CreatePath:            "/accounts/{account_id}/d1/database",
 			ItemPath:              "/accounts/{account_id}/d1/database/{id}",
@@ -58,7 +58,7 @@ var generated = []Entry{
 	},
 	{
 		Descriptor: generic.Descriptor{
-			Group: "kv.cloudflare.flare.dev", Version: "v1alpha1", Kind: "KVNamespace",
+			Group: "flare.dev", Version: "v1alpha1", Kind: "KVNamespace",
 			Scope:                 "account",
 			CreatePath:            "/accounts/{account_id}/storage/kv/namespaces",
 			ItemPath:              "/accounts/{account_id}/storage/kv/namespaces/{id}",
@@ -79,7 +79,7 @@ var generated = []Entry{
 	},
 	{
 		Descriptor: generic.Descriptor{
-			Group: "queues.cloudflare.flare.dev", Version: "v1alpha1", Kind: "Queue",
+			Group: "flare.dev", Version: "v1alpha1", Kind: "Queue",
 			Scope:                 "account",
 			CreatePath:            "/accounts/{account_id}/queues",
 			ItemPath:              "/accounts/{account_id}/queues/{id}",
@@ -100,7 +100,7 @@ var generated = []Entry{
 	},
 	{
 		Descriptor: generic.Descriptor{
-			Group: "r2.cloudflare.flare.dev", Version: "v1alpha1", Kind: "R2Bucket",
+			Group: "flare.dev", Version: "v1alpha1", Kind: "R2Bucket",
 			Scope:                 "account",
 			CreatePath:            "/accounts/{account_id}/r2/buckets",
 			ItemPath:              "/accounts/{account_id}/r2/buckets/{id}",
@@ -129,7 +129,7 @@ var generated = []Entry{
 	},
 	{
 		Descriptor: generic.Descriptor{
-			Group: "secretsstore.cloudflare.flare.dev", Version: "v1alpha1", Kind: "SecretsStore",
+			Group: "flare.dev", Version: "v1alpha1", Kind: "SecretsStore",
 			Scope:                 "account",
 			CreatePath:            "/accounts/{account_id}/secrets_store/stores",
 			ItemPath:              "/accounts/{account_id}/secrets_store/stores/{id}",
@@ -146,7 +146,7 @@ var generated = []Entry{
 	},
 	{
 		Descriptor: generic.Descriptor{
-			Group: "vectorize.cloudflare.flare.dev", Version: "v1alpha1", Kind: "VectorizeIndex",
+			Group: "flare.dev", Version: "v1alpha1", Kind: "VectorizeIndex",
 			Scope:                 "account",
 			CreatePath:            "/accounts/{account_id}/vectorize/v2/indexes",
 			ItemPath:              "/accounts/{account_id}/vectorize/v2/indexes/{id}",

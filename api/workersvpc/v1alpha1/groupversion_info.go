@@ -1,4 +1,4 @@
-// Package v1alpha1 contains the workersvpc.cloudflare.flare.dev API group
+// Package v1alpha1 contains the flare.dev API group
 // (x-fern-sdk-group-name "workers-vpc.services"): VPCService, a Workers VPC connectivity
 // service that routes Worker traffic through a Tunnel to a private backend.
 //
@@ -6,7 +6,7 @@
 // (controller-gen) produces their deepcopy methods and CRD.
 //
 // +kubebuilder:object:generate=true
-// +groupName=workersvpc.cloudflare.flare.dev
+// +groupName=flare.dev
 package v1alpha1
 
 import (
@@ -17,7 +17,7 @@ import (
 
 var (
 	// GroupVersion is the group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "workersvpc.cloudflare.flare.dev", Version: "v1alpha1"}
+	GroupVersion = schema.GroupVersion{Group: "flare.dev", Version: "v1alpha1"}
 
 	// SchemeBuilder registers this package's kinds. It is apimachinery's runtime.SchemeBuilder
 	// (as in the flaregen-generated packages), not controller-runtime's deprecated

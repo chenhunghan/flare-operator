@@ -1,4 +1,4 @@
-// Package v1alpha1 contains the workers.cloudflare.flare.dev API group (x-fern-sdk-group-name
+// Package v1alpha1 contains the flare.dev API group (x-fern-sdk-group-name
 // "workers.legacy.scripts", first segment "workers"): WorkerScript, a Cloudflare Workers script
 // with its modules, bindings and settings.
 //
@@ -6,7 +6,7 @@
 // (controller-gen) produces their deepcopy methods and CRD.
 //
 // +kubebuilder:object:generate=true
-// +groupName=workers.cloudflare.flare.dev
+// +groupName=flare.dev
 package v1alpha1
 
 import (
@@ -17,7 +17,7 @@ import (
 
 var (
 	// GroupVersion is the group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "workers.cloudflare.flare.dev", Version: "v1alpha1"}
+	GroupVersion = schema.GroupVersion{Group: "flare.dev", Version: "v1alpha1"}
 
 	// SchemeBuilder registers this package's kinds. It is apimachinery's runtime.SchemeBuilder
 	// (as in the flaregen-generated packages), not controller-runtime's deprecated

@@ -62,7 +62,7 @@ func TestGenericOptIn(t *testing.T) {
 // Hand-written profiles take precedence: a generic KV kind is skipped and KV keeps its
 // recorded behavior (0011: 404/10013).
 func TestGenericHandWrittenPrecedence(t *testing.T) {
-	kv := GenericKind{Group: "kv.cloudflare.flare.dev", Kind: "KVNamespace", Scope: "account",
+	kv := GenericKind{Group: "flare.dev", Kind: "KVNamespace", Scope: "account",
 		CreatePath: "/accounts/{account_id}/storage/kv/namespaces", ItemPath: "/accounts/{account_id}/storage/kv/namespaces/{id}",
 		ListPath: "/accounts/{account_id}/storage/kv/namespaces", IDField: "id", NameField: "title", UpdateMethod: "PUT"}
 	s := genericServer(t, kv)
@@ -209,7 +209,7 @@ func TestGenericAIGatewayPut(t *testing.T) {
 
 // PATCH merges (RFC 7386); the spec's writeOnly password is never returned.
 func TestGenericPatchMergeAndWriteOnly(t *testing.T) {
-	hd := GenericKind{Group: "hyperdrive.cloudflare.flare.dev", Kind: "HyperdriveConfig", Scope: "account",
+	hd := GenericKind{Group: "flare.dev", Kind: "HyperdriveConfig", Scope: "account",
 		CreatePath: "/accounts/{account_id}/hyperdrive/configs", ItemPath: "/accounts/{account_id}/hyperdrive/configs/{id}",
 		ListPath: "/accounts/{account_id}/hyperdrive/configs", IDField: "id", NameField: "name", UpdateMethod: "PATCH"}
 	s := genericServer(t, hd)
@@ -237,7 +237,7 @@ func TestGenericPatchMergeAndWriteOnly(t *testing.T) {
 
 // A singleton serves a default object shaped from the spec until PATCH changes it.
 func TestGenericSingleton(t *testing.T) {
-	ws := GenericKind{Group: "workflows.cloudflare.flare.dev", Kind: "WorkflowsSettings", Scope: "account",
+	ws := GenericKind{Group: "flare.dev", Kind: "WorkflowsSettings", Scope: "account",
 		ItemPath: "/accounts/{account_id}/workflows/settings", UpdateMethod: "PATCH", Singleton: true}
 	s := genericServer(t, ws)
 	c := newClient(t, s)

@@ -121,7 +121,7 @@ func managerOptions(o Options, scheme *runtime.Scheme) ctrl.Options {
 		Metrics:                       metricsserver.Options{BindAddress: o.MetricsAddr},
 		HealthProbeBindAddress:        o.ProbeAddr,
 		LeaderElection:                o.LeaderElect,
-		LeaderElectionID:              "flare-operator.cloudflare.flare.dev",
+		LeaderElectionID:              "flare-operator.flare.dev",
 		LeaderElectionNamespace:       o.LeaderElectNS,
 		LeaderElectionReleaseOnCancel: true,
 		GracefulShutdownTimeout:       ptr.To(GracefulShutdownTimeout),

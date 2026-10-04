@@ -32,14 +32,14 @@ import (
 // value is "<metadata.uid>/<external ID>": the UID ties the record to this very object, so a
 // copied manifest (GitOps export, backup restore) does not inherit it, and the ID ties it to one
 // resource, so re-pointing the external-id annotation does not carry it over.
-const AnnotationOwnershipProof = "cloudflare.flare.dev/ownership-proof"
+const AnnotationOwnershipProof = "flare.dev/ownership-proof"
 
 // AnnotationLegacyCreatedByUID is the ownership record of older Tunnel and VPCService builds:
 // "<metadata.uid>" of the object that created the resource named by its external-id
 // annotation. HasOwnershipProof honours it; RecordOwnership and RecordCreated replace it with
 // AnnotationOwnershipProof (MigrateLegacyOwnership does so for an object that needs no other
 // write).
-const AnnotationLegacyCreatedByUID = "cloudflare.flare.dev/created-by-uid"
+const AnnotationLegacyCreatedByUID = "flare.dev/created-by-uid"
 
 func ownershipProofValue(mg client.Object, id string) string { return string(mg.GetUID()) + "/" + id }
 

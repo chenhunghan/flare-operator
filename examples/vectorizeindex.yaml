@@ -2,9 +2,9 @@
 # docs/generator-scaleout.md). The v2 API has no update: every field is create-only.
 # Default deletionPolicy: Delete, although the index holds vectors: set Orphan to keep them when
 # the object is deleted. VectorizeIndex has no owner tag, so an existing index with this name is
-# not adopted: the object reports NameConflict until the cloudflare.flare.dev/external-id
+# not adopted: the object reports NameConflict until the flare.dev/external-id
 # annotation pins it. A pinned index is deleted with the object under Delete.
-apiVersion: vectorize.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: VectorizeIndex
 metadata:
   name: embeddings

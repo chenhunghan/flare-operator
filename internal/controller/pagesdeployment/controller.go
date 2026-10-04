@@ -147,12 +147,12 @@ type appliedState struct {
 	digest   *sharedv1alpha1.ArtifactStatus
 }
 
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesdeployments,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesdeployments/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesdeployments/finalizers,verbs=update
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesprojects,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesdeployments,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesdeployments/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesdeployments/finalizers,verbs=update
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesprojects,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps;secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 func (r *Reconciler) resync() time.Duration {

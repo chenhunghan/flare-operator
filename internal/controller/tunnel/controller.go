@@ -137,11 +137,11 @@ type Reconciler struct {
 // Delete policy is deleted but its Cloudflare tunnel is kept because another owner holds it.
 const EventReasonTunnelKept = "ForeignOwnerTunnelKept"
 
-// +kubebuilder:rbac:groups=tunnels.cloudflare.flare.dev,resources=tunnels,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=tunnels.cloudflare.flare.dev,resources=tunnels/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=tunnels.cloudflare.flare.dev,resources=tunnels/finalizers,verbs=update
-// +kubebuilder:rbac:groups=workersvpc.cloudflare.flare.dev,resources=vpcservices,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=tunnels,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=tunnels/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=tunnels/finalizers,verbs=update
+// +kubebuilder:rbac:groups=flare.dev,resources=vpcservices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete

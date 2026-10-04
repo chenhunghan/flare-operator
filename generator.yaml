@@ -11,8 +11,15 @@
 # its printColumns, then AGE, and the categories cloudflare, managed and its product.
 # shortNames all start with "cf" so they cannot collide with core Kubernetes short names
 # (po, svc, ns, ...) or those of common CRDs (cert-manager, Kueue's "queue", ...).
+#
+# Every kind, generated or hand-written, is in the one API group below (apiVersion
+# flare.dev/v1alpha1). Its kind, plural, singular (lower-case kind) and shortNames must be
+# unique across all of them; flaregen fails on a collision and never renames a kind. Resolve
+# one by giving the NEW kind an explicit `kind:` and `plural:` here (e.g. prefixed with its
+# product); never rename an existing kind. `product:` only names the Go package
+# (api/<product>/v1alpha1) and the kubectl category.
 version: v1alpha1
-groupSuffix: cloudflare.flare.dev
+group: flare.dev
 kinds:
   - fernGroup: kv.namespaces
     kind: KVNamespace
@@ -94,11 +101,11 @@ kinds:
     shortNames: [cfstore]
     printColumns:
       - {name: STORE, type: string, jsonPath: .status.atProvider.name}
-    group: secretsstore
+    product: secretsstore
     emulate: generic
     why:
       kind: '"Store" alone is too generic across groups'
-      group: '"secrets-store" is not a valid Go package name'
+      product: '"secrets-store" is not a valid Go package name'
       emulate: "no hand-written profile; list result_info recorded without total_pages (0155, a generic quirk)"
       derived: "no update operation: name is create-only (immutable). UNVERIFIED: the beta allows one store per account, which the generic profile does not enforce"
 
@@ -108,10 +115,10 @@ kinds:
     printColumns:
       - {name: COLLECT-LOGS, type: boolean, jsonPath: .status.atProvider.collect_logs}
       - {name: CACHE-TTL, type: integer, jsonPath: .status.atProvider.cache_ttl, priority: 1}
-    group: aigateway
+    product: aigateway
     emulate: generic
     why:
-      group: '"ai-gateway" is not a valid Go package name'
+      product: '"ai-gateway" is not a valid Go package name'
       emulate: "no hand-written profile and no recordings yet"
       derived: "the client chooses the id (create body); PUT is the only update, so id is create-only (immutable); no name field, so no adoption by name"
 

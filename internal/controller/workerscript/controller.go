@@ -180,16 +180,16 @@ type appliedState struct {
 	name, content, settings, secrets, assets, v string
 }
 
-// +kubebuilder:rbac:groups=workers.cloudflare.flare.dev,resources=workerscripts,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=workers.cloudflare.flare.dev,resources=workerscripts/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=workers.cloudflare.flare.dev,resources=workerscripts/finalizers,verbs=update
-// +kubebuilder:rbac:groups=kv.cloudflare.flare.dev,resources=kvnamespaces,verbs=get;list;watch
-// +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues,verbs=get;list;watch
-// +kubebuilder:rbac:groups=d1.cloudflare.flare.dev,resources=d1databases,verbs=get;list;watch
-// +kubebuilder:rbac:groups=workersvpc.cloudflare.flare.dev,resources=vpcservices,verbs=get;list;watch
-// +kubebuilder:rbac:groups=r2.cloudflare.flare.dev,resources=r2buckets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=workerscripts,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=workerscripts/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=workerscripts/finalizers,verbs=update
+// +kubebuilder:rbac:groups=flare.dev,resources=kvnamespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=queues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=d1databases,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=vpcservices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=r2buckets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps;secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // lockCreate locks the create of script key ("<account>/<script>") and returns the unlock.
@@ -334,7 +334,7 @@ func managedChanged() predicate.Funcs {
 }
 
 // dataChanged passes Secret and ConfigMap changes of their data or labels (the opt-in labels
-// cloudflare.flare.dev/worker-binding and cloudflare.flare.dev/artifact).
+// flare.dev/worker-binding and flare.dev/artifact).
 func dataChanged() predicate.Funcs {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {

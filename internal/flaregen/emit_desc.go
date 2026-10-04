@@ -154,7 +154,7 @@ func emitRBAC(kinds []*KindModel) ([]byte, error) {
 		fmt.Fprintf(&b, "// +kubebuilder:rbac:groups=%s,resources=%s/status,verbs=get;update;patch\n", m.Group, m.Plural)
 		fmt.Fprintf(&b, "// +kubebuilder:rbac:groups=%s,resources=%s/finalizers,verbs=update\n", m.Group, m.Plural)
 	}
-	b.WriteString("// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch\n")
+	b.WriteString("// +kubebuilder:rbac:groups=flare.dev,resources=cloudflareaccounts,verbs=get;list;watch\n")
 	b.WriteString("// +kubebuilder:rbac:groups=\"\",resources=secrets,verbs=get;list;watch\n")
 	b.WriteString("\n// generatedRBAC documents that the free-floating markers above are generated\n// (controller-gen collects them from ./internal/generic/kinds).\nconst generatedRBAC = true\n")
 	return formatGo(b.Bytes())

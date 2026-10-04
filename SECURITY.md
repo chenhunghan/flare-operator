@@ -22,7 +22,7 @@ There are no releases yet. Only the current `main` branch gets fixes.
   event, a log line or another object. The operator reads the Secret values of:
   - the token Secrets that CloudflareAccounts reference;
   - the Secrets that WorkerScript `secret_text` bindings reference (`secretKeyRef`), and only
-    those labelled `cloudflare.flare.dev/worker-binding=true` that are not service account
+    those labelled `flare.dev/worker-binding=true` that are not service account
     tokens. The value is uploaded to Cloudflare as a Worker secret, and the Worker's code can
     return it, so never put that label on a token Secret;
   - the `<tunnel>-cloudflared-token` Secrets it writes itself for Tunnel connectors.
@@ -50,8 +50,8 @@ There are no releases yet. Only the current `main` branch gets fixes.
   account `Ready=False`, and its managed objects then report `AccountNotReady` and stop calling
   Cloudflare.
 - **Deletion protection.** A token Secret carries the finalizer
-  `cloudflare.flare.dev/account-token` while an account uses it, and an account carries
-  `cloudflare.flare.dev/account-in-use` while managed objects reference it. Together they keep
+  `flare.dev/account-token` while an account uses it, and an account carries
+  `flare.dev/account-in-use` while managed objects reference it. Together they keep
   a namespace deletion from removing the token before the objects have cleaned up in
   Cloudflare.
 - **RBAC on Secrets.** Anyone who can read Secrets in a namespace can read its tokens. Anyone
@@ -61,7 +61,7 @@ There are no releases yet. Only the current `main` branch gets fixes.
   roles' Secret access.
 - **RBAC on WorkerScripts and Tunnels.** Anyone who can create or update a WorkerScript can read,
   through a Worker they write, every Secret of the namespace labelled
-  `cloudflare.flare.dev/worker-binding=true`: treat that label as granting Secret read access to
+  `flare.dev/worker-binding=true`: treat that label as granting Secret read access to
   WorkerScript authors. Anyone who can create or update a Tunnel can have the operator run a
   Deployment with any image (`spec.connector.image`) in that namespace: grant `tunnels` like you
   grant `deployments` create.
@@ -96,7 +96,7 @@ manager itself can reach. The cache drops managedFields and the data of Helm rel
 account token Secrets; size the manager's memory for the remaining Secrets and ConfigMaps.
 
 Artifact sources (the deployable content of kinds that embed an `ArtifactSource`) are read only
-from ConfigMaps and pull Secrets labelled `cloudflare.flare.dev/artifact=true`, over HTTPS, and
+from ConfigMaps and pull Secrets labelled `flare.dev/artifact=true`, over HTTPS, and
 never from loopback, private, link-local (cloud metadata) or other non-public addresses unless
 `--artifact-allowed-cidr` lists them; archives and images are unpacked under size, file-count
 and compression-ratio limits with path-traversal and link checks. See

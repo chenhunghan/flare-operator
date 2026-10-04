@@ -14,8 +14,8 @@ package v1alpha1
 // access and uploads their content to Cloudflare, where the page or Worker built from it can
 // serve it, so without the opt-in anyone allowed to create a kind with an ArtifactSource could
 // publish any ConfigMap of the namespace or borrow any registry credential in it. Same pattern
-// as cloudflare.flare.dev/worker-binding for secret_text bindings.
-const LabelArtifact = "cloudflare.flare.dev/artifact"
+// as flare.dev/worker-binding for secret_text bindings.
+const LabelArtifact = "flare.dev/artifact"
 
 // ArtifactSource says where the files of a deployable artifact come from. Exactly one of
 // configMapRef, ociRef or url is set. The loader (internal/artifact) turns it into an in-memory
@@ -25,7 +25,7 @@ const LabelArtifact = "cloudflare.flare.dev/artifact"
 // +kubebuilder:validation:XValidation:rule="(has(self.configMapRef) ? 1 : 0) + (has(self.ociRef) ? 1 : 0) + (has(self.url) ? 1 : 0) == 1",message="set exactly one of configMapRef, ociRef or url"
 type ArtifactSource struct {
 	// ConfigMapRef takes the files from one or more ConfigMaps in the object's namespace. Each
-	// ConfigMap must carry the label cloudflare.flare.dev/artifact=true. A ConfigMap holds at
+	// ConfigMap must carry the label flare.dev/artifact=true. A ConfigMap holds at
 	// most 1 MiB (data and binaryData together), so larger artifacts belong in ociRef or url.
 	// +optional
 	ConfigMapRef *ConfigMapArtifactSource `json:"configMapRef,omitempty"`
@@ -42,7 +42,7 @@ type ArtifactSource struct {
 // ConfigMapArtifactSource lists the ConfigMaps an artifact is assembled from. Their files are
 // merged; two files at the same path are an error.
 type ConfigMapArtifactSource struct {
-	// ConfigMaps in the object's namespace, each labelled cloudflare.flare.dev/artifact=true.
+	// ConfigMaps in the object's namespace, each labelled flare.dev/artifact=true.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	// +listType=atomic
@@ -102,7 +102,7 @@ type OCIArtifactSource struct {
 	// +kubebuilder:validation:Pattern=`^([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)(/([^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*$`
 	Path string `json:"path,omitempty"`
 	// PullSecretRef names a kubernetes.io/dockerconfigjson Secret in the object's namespace
-	// with the registry credentials. It must carry the label cloudflare.flare.dev/artifact=true.
+	// with the registry credentials. It must carry the label flare.dev/artifact=true.
 	// Without it the image is pulled anonymously.
 	// +optional
 	PullSecretRef *ArtifactSecretRef `json:"pullSecretRef,omitempty"`

@@ -96,10 +96,10 @@ default and share the data. To deploy only the Worker, remove `pages/project.yam
 
 | File | What it is |
 |---|---|
-| `kustomization.yaml` | The namespace, the resources, and three generated ConfigMaps (the Worker's assets, its module, and the Pages site). They are labelled `cloudflare.flare.dev/artifact=true` and have no hash suffix. |
+| `kustomization.yaml` | The namespace, the resources, and three generated ConfigMaps (the Worker's assets, its module, and the Pages site). They are labelled `flare.dev/artifact=true` and have no hash suffix. |
 | `namespace.yaml` | Namespace `flare-fullstack` |
 | `account.yaml` | The token `Secret` and `CloudflareAccount main` (**placeholders**) |
-| `secrets.yaml` | The `Secret` for the `secret_text` binding `SESSION_SECRET`, labelled `cloudflare.flare.dev/worker-binding=true` (**placeholder**) |
+| `secrets.yaml` | The `Secret` for the `secret_text` binding `SESSION_SECRET`, labelled `flare.dev/worker-binding=true` (**placeholder**) |
 | `data.yaml` | `D1Database notes-db`, `R2Bucket notes-files` and `KVNamespace notes-sessions` |
 | `worker.yaml` | `WorkerScript notes-app`: modules and assets from the ConfigMaps, and bindings for D1, R2, KV, the secret and the assets. workers.dev is on. |
 | `pages/project.yaml`, `pages/deployment.yaml` | The Pages variant |
@@ -149,7 +149,7 @@ Before you deploy:
    kubectl -n flare-fullstack create secret generic cloudflare-token --from-literal=token=...
    kubectl -n flare-fullstack create secret generic notes-app-secrets \
      --from-literal=session-secret="$(openssl rand -base64 32)"
-   kubectl -n flare-fullstack label secret notes-app-secrets cloudflare.flare.dev/worker-binding=true
+   kubectl -n flare-fullstack label secret notes-app-secrets flare.dev/worker-binding=true
    ```
 
 3. Apply:
@@ -260,7 +260,7 @@ them too, choose one of these:
   `npx wrangler r2 bucket delete notes-files` (after emptying it).
 
 To manage the kept database and bucket again later, pin each new object to its resource with
-the `cloudflare.flare.dev/external-id` annotation: the D1 database's ID, or the bucket's name.
+the `flare.dev/external-id` annotation: the D1 database's ID, or the bucket's name.
 An R2 bucket has no owner tag, so without the annotation a new `R2Bucket notes-files` reports
 `NameConflict` instead of taking the bucket over.
 

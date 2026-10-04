@@ -53,7 +53,7 @@ func (l *WidgetList) DeepCopyObject() runtime.Object {
 	return &out
 }
 
-var widgetGV = schema.GroupVersion{Group: "test.cloudflare.flare.dev", Version: "v1alpha1"}
+var widgetGV = schema.GroupVersion{Group: "test.flare.dev", Version: "v1alpha1"}
 
 func addWidget(s *runtime.Scheme) error {
 	s.AddKnownTypes(widgetGV, &Widget{}, &WidgetList{})

@@ -7,12 +7,12 @@ particular there is no conversion webhook.
 
 - Every kind is served at `v1alpha1`, which is also the storage version. Each CRD has exactly
   one version (`TestCRDConventions` in `internal/apivalidation` checks this).
-- API groups are per product (`kv.cloudflare.flare.dev`, `queues.cloudflare.flare.dev`, ...;
-  `CloudflareAccount` is in `cloudflare.flare.dev`), so each group, and in practice each kind,
-  can graduate on its own.
+- Every kind is in one API group, `flare.dev`. Versions are per CRD, not per group, so each kind
+  can still graduate on its own (`flare.dev/v1beta1` serving some kinds while others stay at
+  `v1alpha1`).
 - Generated kinds take their version from `version:` in `generator.yaml` (one value for all of
   them); hand-written kinds (`CloudflareAccount`, `Tunnel`, `VPCService`, `WorkerScript`) from
-  their Go package under `api/<group>/v1alpha1`.
+  their Go package under `api/<product>/v1alpha1`.
 - The reference for the current schemas is [api-reference.md](api-reference.md), generated from
   the CRDs.
 
@@ -115,7 +115,7 @@ Modelled on the Kubernetes API deprecation policy.
 
 - **What is API**: CRD group, version, kind and resource names; every `spec` and `status`
   field, its type, enum values, defaults and validation; annotations and labels the operator
-  reads or writes (`cloudflare.flare.dev/external-id`, `cloudflare.flare.dev/account`, the
+  reads or writes (`flare.dev/external-id`, `flare.dev/account`, the
   finalizers); condition types and reasons (the reasons table in
   [api-reference.md](api-reference.md)); the default `deletionPolicy` of each kind.
 - **Not API**: printer columns and their order, categories, Event messages and condition

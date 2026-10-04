@@ -26,7 +26,9 @@
 # CHART, E2E_NAMESPACE, E2E_RELEASE, E2E_TAG, E2E_PULL_POLICY, E2E_CLUSTER_NAME,
 # E2E_IMAGE_LOAD, E2E_IMAGE_REMOVE, E2E_IMAGE_LIST, E2E_LOCAL_RMI (see the Makefile), and
 #   E2E_UPGRADE_FROM    git ref to upgrade from (default: the latest tag before HEAD, else the
-#                       merge base with main when HEAD is on a branch, else HEAD~1)
+#                       merge base with main when HEAD is on a branch, else HEAD~1). It must
+#                       be at or after the API group rename to flare.dev: refs from before
+#                       publication (one group per product, e.g. bc4b472) are refused
 #   E2E_PREV_TAG        image tag for the previous manager (e2e-prev)
 #   E2E_UPGRADE_SMOKE   TestEndToEnd steps to run after the upgrade (a -run regexp)
 #   E2E_BUSY_WAIT       seconds to wait for a busy E2E_NAMESPACE before skipping (900)
@@ -81,6 +83,13 @@ if [ -z "$from" ]; then
 fi
 from_sha=$(git rev-parse --verify "$from^{commit}")
 from_desc=$(git describe --tags --always "$from_sha")
+# Refs from before publication used one API group per product;
+# their objects cannot be upgraded in place (CHANGELOG, "API group rename").
+# Every upgradable ref ships its chart CRDs as flare.dev_<plural>.yaml.
+if ! git ls-tree --name-only "$from_sha" "$CHART/crds/" | grep -q '/flare\.dev_[a-z0-9]*\.yaml$'; then
+	log "FAIL: $from_desc predates the single flare.dev API group (a pre-publication ref); it cannot be upgraded from. Set E2E_UPGRADE_FROM to a release tag or a commit at or after the rename."
+	exit 1
+fi
 log "upgrade $from_desc ($from_sha) -> $(git describe --tags --always --dirty) ($head_sha)"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/flare-e2e-upgrade.XXXXXX")

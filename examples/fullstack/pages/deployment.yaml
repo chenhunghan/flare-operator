@@ -13,7 +13,7 @@
 #
 # Cloudflare never deletes a project's live production deployment, so deleting this object
 # keeps it; it goes when the PagesProject is deleted.
-apiVersion: pages.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: PagesDeployment
 metadata:
   name: notes-pages-production

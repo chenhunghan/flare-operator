@@ -144,17 +144,17 @@ type appliedState struct {
 	name, settings, secrets string
 }
 
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesprojects,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesprojects/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesprojects/finalizers,verbs=update
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesdeployments,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kv.cloudflare.flare.dev,resources=kvnamespaces,verbs=get;list;watch
-// +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues,verbs=get;list;watch
-// +kubebuilder:rbac:groups=d1.cloudflare.flare.dev,resources=d1databases,verbs=get;list;watch
-// +kubebuilder:rbac:groups=r2.cloudflare.flare.dev,resources=r2buckets,verbs=get;list;watch
-// +kubebuilder:rbac:groups=workers.cloudflare.flare.dev,resources=workerscripts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesprojects,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesprojects/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesprojects/finalizers,verbs=update
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesdeployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=kvnamespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=queues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=d1databases,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=r2buckets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=workerscripts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 func (r *Reconciler) lockCreate(key string) func() {

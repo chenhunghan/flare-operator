@@ -354,7 +354,7 @@ func topNames(t *Type) []string {
 }
 
 // BuildKind turns a Resource plus its generator.yaml entry into a KindModel.
-func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindModel, error) {
+func BuildKind(r *Resource, kc KindConfig, group, version string) (*KindModel, error) {
 	if r.Unsupported != "" {
 		return nil, fmt.Errorf("%s: unsupported: %s", r.Key(), r.Unsupported)
 	}
@@ -363,7 +363,7 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 	if m.Kind == "" {
 		m.Kind = defaultKind(r.FernGroup)
 	}
-	m.Product = kc.Group
+	m.Product = kc.Product
 	if m.Product == "" {
 		m.Product = r.Product
 	}
@@ -371,12 +371,12 @@ func BuildKind(r *Resource, kc KindConfig, groupSuffix, version string) (*KindMo
 	if m.Plural == "" {
 		m.Plural = plural(m.Kind)
 	}
-	m.Group = m.Product + "." + groupSuffix
+	m.Group = group
 	switch {
 	case !kindRe.MatchString(m.Kind):
 		return nil, fmt.Errorf("%s: kind %q is not an exported Go identifier; set kind", r.Key(), m.Kind)
 	case !labelRe.MatchString(m.Product):
-		return nil, fmt.Errorf("%s: group %q must match %s; set group", r.Key(), m.Product, labelRe)
+		return nil, fmt.Errorf("%s: product %q must match %s; set product", r.Key(), m.Product, labelRe)
 	case !labelRe.MatchString(m.Plural):
 		return nil, fmt.Errorf("%s: plural %q must match %s; set plural", r.Key(), m.Plural, labelRe)
 	}

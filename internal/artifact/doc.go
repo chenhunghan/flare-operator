@@ -20,7 +20,7 @@
 //     check runs at connect time, so DNS rebinding and redirects cannot reach loopback,
 //     private, link-local (cloud metadata) or other special-purpose ranges (SSRF).
 //   - Opt-in: ConfigMaps and pull Secrets are read only with the label
-//     cloudflare.flare.dev/artifact=true (sharedv1alpha1.LabelArtifact).
+//     flare.dev/artifact=true (sharedv1alpha1.LabelArtifact).
 //
 // Loaded OCI and URL trees are cached by digest (bounded by Options.CacheBytes). A cached OCI
 // tree is returned only after the caller's own credentials fetched the manifest, so one

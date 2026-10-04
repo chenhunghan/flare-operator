@@ -4,7 +4,7 @@
 # Cloudflare IDs and uploads nothing until they are Ready. While this script binds them, the
 # VPCService (and a KVNamespace/Queue/D1Database with deletionPolicy Delete) waits for it before
 # deleting its own Cloudflare resource.
-apiVersion: workers.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: WorkerScript
 metadata:
   name: frontend
@@ -44,7 +44,7 @@ spec:
         text: hello
       - name: API_TOKEN
         type: secret_text          # write-only: a change of the Secret is re-applied. The Secret
-                                   # needs the label cloudflare.flare.dev/worker-binding=true.
+                                   # needs the label flare.dev/worker-binding=true.
         secretKeyRef:
           name: frontend-secrets
           key: api-token
@@ -69,7 +69,7 @@ data:
     };
   greeting.txt: Hello from a ConfigMap
 ---
-apiVersion: workers.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: WorkerScript
 metadata:
   name: hello
@@ -85,13 +85,13 @@ spec:
       name: hello-worker-src
 ---
 # Observe an existing script (no writes, never deleted). Without forProvider the script name is
-# metadata.name, or pin it with the cloudflare.flare.dev/external-id annotation.
-apiVersion: workers.cloudflare.flare.dev/v1alpha1
+# metadata.name, or pin it with the flare.dev/external-id annotation.
+apiVersion: flare.dev/v1alpha1
 kind: WorkerScript
 metadata:
   name: legacy-worker
   annotations:
-    cloudflare.flare.dev/external-id: legacy-worker
+    flare.dev/external-id: legacy-worker
 spec:
   accountRef:
     name: main

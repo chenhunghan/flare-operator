@@ -49,7 +49,7 @@ func TestSynthesizeEveryKind(t *testing.T) {
 }
 
 func TestSynthesizeHonorsSchema(t *testing.T) {
-	e, ok := descriptors.Lookup("aigateway.cloudflare.flare.dev", "AIGateway")
+	e, ok := descriptors.Lookup("flare.dev", "AIGateway")
 	if !ok {
 		t.Skip("no AIGateway kind")
 	}

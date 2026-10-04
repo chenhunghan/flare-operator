@@ -490,12 +490,12 @@ func (r *Reconciler) bindings(ctx context.Context, ws *workersv1alpha1.WorkerScr
 }
 
 // LabelWorkerBinding opts a Secret in to secret_text bindings: only a Secret labelled
-// cloudflare.flare.dev/worker-binding=true can be read through a WorkerScript's secretKeyRef.
+// flare.dev/worker-binding=true can be read through a WorkerScript's secretKeyRef.
 // The operator reads Secrets with its own, cluster-wide access, and the Worker's code (which the
 // WorkerScript's author writes) can return a binding's value, so without the opt-in anyone
 // allowed to create WorkerScripts could read every Secret of the namespace, the CloudflareAccount
 // token included.
-const LabelWorkerBinding = "cloudflare.flare.dev/worker-binding"
+const LabelWorkerBinding = "flare.dev/worker-binding"
 
 func (r *Reconciler) secretValue(ctx context.Context, ws *workersv1alpha1.WorkerScript, b workersv1alpha1.WorkerBinding) (string, *problem, error) {
 	ref := b.SecretKeyRef

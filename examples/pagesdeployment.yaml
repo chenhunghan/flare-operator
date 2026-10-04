@@ -11,7 +11,7 @@ kind: ConfigMap
 metadata:
   name: docs-root
   labels:
-    cloudflare.flare.dev/artifact: "true"   # opt-in: only labelled ConfigMaps are read
+    flare.dev/artifact: "true"   # opt-in: only labelled ConfigMaps are read
 data:
   index.html: |
     <!doctype html><title>Acme docs</title><h1>Hello from Pages</h1>
@@ -24,11 +24,11 @@ kind: ConfigMap
 metadata:
   name: docs-css
   labels:
-    cloudflare.flare.dev/artifact: "true"
+    flare.dev/artifact: "true"
 data:
   app.css: "body { font-family: sans-serif }"
 ---
-apiVersion: pages.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: PagesDeployment
 metadata:
   name: docs-production
@@ -48,7 +48,7 @@ spec:
 ---
 # A preview deployment (https://<branch alias>.acme-docs.pages.dev) from a released archive,
 # pinned by SHA-256.
-apiVersion: pages.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: PagesDeployment
 metadata:
   name: docs-preview
@@ -66,7 +66,7 @@ spec:
         path: public
 ---
 # Observe the live production deployment of the project (no writes, never deleted).
-apiVersion: pages.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: PagesDeployment
 metadata:
   name: docs-live

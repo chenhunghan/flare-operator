@@ -49,7 +49,7 @@ func (l *Loader) Limits() Limits { return l.lim }
 
 // Load reads src for an object in namespace. ConfigMaps and pull Secrets are read through c
 // (the controller's client), only from namespace and only with the label
-// cloudflare.flare.dev/artifact=true. A failure is an *Error (see Kind) unless it is an error
+// flare.dev/artifact=true. A failure is an *Error (see Kind) unless it is an error
 // of the Kubernetes API or the context.
 func (l *Loader) Load(ctx context.Context, c client.Reader, namespace string, src sharedv1alpha1.ArtifactSource) (*Tree, error) {
 	n := 0

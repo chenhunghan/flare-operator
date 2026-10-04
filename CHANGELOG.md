@@ -38,7 +38,7 @@ Nothing has been released yet. This section collects what the first release will
   `metadata.assets` / `keep_assets`; `wrangler deploy` of an assets site runs against it
   (`make differential`).
 - Crossplane-style `deletionPolicy`, `managementPolicies` (including observe-only),
-  adoption through `cloudflare.flare.dev/external-id`, and ownership tags
+  adoption through `flare.dev/external-id`, and ownership tags
   (`flare.dev/owner=<clusterName>/<namespace>/<name>`).
 - `flarefake`, a Cloudflare API emulator validated against recordings of the real API
   (`make conformance`).
@@ -61,7 +61,7 @@ Nothing has been released yet. This section collects what the first release will
 - `make lint-static` (staticcheck) and `make vulncheck` (govulncheck), in `make ci` and the CI
   workflow. `make crds-apply` and `make crds-diff` for CRD upgrades. `make e2e-upgrade` tests
   an upgrade from a previous git ref.
-- Generated kind `R2Bucket` (`r2.cloudflare.flare.dev`; default `deletionPolicy: Orphan`):
+- Generated kind `R2Bucket` (default `deletionPolicy: Orphan`):
   jurisdiction (the `cf-r2-jurisdiction` header, immutable), location hint, storage class and
   CORS policy. It comes with three `generator.yaml` extensions for generated kinds:
   `requestHeaders`, `observedAs` and `subResources` (docs/generator-scaleout.md). A refused
@@ -75,6 +75,24 @@ Nothing has been released yet. This section collects what the first release will
   multi-account setup).
 
 ### Changed
+- **Breaking (API group rename, before the first release).** Every kind is now in one API
+  group, `flare.dev` (`apiVersion: flare.dev/v1alpha1`), instead of one group per product
+  (`kv.cloudflare.flare.dev`, `queues.cloudflare.flare.dev`, ..., and `cloudflare.flare.dev`
+  for `CloudflareAccount`). CRD names follow (`kvnamespaces.flare.dev`; files
+  `flare.dev_<plural>.yaml`), and the chart's RBAC rules collapse to `apiGroups: [flare.dev]`.
+  Labels, annotations and finalizers move from `cloudflare.flare.dev/<key>` to
+  `flare.dev/<key>` (`external-id`, `account`, `finalizer`, `account-in-use`, `account-token`,
+  `artifact`, `worker-binding`, `create-pending`, `created-by-uid`, `ownership-proof`,
+  `tunnel`, `tunnel-id`, `spec-hash`), and the leader-election Lease is
+  `flare-operator.flare.dev`. The Go module path is `github.com/chenhunghan/flare-operator`.
+  Because all kinds share the group, `flaregen` fails when two kinds (generated or
+  hand-written) share a kind, plural, singular or short name; the fix is an explicit `kind:` and
+  `plural:` for the new kind in `generator.yaml` (the per-kind `group:` key, which named the
+  Go package and category, is now `product:`; the top-level `groupSuffix:` is now `group:`).
+  Nothing is renamed automatically. There is no migration: objects and CRDs of a pre-rename
+  build cannot be upgraded in place (delete them with `deletionPolicy: Orphan`, install this
+  release, re-create them with the `flare.dev/external-id` annotation to adopt the Cloudflare
+  resources), and `make e2e-upgrade` refuses a pre-rename `E2E_UPGRADE_FROM`.
 - The Go toolchain is pinned to go1.26.8 (`toolchain` directive, Dockerfile `GO_VERSION`),
   which fixes the standard-library vulnerabilities govulncheck reported for go1.26.1.
 - The hand-written API packages register their kinds with apimachinery's

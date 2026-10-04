@@ -278,7 +278,7 @@ func (r *Reconciler) getRef(ctx context.Context, pp *pagesv1alpha1.PagesProject,
 }
 
 // secretValue reads a secret_text value. Only a Secret labelled
-// cloudflare.flare.dev/worker-binding=true (and not a service account token) is read: the
+// flare.dev/worker-binding=true (and not a service account token) is read: the
 // operator reads Secrets with its own cluster-wide access, and the Pages Functions code can
 // return the value, so without the opt-in anyone allowed to create PagesProjects could read
 // every Secret of the namespace. One message for every refusal, so a spec cannot probe which

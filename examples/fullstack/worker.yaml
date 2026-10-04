@@ -1,10 +1,10 @@
 # The whole app as one Worker, the layout Cloudflare recommends for a new full-stack app: the
 # frontend (public/) is the Worker's static assets, served by Cloudflare without running any
 # code, and the API (worker/index.js) runs only for /api/*. Both come from ConfigMaps that
-# kustomization.yaml generates from the files, labelled cloudflare.flare.dev/artifact=true
+# kustomization.yaml generates from the files, labelled flare.dev/artifact=true
 # (only labelled ConfigMaps are read). Editing a file and applying again uploads only what
 # changed: a code change uploads no asset, and an asset change uploads only the changed files.
-apiVersion: workers.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: WorkerScript
 metadata:
   name: notes-app
@@ -45,7 +45,7 @@ spec:
       - name: SESSION_SECRET
         type: secret_text
         secretKeyRef:
-          name: notes-app-secrets        # labelled cloudflare.flare.dev/worker-binding=true
+          name: notes-app-secrets        # labelled flare.dev/worker-binding=true
           key: session-secret
     observability:
       enabled: true                      # Workers Logs (the API's console.error)

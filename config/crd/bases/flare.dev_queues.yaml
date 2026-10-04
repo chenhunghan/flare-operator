@@ -4,22 +4,23 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    flare.dev/fern-group: kv.namespaces
+    flare.dev/fern-group: queues
     flare.dev/generated-by: flaregen
-  name: kvnamespaces.kv.cloudflare.flare.dev
+  name: queues.flare.dev
 spec:
-  group: kv.cloudflare.flare.dev
+  group: flare.dev
   names:
     categories:
     - cloudflare
     - managed
-    - kv
-    kind: KVNamespace
-    listKind: KVNamespaceList
-    plural: kvnamespaces
+    - queues
+    kind: Queue
+    listKind: QueueList
+    plural: queues
     shortNames:
-    - cfkv
-    singular: kvnamespace
+    - cfqueue
+    - cfq
+    singular: queue
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -32,17 +33,20 @@ spec:
     - jsonPath: .status.id
       name: EXTERNAL-ID
       type: string
-    - jsonPath: .status.atProvider.title
-      name: TITLE
+    - jsonPath: .status.atProvider.queue_name
+      name: QUEUE
       type: string
+    - jsonPath: .status.atProvider.consumers_total_count
+      name: CONSUMERS
+      priority: 1
+      type: number
     - jsonPath: .metadata.creationTimestamp
       name: AGE
       type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: KVNamespace is a Cloudflare kv namespaces (x-fern-sdk-group-name
-          "kv.namespaces").
+        description: Queue is a Cloudflare queues (x-fern-sdk-group-name "queues").
         properties:
           apiVersion:
             description: APIVersion defines the versioned schema of this representation
@@ -55,7 +59,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: KVNamespaceSpec defines the desired state of a KVNamespace.
+            description: QueueSpec defines the desired state of a Queue.
             properties:
               accountRef:
                 description: AccountRef names the CloudflareAccount (same namespace)
@@ -79,18 +83,30 @@ spec:
                   as in the API.
                 properties:
                   jurisdiction:
-                    description: Specify the jurisdiction to restrict the KV namespace
-                      to durably store data within. Can only be set at namespace creation
-                      time.
                     enum:
                     - eu
-                    - fedramp
                     - us
+                    - fedramp
                     type: string
-                  title:
-                    description: Human-readable string name for a Workers KV namespace.
-                    maxLength: 512
+                  queue_name:
                     type: string
+                  settings:
+                    properties:
+                      delivery_delay:
+                        description: Number of seconds to delay delivery of all messages
+                          to consumers.
+                        format: int64
+                        type: integer
+                      delivery_paused:
+                        description: Indicates if message delivery to consumers is
+                          currently paused.
+                        type: boolean
+                      message_retention_period:
+                        description: Number of seconds after which an unconsumed message
+                          will be delayed.
+                        format: int64
+                        type: integer
+                    type: object
                 type: object
               managementPolicies:
                 description: ManagementPolicies default to ["*"]. ["Observe"] makes
@@ -118,13 +134,13 @@ spec:
             - accountRef
             type: object
             x-kubernetes-validations:
-            - fieldPath: .forProvider.title
-              message: forProvider.title is required unless managementPolicies exclude
-                Create (e.g. ["Observe"])
+            - fieldPath: .forProvider.queue_name
+              message: forProvider.queue_name is required unless managementPolicies
+                exclude Create (e.g. ["Observe"])
               reason: FieldValueRequired
               rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
                 == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
-                || (has(self.forProvider) && has(self.forProvider.title))'
+                || (has(self.forProvider) && has(self.forProvider.queue_name))'
             - fieldPath: .accountRef.name
               message: accountRef.name must name a CloudflareAccount in this namespace
                 (1-253 characters)
@@ -132,28 +148,104 @@ spec:
               rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
                 253
           status:
-            description: KVNamespaceStatus defines the observed state of a KVNamespace.
+            description: QueueStatus defines the observed state of a Queue.
             properties:
               atProvider:
                 description: AtProvider is the resource as last read from the Cloudflare
                   API.
                 properties:
-                  id:
-                    description: ID of the Workers KV namespace.
+                  consumers:
+                    items:
+                      description: Response body representing a consumer
+                      properties:
+                        consumer_id:
+                          description: A Resource identifier.
+                          type: string
+                        created_on:
+                          type: string
+                        dead_letter_queue:
+                          description: Name of the dead letter queue, or empty string
+                            if not configured
+                          type: string
+                        queue_name:
+                          type: string
+                        script_name:
+                          description: Name of a Worker
+                          type: string
+                        settings:
+                          properties:
+                            batch_size:
+                              description: The maximum number of messages to include
+                                in a batch.
+                              type: number
+                            max_concurrency:
+                              description: Maximum number of concurrent consumers
+                                that may consume from this Queue. Set to `null` to
+                                automatically opt in to the platform's maximum (recommended).
+                              type: number
+                            max_retries:
+                              description: The maximum number of retries
+                              type: number
+                            max_wait_time_ms:
+                              description: The number of milliseconds to wait for
+                                a batch to fill up before attempting to deliver it
+                              type: number
+                            retry_delay:
+                              description: The number of seconds to delay before making
+                                the message available for another attempt.
+                              type: number
+                            visibility_timeout_ms:
+                              description: The number of milliseconds that a message
+                                is exclusively leased. After the timeout, the message
+                                becomes available for another attempt.
+                              type: number
+                          type: object
+                        type:
+                          type: string
+                      type: object
+                    type: array
+                  consumers_total_count:
+                    type: number
+                  created_on:
                     type: string
                   jurisdiction:
-                    description: Specify the jurisdiction to restrict the KV namespace
-                      to durably store data within. Can only be set at namespace creation
-                      time.
                     type: string
-                  supports_url_encoding:
-                    description: True if keys written on the URL will be URL-decoded
-                      before storing. For example, if set to "true", a key written
-                      on the URL as "%3F" will be stored as "?".
-                    type: boolean
-                  title:
-                    description: Human-readable string name for a Workers KV namespace.
+                  modified_on:
                     type: string
+                  producers:
+                    items:
+                      properties:
+                        bucket_name:
+                          type: string
+                        script:
+                          type: string
+                        type:
+                          type: string
+                      type: object
+                    type: array
+                  producers_total_count:
+                    type: number
+                  queue_id:
+                    type: string
+                  queue_name:
+                    type: string
+                  settings:
+                    properties:
+                      delivery_delay:
+                        description: Number of seconds to delay delivery of all messages
+                          to consumers.
+                        format: int64
+                        type: integer
+                      delivery_paused:
+                        description: Indicates if message delivery to consumers is
+                          currently paused.
+                        type: boolean
+                      message_retention_period:
+                        description: Number of seconds after which an unconsumed message
+                          will be delayed.
+                        format: int64
+                        type: integer
+                    type: object
                 type: object
               conditions:
                 items:

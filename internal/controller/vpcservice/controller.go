@@ -121,11 +121,11 @@ type Reconciler struct {
 	APIReader client.Reader
 }
 
-// +kubebuilder:rbac:groups=workersvpc.cloudflare.flare.dev,resources=vpcservices,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=workersvpc.cloudflare.flare.dev,resources=vpcservices/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=workersvpc.cloudflare.flare.dev,resources=vpcservices/finalizers,verbs=update
-// +kubebuilder:rbac:groups=tunnels.cloudflare.flare.dev,resources=tunnels,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=vpcservices,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=vpcservices/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=vpcservices/finalizers,verbs=update
+// +kubebuilder:rbac:groups=flare.dev,resources=tunnels,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 

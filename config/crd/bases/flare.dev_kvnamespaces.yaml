@@ -4,22 +4,22 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    flare.dev/fern-group: widgets.gadgets
+    flare.dev/fern-group: kv.namespaces
     flare.dev/generated-by: flaregen
-  name: widgets.widgets.cloudflare.flare.dev
+  name: kvnamespaces.flare.dev
 spec:
-  group: widgets.cloudflare.flare.dev
+  group: flare.dev
   names:
     categories:
     - cloudflare
     - managed
-    - widgets
-    kind: Widget
-    listKind: WidgetList
-    plural: widgets
+    - kv
+    kind: KVNamespace
+    listKind: KVNamespaceList
+    plural: kvnamespaces
     shortNames:
-    - cfwidget
-    singular: widget
+    - cfkv
+    singular: kvnamespace
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -32,22 +32,17 @@ spec:
     - jsonPath: .status.id
       name: EXTERNAL-ID
       type: string
-    - description: the widget kind
-      jsonPath: .status.atProvider.kind
-      name: KIND
+    - jsonPath: .status.atProvider.title
+      name: TITLE
       type: string
-    - jsonPath: .status.atProvider.created_on
-      name: CREATED
-      priority: 1
-      type: date
     - jsonPath: .metadata.creationTimestamp
       name: AGE
       type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Widget is a Cloudflare widgets gadgets (x-fern-sdk-group-name
-          "widgets.gadgets").
+        description: KVNamespace is a Cloudflare kv namespaces (x-fern-sdk-group-name
+          "kv.namespaces").
         properties:
           apiVersion:
             description: APIVersion defines the versioned schema of this representation
@@ -60,7 +55,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: WidgetSpec defines the desired state of a Widget.
+            description: KVNamespaceSpec defines the desired state of a KVNamespace.
             properties:
               accountRef:
                 description: AccountRef names the CloudflareAccount (same namespace)
@@ -72,7 +67,7 @@ spec:
                 - name
                 type: object
               deletionPolicy:
-                default: Delete
+                default: Orphan
                 description: DeletionPolicy says what happens to the Cloudflare resource
                   when this object is deleted.
                 enum:
@@ -83,88 +78,19 @@ spec:
                 description: ForProvider holds the Cloudflare API fields, named exactly
                   as in the API.
                 properties:
-                  combo:
-                    properties:
-                      extra:
-                        type: boolean
-                      name:
-                        type: string
-                      weight:
-                        type: number
-                    required:
-                    - name
-                    type: object
-                  kind:
+                  jurisdiction:
+                    description: Specify the jurisdiction to restrict the KV namespace
+                      to durably store data within. Can only be set at namespace creation
+                      time.
                     enum:
-                    - a
-                    - b
+                    - eu
+                    - fedramp
+                    - us
                     type: string
-                  labels:
-                    additionalProperties:
-                      type: string
-                    type: object
-                  lookahead:
+                  title:
+                    description: Human-readable string name for a Workers KV namespace.
+                    maxLength: 512
                     type: string
-                  meta:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
-                  mode:
-                    enum:
-                    - x
-                    - "y"
-                    type: string
-                  name:
-                    description: Widget name.
-                    maxLength: 64
-                    pattern: ^[a-z][a-z0-9-]*$
-                    type: string
-                  note:
-                    type: string
-                  origin:
-                    properties:
-                      bucket:
-                        type: string
-                      timeout:
-                        format: int64
-                        maximum: 60
-                        minimum: 1
-                        type: integer
-                      type:
-                        enum:
-                        - http
-                        - s3
-                        type: string
-                      url:
-                        description: Origin URL.
-                        type: string
-                    required:
-                    - type
-                    type: object
-                  region:
-                    description: Create-only and never read back.
-                    type: string
-                  secret:
-                    type: string
-                  tags:
-                    items:
-                      maxLength: 16
-                      type: string
-                    maxItems: 5
-                    type: array
-                  target:
-                    x-kubernetes-preserve-unknown-fields: true
-                  tree:
-                    description: A tree node (recursive).
-                    properties:
-                      children:
-                        items:
-                          x-kubernetes-preserve-unknown-fields: true
-                        type: array
-                      value:
-                        type: string
-                    type: object
-                  ttl:
-                    type: number
                 type: object
               managementPolicies:
                 description: ManagementPolicies default to ["*"]. ["Observe"] makes
@@ -192,20 +118,13 @@ spec:
             - accountRef
             type: object
             x-kubernetes-validations:
-            - fieldPath: .forProvider.kind
-              message: forProvider.kind is required unless managementPolicies exclude
+            - fieldPath: .forProvider.title
+              message: forProvider.title is required unless managementPolicies exclude
                 Create (e.g. ["Observe"])
               reason: FieldValueRequired
               rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
                 == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
-                || (has(self.forProvider) && has(self.forProvider.kind))'
-            - fieldPath: .forProvider.name
-              message: forProvider.name is required unless managementPolicies exclude
-                Create (e.g. ["Observe"])
-              reason: FieldValueRequired
-              rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
-                == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
-                || (has(self.forProvider) && has(self.forProvider.name))'
+                || (has(self.forProvider) && has(self.forProvider.title))'
             - fieldPath: .accountRef.name
               message: accountRef.name must name a CloudflareAccount in this namespace
                 (1-253 characters)
@@ -213,75 +132,28 @@ spec:
               rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
                 253
           status:
-            description: WidgetStatus defines the observed state of a Widget.
+            description: KVNamespaceStatus defines the observed state of a KVNamespace.
             properties:
               atProvider:
                 description: AtProvider is the resource as last read from the Cloudflare
                   API.
                 properties:
-                  combo:
-                    properties:
-                      extra:
-                        type: boolean
-                      name:
-                        type: string
-                      weight:
-                        type: number
-                    type: object
-                  created_on:
-                    type: string
                   id:
-                    description: Widget identifier.
+                    description: ID of the Workers KV namespace.
                     type: string
-                  kind:
+                  jurisdiction:
+                    description: Specify the jurisdiction to restrict the KV namespace
+                      to durably store data within. Can only be set at namespace creation
+                      time.
                     type: string
-                  labels:
-                    additionalProperties:
-                      type: string
-                    type: object
-                  lookahead:
+                  supports_url_encoding:
+                    description: True if keys written on the URL will be URL-decoded
+                      before storing. For example, if set to "true", a key written
+                      on the URL as "%3F" will be stored as "?".
+                    type: boolean
+                  title:
+                    description: Human-readable string name for a Workers KV namespace.
                     type: string
-                  meta:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
-                  mode:
-                    type: string
-                  name:
-                    description: Widget name.
-                    type: string
-                  note:
-                    type: string
-                  origin:
-                    properties:
-                      bucket:
-                        type: string
-                      timeout:
-                        format: int64
-                        type: integer
-                      type:
-                        type: string
-                      url:
-                        description: Origin URL.
-                        type: string
-                    type: object
-                  tags:
-                    items:
-                      type: string
-                    type: array
-                  target:
-                    x-kubernetes-preserve-unknown-fields: true
-                  tree:
-                    description: A tree node (recursive).
-                    properties:
-                      children:
-                        items:
-                          x-kubernetes-preserve-unknown-fields: true
-                        type: array
-                      value:
-                        type: string
-                    type: object
-                  ttl:
-                    type: number
                 type: object
               conditions:
                 items:
@@ -356,14 +228,17 @@ spec:
           reason: FieldValueInvalid
           rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
             > 0) || self.spec.accountRef.name == oldSelf.spec.accountRef.name'
-        - fieldPath: .spec.forProvider.region
-          message: 'forProvider.region is immutable once the resource exists (status.id
-            is set): recreate the object to change it'
+        - fieldPath: .spec.forProvider.jurisdiction
+          message: 'forProvider.jurisdiction is immutable once the resource exists
+            (status.id is set): recreate the object to change it, or set it to the
+            value Cloudflare reports (status.atProvider.jurisdiction)'
           reason: FieldValueInvalid
           rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
-            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.region)
-            || !has(self.spec.forProvider) || !has(self.spec.forProvider.region) ||
-            self.spec.forProvider.region == oldSelf.spec.forProvider.region'
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.jurisdiction)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.jurisdiction)
+            || self.spec.forProvider.jurisdiction == oldSelf.spec.forProvider.jurisdiction
+            || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.jurisdiction)
+            && oldSelf.status.atProvider.jurisdiction == self.spec.forProvider.jurisdiction)'
     served: true
     storage: true
     subresources:

@@ -3,10 +3,11 @@
 // CONTRACT (docs/plan-parallel.md §2.3). Frozen by the orchestrator.
 //
 // Conventions for every kind, generated or hand-written:
-//   - API group <product>.cloudflare.flare.dev, version v1alpha1, where
-//     <product> is the x-fern-sdk-group-name with "_" removed (e.g. kv, queues,
-//     d1, zerotrust). CloudflareAccount lives in cloudflare.flare.dev.
-//   - Go package api/<product>/v1alpha1.
+//   - API group flare.dev, version v1alpha1, for every kind (CloudflareAccount
+//     included), so Kind names, plurals and short names are unique across kinds.
+//   - Go package api/<product>/v1alpha1, where <product> is the
+//     x-fern-sdk-group-name with "_" removed (e.g. kv, queues, d1, zerotrust);
+//     several packages register kinds in the one GroupVersion.
 //   - Spec embeds ResourceSpec inline and has forProvider (<Kind>Parameters,
 //     JSON names exactly as the Cloudflare API).
 //   - Status embeds ResourceStatus inline and has atProvider (<Kind>Observation).
@@ -21,9 +22,9 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 const (
 	// AnnotationExternalID pins (or adopts) the Cloudflare ID of the resource.
-	AnnotationExternalID = "cloudflare.flare.dev/external-id"
+	AnnotationExternalID = "flare.dev/external-id"
 	// Finalizer is set on every managed resource that may need external deletion.
-	Finalizer = "cloudflare.flare.dev/finalizer"
+	Finalizer = "flare.dev/finalizer"
 )
 
 // DeletionPolicy says what happens to the Cloudflare resource when the

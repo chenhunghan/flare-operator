@@ -283,7 +283,7 @@ func TestDeletingNotReadyAccount(t *testing.T) {
 				return false, c.Type + " message lacks the hint: " + c.Message
 			}
 		}
-		if !strings.Contains(s.Message, "KVNamespace.kv.cloudflare.flare.dev/data") {
+		if !strings.Contains(s.Message, "KVNamespace.flare.dev/data") {
 			return false, "Synced message lacks the user: " + s.Message
 		}
 		return true, ""

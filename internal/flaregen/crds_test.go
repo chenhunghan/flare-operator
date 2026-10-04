@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
@@ -178,20 +177,20 @@ func TestSampleObjects(t *testing.T) {
 		yaml  string
 		valid bool
 	}{
-		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, forProvider: {title: flare-spike-kv}}}`, true},
+		{"flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, forProvider: {title: flare-spike-kv}}}`, true},
 		// title is required by a CEL rule (checked in envtest), not by the OpenAPI schema.
-		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, forProvider: {}}}`, true},
-		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, managementPolicies: [Observe]}}`, true},
-		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, forProvider: {title: x, jurisdiction: mars}}}`, false},
-		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {forProvider: {title: x}}}`, false}, // accountRef required
-		{"kv.cloudflare.flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, deletionPolicy: Keep, forProvider: {title: x}}}`, false},
-		{"queues.cloudflare.flare.dev/Queue", `{spec: {accountRef: {name: a}, forProvider: {queue_name: q, settings: {delivery_delay: 5, message_retention_period: 86400}}}}`, true},
-		{"queues.cloudflare.flare.dev/Queue", `{spec: {accountRef: {name: a}, forProvider: {queue_name: q, settings: {delivery_delay: 1.5}}}}`, false}, // integer override
-		{"d1.cloudflare.flare.dev/D1Database", `{spec: {accountRef: {name: a}, forProvider: {name: db1, primary_location_hint: WEUR, read_replication: {mode: auto}}}}`, true},
-		{"d1.cloudflare.flare.dev/D1Database", `{spec: {accountRef: {name: a}, forProvider: {name: db1, primary_location_hint: weur}}}`, false}, // 0019
-		{"d1.cloudflare.flare.dev/D1Database", `{spec: {accountRef: {name: a}, forProvider: {name: "-bad"}}}`, false},                           // pattern
-		{"d1.cloudflare.flare.dev/D1Database", `{spec: {accountRef: {name: a}, forProvider: {name: db, read_replication: {}}}}`, false},         // mode required
-		{"d1.cloudflare.flare.dev/D1Database", `{spec: {accountRef: {name: a}, managementPolicies: [Observe], forProvider: {name: db}}, status: {atProvider: {uuid: u, jurisdiction: null, file_size: 8192}}}`, true},
+		{"flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, forProvider: {}}}`, true},
+		{"flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, managementPolicies: [Observe]}}`, true},
+		{"flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, forProvider: {title: x, jurisdiction: mars}}}`, false},
+		{"flare.dev/KVNamespace", `{spec: {forProvider: {title: x}}}`, false}, // accountRef required
+		{"flare.dev/KVNamespace", `{spec: {accountRef: {name: a}, deletionPolicy: Keep, forProvider: {title: x}}}`, false},
+		{"flare.dev/Queue", `{spec: {accountRef: {name: a}, forProvider: {queue_name: q, settings: {delivery_delay: 5, message_retention_period: 86400}}}}`, true},
+		{"flare.dev/Queue", `{spec: {accountRef: {name: a}, forProvider: {queue_name: q, settings: {delivery_delay: 1.5}}}}`, false}, // integer override
+		{"flare.dev/D1Database", `{spec: {accountRef: {name: a}, forProvider: {name: db1, primary_location_hint: WEUR, read_replication: {mode: auto}}}}`, true},
+		{"flare.dev/D1Database", `{spec: {accountRef: {name: a}, forProvider: {name: db1, primary_location_hint: weur}}}`, false}, // 0019
+		{"flare.dev/D1Database", `{spec: {accountRef: {name: a}, forProvider: {name: "-bad"}}}`, false},                           // pattern
+		{"flare.dev/D1Database", `{spec: {accountRef: {name: a}, forProvider: {name: db, read_replication: {}}}}`, false},         // mode required
+		{"flare.dev/D1Database", `{spec: {accountRef: {name: a}, managementPolicies: [Observe], forProvider: {name: db}}, status: {atProvider: {uuid: u, jurisdiction: null, file_size: 8192}}}`, true},
 	}
 	for i, c := range cases {
 		crd := crds[c.gk]
@@ -276,11 +275,11 @@ func TestRegistry(t *testing.T) {
 		if j["spec"].(map[string]any)["accountRef"].(map[string]any)["name"] != "acct" || j["status"].(map[string]any)["id"] != "x" {
 			t.Errorf("%s: Managed accessors do not alias the object: %v", d.Kind, j)
 		}
-		if d.Version != "v1alpha1" || !strings.HasSuffix(d.Group, ".cloudflare.flare.dev") {
+		if d.Version != "v1alpha1" || d.Group != flaregen.DefaultGroup {
 			t.Errorf("%s: group/version %s/%s", d.Kind, d.Group, d.Version)
 		}
 	}
-	if _, ok := descriptors.Lookup("kv.cloudflare.flare.dev", "Nope"); ok {
+	if _, ok := descriptors.Lookup("flare.dev", "Nope"); ok {
 		t.Error("Lookup found a missing kind")
 	}
 }

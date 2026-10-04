@@ -60,7 +60,12 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	out, err := flaregen.Generate(doc, cfg, flaregen.Options{Module: module})
+	// The hand-written kinds share the API group: their CRDs (make manifests) reserve names.
+	handWritten, err := flaregen.LoadHandWrittenNames(abs(flaregen.CRDDir), cfg.Group)
+	if err != nil {
+		fatal(err)
+	}
+	out, err := flaregen.Generate(doc, cfg, flaregen.Options{Module: module, HandWritten: handWritten})
 	if err != nil {
 		fatal(err)
 	}

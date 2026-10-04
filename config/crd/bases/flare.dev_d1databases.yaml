@@ -6,9 +6,9 @@ metadata:
   annotations:
     flare.dev/fern-group: d1
     flare.dev/generated-by: flaregen
-  name: d1databases.d1.cloudflare.flare.dev
+  name: d1databases.flare.dev
 spec:
-  group: d1.cloudflare.flare.dev
+  group: flare.dev
   names:
     categories:
     - cloudflare

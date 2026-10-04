@@ -19,7 +19,7 @@ resources:
 generatorOptions:
   disableNameSuffixHash: true
   labels:
-    cloudflare.flare.dev/artifact: "true"
+    flare.dev/artifact: "true"
 configMapGenerator:
   - name: notes-app-site               # the Worker's static assets
     files:

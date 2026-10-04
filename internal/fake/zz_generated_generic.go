@@ -7,7 +7,7 @@ package fake
 // Options.Generic; GeneratedGenericKinds returns a copy.
 var generatedGenericKinds = []GenericKind{
 	{
-		Group: "aigateway.cloudflare.flare.dev", Kind: "AIGateway", Scope: "account",
+		Group: "flare.dev", Kind: "AIGateway", Scope: "account",
 		CreatePath:   "/accounts/{account_id}/ai-gateway/gateways",
 		ItemPath:     "/accounts/{account_id}/ai-gateway/gateways/{id}",
 		ListPath:     "/accounts/{account_id}/ai-gateway/gateways",
@@ -15,7 +15,7 @@ var generatedGenericKinds = []GenericKind{
 		UpdateMethod: "PUT",
 	},
 	{
-		Group: "r2.cloudflare.flare.dev", Kind: "R2Bucket", Scope: "account",
+		Group: "flare.dev", Kind: "R2Bucket", Scope: "account",
 		CreatePath:   "/accounts/{account_id}/r2/buckets",
 		ItemPath:     "/accounts/{account_id}/r2/buckets/{id}",
 		ListPath:     "/accounts/{account_id}/r2/buckets",
@@ -32,7 +32,7 @@ var generatedGenericKinds = []GenericKind{
 		},
 	},
 	{
-		Group: "secretsstore.cloudflare.flare.dev", Kind: "SecretsStore", Scope: "account",
+		Group: "flare.dev", Kind: "SecretsStore", Scope: "account",
 		CreatePath: "/accounts/{account_id}/secrets_store/stores",
 		ItemPath:   "/accounts/{account_id}/secrets_store/stores/{id}",
 		ListPath:   "/accounts/{account_id}/secrets_store/stores",
@@ -40,7 +40,7 @@ var generatedGenericKinds = []GenericKind{
 		NameField:  "name",
 	},
 	{
-		Group: "vectorize.cloudflare.flare.dev", Kind: "VectorizeIndex", Scope: "account",
+		Group: "flare.dev", Kind: "VectorizeIndex", Scope: "account",
 		CreatePath: "/accounts/{account_id}/vectorize/v2/indexes",
 		ItemPath:   "/accounts/{account_id}/vectorize/v2/indexes/{id}",
 		ListPath:   "/accounts/{account_id}/vectorize/v2/indexes",

@@ -7,7 +7,7 @@
 # authoritative for its environment variables and bindings: what Cloudflare has and the config
 # lacks is removed. The *Ref fields name objects in this namespace; nothing is written until
 # they are Ready.
-apiVersion: pages.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: PagesProject
 metadata:
   name: docs-site
@@ -26,7 +26,7 @@ spec:
             value: production    # type defaults to plain_text
           - name: API_TOKEN
             type: secret_text    # write-only: a change of the Secret is re-applied. The Secret
-            secretKeyRef:        # needs the label cloudflare.flare.dev/worker-binding=true.
+            secretKeyRef:        # needs the label flare.dev/worker-binding=true.
               name: docs-secrets
               key: api-token
         kv_namespaces:
@@ -53,17 +53,17 @@ kind: Secret
 metadata:
   name: docs-secrets
   labels:
-    cloudflare.flare.dev/worker-binding: "true"
+    flare.dev/worker-binding: "true"
 stringData:
   api-token: replace-me
 ---
 # Observe a project made elsewhere (no writes, never deleted).
-apiVersion: pages.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: PagesProject
 metadata:
   name: marketing
   annotations:
-    cloudflare.flare.dev/external-id: acme-marketing
+    flare.dev/external-id: acme-marketing
 spec:
   accountRef:
     name: main

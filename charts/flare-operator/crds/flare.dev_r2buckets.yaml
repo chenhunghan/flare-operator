@@ -7,9 +7,9 @@ metadata:
     argocd.argoproj.io/sync-options: Delete=false,Prune=false
     flare.dev/fern-group: r2.buckets
     flare.dev/generated-by: flaregen
-  name: r2buckets.r2.cloudflare.flare.dev
+  name: r2buckets.flare.dev
 spec:
-  group: r2.cloudflare.flare.dev
+  group: flare.dev
   names:
     categories:
     - cloudflare

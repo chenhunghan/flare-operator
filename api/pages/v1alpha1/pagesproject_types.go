@@ -13,14 +13,14 @@ const (
 )
 
 // LabelSecretOptIn opts a Secret in to being read for a secret_text environment variable. It is
-// the label WorkerScript secret_text bindings use (cloudflare.flare.dev/worker-binding=true):
+// the label WorkerScript secret_text bindings use (flare.dev/worker-binding=true):
 // the Pages Functions code can return the value, so only Secrets opted in for Workers code are
 // read.
-const LabelSecretOptIn = "cloudflare.flare.dev/worker-binding"
+const LabelSecretOptIn = "flare.dev/worker-binding"
 
 // PagesSecretKeyRef selects a key of a Secret in the same namespace.
 type PagesSecretKeyRef struct {
-	// Name of the Secret. It must carry the label cloudflare.flare.dev/worker-binding=true and
+	// Name of the Secret. It must carry the label flare.dev/worker-binding=true and
 	// not be a service account token.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253

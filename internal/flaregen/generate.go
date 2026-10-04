@@ -15,6 +15,9 @@ import (
 type Options struct {
 	// Module is the Go module path of the repository (imports of generated code).
 	Module string
+	// HandWritten are the hand-written kinds of the API group (LoadHandWrittenNames over
+	// config/crd/bases). No generated kind may take any of their names (CheckNames).
+	HandWritten []KindNames
 }
 
 // Output is everything one generator run produces.
@@ -67,25 +70,28 @@ func Generate(doc *openapi3.T, cfg *Config, opts Options) (*Output, error) {
 	}
 	resources := Discover(doc)
 	out := &Output{Files: map[string][]byte{}}
-	seen := map[string]bool{}
 	for _, kc := range cfg.Kinds {
 		r, err := SelectResource(resources, kc)
 		if err != nil {
 			return nil, err
 		}
-		m, err := BuildKind(r, kc, cfg.GroupSuffix, cfg.Version)
+		m, err := BuildKind(r, kc, cfg.Group, cfg.Version)
 		if err != nil {
 			return nil, err
 		}
-		id := m.Group + "/" + m.Kind
-		if seen[id] {
-			return nil, fmt.Errorf("duplicate kind %s", id)
-		}
-		seen[id] = true
 		out.Kinds = append(out.Kinds, m)
 		for _, w := range m.Warnings {
 			out.Warnings = append(out.Warnings, m.Kind+": "+w)
 		}
+	}
+	// One API group for every kind: a name two kinds share is an error. It is never renamed
+	// away, so enabling a kind cannot silently rename an existing one.
+	names := append([]KindNames(nil), opts.HandWritten...)
+	for _, m := range out.Kinds {
+		names = append(names, NamesOf(m))
+	}
+	if c := CheckNames(names); len(c) > 0 {
+		return nil, &CollisionError{Group: cfg.Group, Collisions: c}
 	}
 
 	// Go packages, one per product.
@@ -131,14 +137,7 @@ func Generate(doc *openapi3.T, cfg *Config, opts Options) (*Output, error) {
 		out.Files[dir+"/zz_generated.deepcopy.go"] = dc
 	}
 
-	shortNames := map[string]string{}
 	for _, m := range out.Kinds {
-		for _, sn := range m.ShortNames {
-			if other, dup := shortNames[sn]; dup {
-				return nil, fmt.Errorf("shortName %q of %s is also used by %s", sn, m.Kind, other)
-			}
-			shortNames[sn] = m.Kind
-		}
 		crd := BuildCRD(m)
 		if err := ValidateCRD(crd); err != nil {
 			return nil, err

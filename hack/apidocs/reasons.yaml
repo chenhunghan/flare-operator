@@ -60,7 +60,7 @@ conditions:
       A referenced object is not Ready yet (a WorkerScript binding's kvNamespaceRef, queueRef,
       d1DatabaseRef, vpcServiceRef or serviceRef; a VPCService's tunnelRef; a ConfigMap or pull
       Secret of a WorkerScript's moduleSource or assets.source that is missing or lacks the
-      label cloudflare.flare.dev/artifact=true; a PagesProject binding's reference or a
+      label flare.dev/artifact=true; a PagesProject binding's reference or a
       secret_text Secret that is missing or not opted in; a PagesDeployment's projectRef or
       artifact ConfigMap or pull Secret), so nothing is sent
       until it is; or deletion waits for referrers (a Tunnel or VPCService still used, a
@@ -101,7 +101,7 @@ conditions:
     meaning: >-
       The Cloudflare name (or client-chosen ID) is taken by a resource this object cannot prove
       it owns: no owner tag names this object and it is not the object's own lost create. It is
-      not adopted by name. Set the cloudflare.flare.dev/external-id annotation to adopt it.
+      not adopted by name. Set the flare.dev/external-id annotation to adopt it.
   - reason: DeleteFailed
     condition: Synced
     status: "False"
@@ -229,7 +229,7 @@ conditions:
     status: "False"
     kinds: CloudflareAccount
     meaning: >-
-      The finalizer that protects the token Secret (cloudflare.flare.dev/account-token) could
+      The finalizer that protects the token Secret (flare.dev/account-token) could
       not be added or removed (check the operator's RBAC and admission policies).
 events:
   - reason: ExternalResourceKept

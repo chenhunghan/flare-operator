@@ -48,12 +48,13 @@ func TestWholeSpecGenerates(t *testing.T) {
 	var ok, skipped, noID, preserve int
 	files := map[string][]byte{} // module-relative path → content
 	pkgs := map[string]string{}  // package dir → resource key
+	var built []*KindModel
 	for _, r := range Discover(doc) {
 		if r.Unsupported != "" {
 			skipped++
 			continue
 		}
-		m, err := BuildKind(r, KindConfig{FernGroup: r.FernGroup}, "cloudflare.flare.dev", "v1alpha1")
+		m, err := BuildKind(r, KindConfig{FernGroup: r.FernGroup}, "flare.dev", "v1alpha1")
 		if err != nil {
 			// Deriving an ID field can legitimately fail (it needs an idField override);
 			// everything else is a bug.
@@ -64,6 +65,7 @@ func TestWholeSpecGenerates(t *testing.T) {
 			continue
 		}
 		preserve += len(m.Warnings)
+		built = append(built, m)
 		if err := ValidateCRD(BuildCRD(m)); err != nil {
 			t.Errorf("%s: %v", r.Key(), err)
 			continue
@@ -97,6 +99,83 @@ func TestWholeSpecGenerates(t *testing.T) {
 	if ok < 150 {
 		t.Errorf("only %d resources generated; the model lost coverage", ok)
 	}
+	checkWholeSpecNames(t, built)
+}
+
+// wholeSpecCollisions is the number of names CheckNames reports for the whole pinned spec with
+// default names plus the hand-written kinds. A change means the spec, the naming rules or the
+// hand-written kinds changed: review the logged collisions and update it.
+const wholeSpecCollisions = 80
+
+// checkWholeSpecNames runs the one-group name check (CheckNames) over every resource of the
+// spec with default names, plus the hand-written kinds. All of Cloudflare in one API group has
+// real collisions (many products have a "Rule", a "Setting", ...), so generating every
+// resource with default names must fail: the check must find them all (their number is
+// pinned). Each must also be fixable as the error says, with an explicit kind and plural:
+// the names <FernPrefix><Kind> (the fern group without its last segment, e.g.
+// zero-trust.dex.rules → ZeroTrustDexRule) resolve every collision between fern groups. The
+// ones left are between resources of one fern group, which generator.yaml can only select with
+// an explicit path, so such an entry needs an explicit kind as well.
+func checkWholeSpecNames(t *testing.T, built []*KindModel) {
+	t.Helper()
+	handWritten, err := LoadHandWrittenNames(filepath.Join(repoRoot(t), CRDDir), DefaultGroup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(handWritten) == 0 {
+		t.Fatal("no hand-written CRDs found in config/crd/bases")
+	}
+	names := append([]KindNames(nil), handWritten...)
+	prefixed := append([]KindNames(nil), handWritten...)
+	fern := map[string]string{} // prefixed Source → fern group
+	for _, m := range built {
+		names = append(names, NamesOf(m))
+		segs := strings.Split(m.Resource.FernGroup, ".")
+		kind := m.Kind
+		if len(segs) > 1 {
+			kind = GoName(strings.Join(segs[:len(segs)-1], ".")) + m.Kind
+		}
+		src := "fern-prefixed " + m.Resource.Key()
+		fern[src] = m.Resource.FernGroup
+		prefixed = append(prefixed, KindNames{Kind: kind, Plural: plural(kind), Singular: strings.ToLower(kind), Source: src, Product: m.Product})
+	}
+
+	collisions := CheckNames(names)
+	involved := map[string]bool{}
+	for _, c := range collisions {
+		for _, k := range c.Kinds {
+			involved[k.Source] = true
+		}
+	}
+	t.Logf("one API group, default names: %d kinds (%d hand-written), %d colliding names involving %d kinds",
+		len(names), len(handWritten), len(collisions), len(involved))
+	for _, c := range collisions {
+		t.Logf("  %s", c)
+	}
+	if len(collisions) != wholeSpecCollisions {
+		t.Errorf("CheckNames reports %d collisions across the whole spec, want %d (see the log)", len(collisions), wholeSpecCollisions)
+	}
+	if msg := (&CollisionError{Group: DefaultGroup, Collisions: collisions}).Error(); !strings.Contains(msg, "kind: and plural:") {
+		t.Errorf("the collision error does not name the fix: %s", msg)
+	}
+
+	left := CheckNames(prefixed)
+	for _, c := range left {
+		groups, products := map[string]bool{}, map[string]bool{}
+		for _, k := range c.Kinds {
+			if g, generated := fern[k.Source]; generated {
+				groups[g] = true
+			}
+			products[k.Product] = true
+		}
+		// Left: kinds of one fern group, or a hand-written kind and the spec resource of the
+		// same product that it implements (Tunnel and tunnels' cfd_tunnel), which would never
+		// be generated as well.
+		if len(groups) > 1 || len(products) > 1 {
+			t.Errorf("not resolved by <FernPrefix><Kind> names: %s", c)
+		}
+	}
+	t.Logf("<FernPrefix><Kind> names: %d colliding names left, each within one fern group or a hand-written kind's own resource", len(left))
 }
 
 // checkModule is the module path of the scratch module compileGenerated builds.

@@ -424,7 +424,7 @@ func (s *suite) managerPods() []corev1.Pod {
 }
 
 // leaseName is the manager's leader-election lease (cmd/manager LeaderElectionID).
-const leaseName = "flare-operator.cloudflare.flare.dev"
+const leaseName = "flare-operator.flare.dev"
 
 // restartManager checks the logs of the running manager pods, deletes them and waits until a
 // new pod is Ready and holds the leader lease.

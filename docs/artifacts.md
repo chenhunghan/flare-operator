@@ -30,9 +30,9 @@ source:
 ```
 
 - Every ConfigMap must be in the object's namespace and carry the label
-  `cloudflare.flare.dev/artifact=true`. The operator reads it with its own cluster-wide
+  `flare.dev/artifact=true`. The operator reads it with its own cluster-wide
   access and publishes its content, so it reads only ConfigMaps that opted in. This follows the
-  same pattern as `cloudflare.flare.dev/worker-binding` for `secret_text` bindings.
+  same pattern as `flare.dev/worker-binding` for `secret_text` bindings.
 - ConfigMap keys cannot contain `/`. Use `path` for a directory, or `items` for nested paths.
 - Two files at the same path are an error.
 - A ConfigMap holds at most 1 MiB of data. Use `ociRef` or `url` for larger sites.
@@ -54,7 +54,7 @@ source:
 - Every load fetches the manifest with the object's own credentials, even when the content is
   cached. This proves access before the cache serves content that another namespace pulled.
 - The pull Secret must be of type `kubernetes.io/dockerconfigjson` and carry the label
-  `cloudflare.flare.dev/artifact=true`.
+  `flare.dev/artifact=true`.
 - The registry is always contacted over HTTPS. go-containerregistry would use plain HTTP for
   `localhost`, IP literals and `*.local`; the loader upgrades those requests to HTTPS instead.
 - Only tar layers are unpacked: uncompressed, gzip or zstd. Foreign and non-distributable
@@ -90,7 +90,7 @@ The loader enforces these rules for every source:
 | Special files | Device files, FIFOs, sockets and sparse files under `path` are refused (a sparse file's holes are not in the archive stream the limits count). |
 | Zip/tar bombs | Limits on downloaded bytes, decompressed bytes (including entries outside `path`) and the decompressed/compressed ratio (after the first 1 MiB), plus limits on file count and total size. |
 | SSRF | Addresses are checked at connect time, after DNS resolution, for every redirect and every token-server request. Loopback, private (RFC 1918, ULA), link-local and cloud metadata (169.254.169.254, fd00:ec2::254), carrier-grade NAT (including 100.100.100.200), multicast, documentation, benchmarking and reserved ranges are refused. So are the IPv6 ranges that embed IPv4 (NAT64, 6to4, Teredo, IPv4-mapped). Use `--artifact-allowed-cidr` to permit, for example, an in-cluster registry. |
-| Opt-in | ConfigMaps and pull Secrets are read only with `cloudflare.flare.dev/artifact=true`. A missing, unlabelled or wrongly typed object gets the same message, so a spec cannot probe which objects exist. |
+| Opt-in | ConfigMaps and pull Secrets are read only with `flare.dev/artifact=true`. A missing, unlabelled or wrongly typed object gets the same message, so a spec cannot probe which objects exist. |
 
 ## Limits (manager flags)
 

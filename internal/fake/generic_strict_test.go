@@ -23,10 +23,10 @@ type genericSample struct {
 // Kinds that tests emulate with the generic profile although generator.yaml does not mark them
 // `emulate: generic` (yet): their spec schemas exercise oneOf/anyOf (Hyperdrive) and singletons.
 var (
-	hyperdriveGenericKind = GenericKind{Group: "hyperdrive.cloudflare.flare.dev", Kind: "HyperdriveConfig", Scope: "account",
+	hyperdriveGenericKind = GenericKind{Group: "flare.dev", Kind: "HyperdriveConfig", Scope: "account",
 		CreatePath: "/accounts/{account_id}/hyperdrive/configs", ItemPath: "/accounts/{account_id}/hyperdrive/configs/{id}",
 		ListPath: "/accounts/{account_id}/hyperdrive/configs", IDField: "id", NameField: "name", UpdateMethod: "PATCH"}
-	workflowsSettingsGenericKind = GenericKind{Group: "workflows.cloudflare.flare.dev", Kind: "WorkflowsSettings", Scope: "account",
+	workflowsSettingsGenericKind = GenericKind{Group: "flare.dev", Kind: "WorkflowsSettings", Scope: "account",
 		ItemPath: "/accounts/{account_id}/workflows/settings", UpdateMethod: "PATCH", Singleton: true}
 )
 

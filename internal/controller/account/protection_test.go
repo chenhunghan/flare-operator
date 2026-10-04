@@ -121,7 +121,7 @@ func TestAccountUsageProtection(t *testing.T) {
 		if s == nil || s.Reason != commonv1alpha1.ReasonDependency || s.Status != metav1.ConditionFalse || s.ObservedGeneration != acct.Generation {
 			return false, "waiting for Synced=False/DependencyNotReady, have " + condString(s)
 		}
-		if !strings.Contains(s.Message, "KVNamespace.kv.cloudflare.flare.dev/data") {
+		if !strings.Contains(s.Message, "KVNamespace.flare.dev/data") {
 			t.Errorf("message %q", s.Message)
 		}
 		if !reconcile.AccountReady(acct) {

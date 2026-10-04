@@ -61,7 +61,7 @@ func TestTunnelLifecycle(t *testing.T) {
 	if err := json.Unmarshal(raw, &tok); err != nil || tok.A != h.acct.AccountID || tok.T != id || tok.S == "" {
 		t.Errorf("token %s (%v)", raw, err)
 	}
-	if !metav1.IsControlledBy(&sec, tun) || sec.Annotations["cloudflare.flare.dev/tunnel-id"] != id {
+	if !metav1.IsControlledBy(&sec, tun) || sec.Annotations["flare.dev/tunnel-id"] != id {
 		t.Errorf("secret meta %+v", sec.ObjectMeta)
 	}
 
@@ -81,7 +81,7 @@ func TestTunnelLifecycle(t *testing.T) {
 	if p := c.ReadinessProbe; p == nil || p.HTTPGet == nil || p.HTTPGet.Path != "/ready" || p.HTTPGet.Port.IntValue() != 2000 {
 		t.Errorf("readiness probe %+v", p)
 	}
-	if dep.Spec.Template.Annotations["cloudflare.flare.dev/tunnel-id"] != id {
+	if dep.Spec.Template.Annotations["flare.dev/tunnel-id"] != id {
 		t.Errorf("pod template annotations %v", dep.Spec.Template.Annotations)
 	}
 
