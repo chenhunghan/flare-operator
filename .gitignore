@@ -5,7 +5,5 @@
 .claude/
 /dist/
 
-# Personal / session notes, kept locally only
+# Personal Claude Code notes
 CLAUDE.local.md
-docs/STATUS.md
-docs/plan-parallel.md
