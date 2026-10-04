@@ -50,9 +50,9 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"flare.dev/operator/internal/controller"
-	_ "flare.dev/operator/internal/controller/account" // registers the CloudflareAccount controller + scheme
-	"flare.dev/operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/controller"
+	_ "github.com/chenhunghan/flare-operator/internal/controller/account" // registers the CloudflareAccount controller + scheme
+	"github.com/chenhunghan/flare-operator/internal/fake"
 )
 
 // K8sVersion is the envtest Kubernetes version `make envtest` installs (ENVTEST_K8S_VERSION).

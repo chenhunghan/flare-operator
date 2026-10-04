@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"flare.dev/operator/internal/generic"
+	"github.com/chenhunghan/flare-operator/internal/generic"
 )
 
 // r2Config is generator.yaml's R2Bucket entry, reduced to what the extensions need.
@@ -27,7 +27,7 @@ func buildR2(t *testing.T, kc KindConfig) (*KindModel, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return BuildKind(r, kc, "cloudflare.flare.dev", "v1alpha1")
+	return BuildKind(r, kc, "flare.dev", "v1alpha1")
 }
 
 // TestExtensionsR2: requestHeaders, observedAs and subResources resolve against the spec and

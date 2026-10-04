@@ -1,6 +1,6 @@
 # A Workers KV namespace. Default deletionPolicy: Orphan (the namespace holds data), so deleting
 # this object keeps the namespace in Cloudflare unless deletionPolicy is Delete.
-apiVersion: kv.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: KVNamespace
 metadata:
   name: sessions
@@ -14,12 +14,12 @@ spec:
 # Observe-only: read an existing namespace into status.atProvider without ever writing to
 # Cloudflare. The external-id annotation names the namespace ID; forProvider.title may be
 # omitted because Create is not allowed.
-apiVersion: kv.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: KVNamespace
 metadata:
   name: legacy-cache
   annotations:
-    cloudflare.flare.dev/external-id: 0f2ac74b498b48028cb68387c421e279
+    flare.dev/external-id: 0f2ac74b498b48028cb68387c421e279
 spec:
   accountRef:
     name: main

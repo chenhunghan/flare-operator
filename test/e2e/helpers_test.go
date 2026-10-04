@@ -30,17 +30,17 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	pagesv1alpha1 "flare.dev/operator/api/pages/v1alpha1"
-	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
-	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
-	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
-	vectorizev1alpha1 "flare.dev/operator/api/vectorize/v1alpha1"
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
+	cloudflarev1alpha1 "github.com/chenhunghan/flare-operator/api/cloudflare/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	d1v1alpha1 "github.com/chenhunghan/flare-operator/api/d1/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	pagesv1alpha1 "github.com/chenhunghan/flare-operator/api/pages/v1alpha1"
+	queuesv1alpha1 "github.com/chenhunghan/flare-operator/api/queues/v1alpha1"
+	r2v1alpha1 "github.com/chenhunghan/flare-operator/api/r2/v1alpha1"
+	tunnelsv1alpha1 "github.com/chenhunghan/flare-operator/api/tunnels/v1alpha1"
+	vectorizev1alpha1 "github.com/chenhunghan/flare-operator/api/vectorize/v1alpha1"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	workersvpcv1alpha1 "github.com/chenhunghan/flare-operator/api/workersvpc/v1alpha1"
 )
 
 // config is the installation under test, from the environment (defaults match
@@ -424,7 +424,7 @@ func (s *suite) managerPods() []corev1.Pod {
 }
 
 // leaseName is the manager's leader-election lease (cmd/manager LeaderElectionID).
-const leaseName = "flare-operator.cloudflare.flare.dev"
+const leaseName = "flare-operator.flare.dev"
 
 // restartManager checks the logs of the running manager pods, deletes them and waits until a
 // new pod is Ready and holds the leader lease.

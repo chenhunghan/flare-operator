@@ -6,7 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
 )
 
 // MetricSyncFailures counts Synced=False conditions set on managed objects (SetSynced), by kind

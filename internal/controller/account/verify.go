@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/reconcile"
+	cloudflarev1alpha1 "github.com/chenhunghan/flare-operator/api/cloudflare/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // TokenInfo is the verified token.

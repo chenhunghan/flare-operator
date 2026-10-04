@@ -5,9 +5,9 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: Delete=false,Prune=false
     controller-gen.kubebuilder.io/version: v0.22.0
-  name: pagesdeployments.pages.cloudflare.flare.dev
+  name: pagesdeployments.flare.dev
 spec:
-  group: pages.cloudflare.flare.dev
+  group: flare.dev
   names:
     categories:
     - cloudflare
@@ -149,12 +149,12 @@ spec:
                       configMapRef:
                         description: |-
                           ConfigMapRef takes the files from one or more ConfigMaps in the object's namespace. Each
-                          ConfigMap must carry the label cloudflare.flare.dev/artifact=true. A ConfigMap holds at
+                          ConfigMap must carry the label flare.dev/artifact=true. A ConfigMap holds at
                           most 1 MiB (data and binaryData together), so larger artifacts belong in ociRef or url.
                         properties:
                           configMaps:
                             description: ConfigMaps in the object's namespace, each
-                              labelled cloudflare.flare.dev/artifact=true.
+                              labelled flare.dev/artifact=true.
                             items:
                               description: |-
                                 ConfigMapArtifact is one ConfigMap of an artifact. Every key of data and binaryData is a file
@@ -236,7 +236,7 @@ spec:
                           pullSecretRef:
                             description: |-
                               PullSecretRef names a kubernetes.io/dockerconfigjson Secret in the object's namespace
-                              with the registry credentials. It must carry the label cloudflare.flare.dev/artifact=true.
+                              with the registry credentials. It must carry the label flare.dev/artifact=true.
                               Without it the image is pulled anonymously.
                             properties:
                               name:

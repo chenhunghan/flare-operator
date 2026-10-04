@@ -80,7 +80,7 @@ func buildWidget(t *testing.T, kc KindConfig) *KindModel {
 	t.Helper()
 	r := resourceByKey(t, Discover(loadFragment(t)), "widgets.gadgets /accounts/{account_id}/widgets")
 	kc.FernGroup = r.FernGroup
-	m, err := BuildKind(r, kc, "cloudflare.flare.dev", "v1alpha1")
+	m, err := BuildKind(r, kc, "flare.dev", "v1alpha1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestBuildKindDescriptor(t *testing.T) {
 	m := buildWidget(t, KindConfig{})
 	d := m.Descriptor
 	want := map[string]any{
-		"Group": "widgets.cloudflare.flare.dev", "Kind": "Gadget", "Scope": "account",
+		"Group": "flare.dev", "Kind": "Gadget", "Scope": "account",
 		"CreatePath": "/accounts/{account_id}/widgets", "ItemPath": "/accounts/{account_id}/widgets/{id}",
 		"ListPath": "/accounts/{account_id}/widgets", "IDField": "id", "NameField": "name",
 		"UpdateMethod": "PATCH", "DefaultDeletionPolicy": "Delete", "Singleton": false,
@@ -113,13 +113,13 @@ func TestBuildKindDescriptor(t *testing.T) {
 
 func TestBuildKindOverrides(t *testing.T) {
 	m := buildWidget(t, KindConfig{
-		Kind: "Widget", Group: "gadgets", UpdateMethod: "PUT", IDField: "name", NameField: "-",
+		Kind: "Widget", Product: "gadgets", UpdateMethod: "PUT", IDField: "name", NameField: "-",
 		Immutable: []string{"kind"}, WriteOnly: []string{"meta", "origin.timeout"}, NotWriteOnly: []string{"secret"},
 		DefaultDeletionPolicy: "Orphan",
 		Fields:                map[string]FieldOverride{"ttl": {Type: "integer"}, "kind": {Enum: []any{"A", "B"}}, "origin.timeout": {Type: "string"}},
 	})
 	d := m.Descriptor
-	if d.Kind != "Widget" || d.Group != "gadgets.cloudflare.flare.dev" || d.UpdateMethod != "PUT" || d.IDField != "name" || d.NameField != "" || d.DefaultDeletionPolicy != "Orphan" {
+	if d.Kind != "Widget" || d.Group != "flare.dev" || m.Product != "gadgets" || d.UpdateMethod != "PUT" || d.IDField != "name" || d.NameField != "" || d.DefaultDeletionPolicy != "Orphan" {
 		t.Errorf("overrides not applied: %+v", d)
 	}
 	// With PUT (full widget_create body) nothing is create-only; kind is immutable by override.
@@ -156,11 +156,11 @@ func TestBuildKindOverrideErrors(t *testing.T) {
 		"unknown nameField":        {NameField: "nope"},
 		"no such update method":    {UpdateMethod: "POST"},
 		"kind not a Go name":       {Kind: "my-widget"},
-		"group not a DNS label":    {Group: "Widgets_2"},
+		"product not a DNS label":  {Product: "Widgets_2"},
 		"plural not a DNS label":   {Plural: "Widgets"},
 	} {
 		kc.FernGroup = r.FernGroup
-		if _, err := BuildKind(r, kc, "cloudflare.flare.dev", "v1alpha1"); err == nil {
+		if _, err := BuildKind(r, kc, "flare.dev", "v1alpha1"); err == nil {
 			t.Errorf("%s: no error", name)
 		}
 	}
@@ -172,7 +172,7 @@ func TestBuildKindOverrideErrors(t *testing.T) {
 
 func TestBuildKindSingleton(t *testing.T) {
 	r := resourceByKey(t, Discover(loadFragment(t)), "widget_tools.settings /zones/{zone_identifier}/widget_settings")
-	m, err := BuildKind(r, KindConfig{FernGroup: r.FernGroup}, "cloudflare.flare.dev", "v1alpha1")
+	m, err := BuildKind(r, KindConfig{FernGroup: r.FernGroup}, "flare.dev", "v1alpha1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestBuildKindSingleton(t *testing.T) {
 		d.IDField != "" || d.NameField != "" || d.UpdateMethod != "PATCH" || d.DefaultDeletionPolicy != "Orphan" || len(d.Immutable) != 0 {
 		t.Errorf("singleton descriptor: %+v", d)
 	}
-	if m.Kind != "Setting" || m.Group != "widgettools.cloudflare.flare.dev" {
+	if m.Kind != "Setting" || m.Group != "flare.dev" {
 		t.Errorf("kind %s group %s", m.Kind, m.Group)
 	}
 	if got := topNames(m.Params); !reflect.DeepEqual(got, []string{"enabled", "level"}) {
@@ -367,7 +367,7 @@ func TestParseConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Version != "v1alpha1" || c.GroupSuffix != "cloudflare.flare.dev" {
+	if c.Version != "v1alpha1" || c.Group != "flare.dev" {
 		t.Errorf("defaults: %+v", c)
 	}
 	for _, bad := range []string{
@@ -399,7 +399,7 @@ func TestCELField(t *testing.T) {
 		}
 	}
 	// A create-required field CEL cannot name falls back to a plain schema requirement.
-	m := &KindModel{Kind: "X", Plural: "xs", Group: "g.cloudflare.flare.dev", Product: "g", Version: "v1alpha1",
+	m := &KindModel{Kind: "X", Plural: "xs", Group: "flare.dev", Product: "g", Version: "v1alpha1",
 		Resource: &Resource{FernGroup: "g"}, Params: &Type{Kind: KObject, Fields: []*Field{
 			{JSONName: "ok", Type: &Type{Kind: KString}}, {JSONName: "1bad", Type: &Type{Kind: KString}}}},
 		Observation: &Type{Kind: KObject}, CreateRequired: []string{"ok", "1bad"}}
@@ -417,7 +417,7 @@ func TestCELField(t *testing.T) {
 
 func TestImmutableRules(t *testing.T) {
 	str := &Type{Kind: KString}
-	m := &KindModel{Kind: "X", Plural: "xs", Group: "g.cloudflare.flare.dev", Product: "g", Version: "v1alpha1",
+	m := &KindModel{Kind: "X", Plural: "xs", Group: "flare.dev", Product: "g", Version: "v1alpha1",
 		Resource: &Resource{FernGroup: "g"},
 		Params: &Type{Kind: KObject, Fields: []*Field{{JSONName: "region", Type: str}, {JSONName: "secret", Type: str},
 			{JSONName: "cfg", Type: &Type{Kind: KObject}}, {JSONName: "in", Type: str}}},
@@ -463,7 +463,7 @@ func TestImmutableRules(t *testing.T) {
 }
 
 func TestKubectlUX(t *testing.T) {
-	m := &KindModel{Kind: "X", Plural: "xs", Group: "g.cloudflare.flare.dev", Product: "g", Version: "v1alpha1",
+	m := &KindModel{Kind: "X", Plural: "xs", Group: "flare.dev", Product: "g", Version: "v1alpha1",
 		Resource: &Resource{FernGroup: "g"}, Params: &Type{Kind: KObject},
 		Observation: &Type{Kind: KObject, Fields: []*Field{{JSONName: "name", Type: &Type{Kind: KString}},
 			{JSONName: "obj", Type: &Type{Kind: KObject}}}},

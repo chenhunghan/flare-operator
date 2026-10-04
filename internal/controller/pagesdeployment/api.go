@@ -11,8 +11,8 @@ import (
 	"net/url"
 	"strings"
 
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller/pagesproject"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller/pagesproject"
 )
 
 // Pages deployment API calls (x-fern-sdk-group-name "pages.deployments"). No real-API

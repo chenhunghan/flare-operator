@@ -7,7 +7,7 @@ package fake
 // Options.Generic; GeneratedGenericKinds returns a copy.
 var generatedGenericKinds = []GenericKind{
 	{
-		Group: "widgets.cloudflare.flare.dev", Kind: "Widget", Scope: "account",
+		Group: "flare.dev", Kind: "Widget", Scope: "account",
 		CreatePath:   "/accounts/{account_id}/widgets",
 		ItemPath:     "/accounts/{account_id}/widgets/{id}",
 		ListPath:     "/accounts/{account_id}/widgets",
@@ -17,7 +17,7 @@ var generatedGenericKinds = []GenericKind{
 		WriteOnly:    []string{"region", "secret"},
 	},
 	{
-		Group: "widgettools.cloudflare.flare.dev", Kind: "WidgetSettings", Scope: "zone",
+		Group: "flare.dev", Kind: "WidgetSettings", Scope: "zone",
 		ItemPath:     "/zones/{zone_id}/widget_settings",
 		UpdateMethod: "PATCH",
 		Singleton:    true,

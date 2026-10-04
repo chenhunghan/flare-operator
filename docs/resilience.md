@@ -25,7 +25,7 @@ never a lost one** — the next reconcile must find that resource and adopt it.
 | WorkerScript | **new:** create-pending record carrying the upload's hashes. Before: NameConflict (no owner tag yet) or, with the tag written, a second upload of the same content. | the name is the ID (PUT) |
 
 **Create-pending record** (`internal/reconcile/pending.go`). Every kind writes
-`cloudflare.flare.dev/create-pending: <uid>/<key>` right before the Cloudflare create, after a
+`flare.dev/create-pending: <uid>/<key>` right before the Cloudflare create, after a
 lookup found nothing (a merge patch with a UID precondition, like RecordCreated); the key is the
 name, or the client-chosen ID (AIGateway). Kinds that never adopt a same-named resource on their
 own (VPCService, Tunnel without tagging, WorkerScript without an owner tag) use it on the next

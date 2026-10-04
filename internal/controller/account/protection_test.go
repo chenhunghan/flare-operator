@@ -11,12 +11,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	"flare.dev/operator/internal/controller/account"
-	"flare.dev/operator/internal/reconcile"
-	"flare.dev/operator/internal/testenv"
+	cloudflarev1alpha1 "github.com/chenhunghan/flare-operator/api/cloudflare/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/controller/account"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 func kvUsing(ns, name, account string) *kvv1alpha1.KVNamespace {
@@ -121,7 +121,7 @@ func TestAccountUsageProtection(t *testing.T) {
 		if s == nil || s.Reason != commonv1alpha1.ReasonDependency || s.Status != metav1.ConditionFalse || s.ObservedGeneration != acct.Generation {
 			return false, "waiting for Synced=False/DependencyNotReady, have " + condString(s)
 		}
-		if !strings.Contains(s.Message, "KVNamespace.kv.cloudflare.flare.dev/data") {
+		if !strings.Contains(s.Message, "KVNamespace.flare.dev/data") {
 			t.Errorf("message %q", s.Message)
 		}
 		if !reconcile.AccountReady(acct) {

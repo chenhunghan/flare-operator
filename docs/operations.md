@@ -127,6 +127,13 @@ checkout, and checks:
 
 Everything runs against flarefake in the cluster. See `hack/e2e-upgrade.sh`.
 
+Set the previous ref with `make e2e-upgrade E2E_UPGRADE_FROM=<ref>`. Refs from before
+publication used one API group per product and cannot be upgraded from (there is no
+migration; see the CHANGELOG); the script refuses any ref whose chart CRDs are not in the
+`flare.dev` group. The proposed default once the first release is tagged is that tag (the
+"latest tag" rule above picks it up); until then, use the commit that introduced the
+`flare.dev` group or a later one.
+
 **Rollback.** `helm rollback flare-operator <revision>` rolls back the manager. It does not
 roll back the CRDs. Stay on the newer CRDs unless [CHANGELOG.md](../CHANGELOG.md) says
 otherwise: an older manager ignores fields it does not know, while an older CRD would prune
@@ -167,20 +174,20 @@ kubectl delete -f charts/flare-operator/crds/
 
 The cloudflared Deployments, token Secrets and NetworkPolicies of the Tunnels are left running
 and unmanaged. Delete them yourself (`kubectl delete deploy,secret,networkpolicy -n <ns>
--l cloudflare.flare.dev/tunnel=<tunnel name>`) once the tunnels are served some other way.
+-l flare.dev/tunnel=<tunnel name>`) once the tunnels are served some other way.
 
 To remove the operator and **delete** what it created, delete the objects with
 `deletionPolicy: Delete` while the manager runs, wait until they are gone, then uninstall.
 
 If the manager is already gone and objects are stuck in `Terminating`, remove their finalizers
-(`cloudflare.flare.dev/finalizer`, and `cloudflare.flare.dev/account-in-use` on accounts). The
+(`flare.dev/finalizer`, and `flare.dev/account-in-use` on accounts). The
 Cloudflare resources stay as they are:
 
 ```sh
 kubectl patch <kind> <name> -n <ns> --type merge -p '{"metadata":{"finalizers":null}}'
 ```
 
-Token Secrets carry `cloudflare.flare.dev/account-token` while an account uses them. The
+Token Secrets carry `flare.dev/account-token` while an account uses them. The
 manager removes it when the account is deleted. Without the manager, patch it away in the same
 way, or the namespace deletion waits for it.
 
@@ -208,7 +215,7 @@ Next to them are controller-runtime's standard series. What to watch:
 | Which objects fail, and why? | `flare_managed_sync_failures_total{kind,reason}`; it also counts failures that controllers report through a condition and a timed requeue, which `controller_runtime_reconcile_errors_total{controller}` misses |
 | Do reconciles hang? | `controller_runtime_reconcile_timeouts_total{controller}` (`reconcile.timeout`), `controller_runtime_reconcile_time_seconds`, `workqueue_longest_running_processor_seconds` |
 | Is work piling up? | `workqueue_depth{name}`, `workqueue_retries_total{name}` |
-| Which replica leads? | `leader_election_master_status{name="flare-operator.cloudflare.flare.dev"}`: 1 on the leader |
+| Which replica leads? | `leader_election_master_status{name="flare-operator.flare.dev"}`: 1 on the leader |
 
 `rest_client_requests_total{code}` counts Kubernetes API calls, not Cloudflare calls. The
 `controller` and `name` labels are the controller names (`kvnamespace`, `tunnel`, ...; the
@@ -223,7 +230,7 @@ adds the controllers' debug messages. Reconcile log lines carry `controller`, `n
 `name` and `reconcileID`, so `kubectl logs deploy/flare-operator | jq 'select(.name=="sessions")'` follows
 one object. With `replicas` above 1, `kubectl logs deploy/…` picks an arbitrary pod, often the
 standby, which logs nothing but leader election. Read the leader's logs instead: its pod name
-is the Lease holder (`kubectl -n flare-system get lease flare-operator.cloudflare.flare.dev -o
+is the Lease holder (`kubectl -n flare-system get lease flare-operator.flare.dev -o
 jsonpath='{.spec.holderIdentity}'`, up to the first `_`), or use
 `kubectl -n flare-system logs -l app.kubernetes.io/component=manager --prefix`. Events are the other half: `kubectl get events -n <ns> --field-selector
 involvedObject.name=<name>` shows `ExternalResourceKept` and `ForeignOwnerTunnelKept` warnings.
@@ -231,8 +238,8 @@ involvedObject.name=<name>` shows `ExternalResourceKept` and `ForeignOwnerTunnel
 ## High availability and leader election
 
 - Leader election is on by default (`leaderElection.enabled`). The Lease is
-  `flare-operator.cloudflare.flare.dev` in the release namespace:
-  `kubectl -n flare-system get lease flare-operator.cloudflare.flare.dev -o jsonpath='{.spec.holderIdentity}'`.
+  `flare-operator.flare.dev` in the release namespace:
+  `kubectl -n flare-system get lease flare-operator.flare.dev -o jsonpath='{.spec.holderIdentity}'`.
 - `replicas: 2` gives one standby. The chart then also renders a PodDisruptionBudget
   (`minAvailable: 1`, or `podDisruptionBudget.maxUnavailable`). Spread the replicas with
   `topologySpreadConstraints`; an entry without a `labelSelector` gets the manager's labels.
@@ -364,7 +371,7 @@ killed, evicted or cut off from the API server between the two must never leave 
 resource or lose one. What the operator guarantees (details, residual risks and the tests in
 [resilience.md §1](resilience.md#1-crash-consistency-create-then-record)):
 
-- **Before a create**, the object gets a `cloudflare.flare.dev/create-pending: <uid>/<key>`
+- **Before a create**, the object gets a `flare.dev/create-pending: <uid>/<key>`
   record (key: the name, or the client-chosen id of AIGateway and R2Bucket). **After it**, the external-id and
   ownership-proof annotations are written.
 - **On the next reconcile**, a resource matching the record is the object's own lost create
@@ -429,7 +436,7 @@ Tunnel, VPCService, WorkerScript, PagesProject, PagesDeployment):**
 | `Synced=False` `ReconcileError` | The last API call failed; the message has the Cloudflare code. 5xx and transport errors are retried with back-off. It also covers a difference the policies or the API do not allow to fix (no update operation, `Update` not in `managementPolicies`). | 403 → [token permissions](../README.md#token-permissions). 400 → a spec value the API rejects. Timeouts → egress, or `reconcile.cloudflareRequestTimeout`. |
 | `Synced=False` `Immutable` | A create-only field changed; nothing was written. | Revert the field, or delete and recreate the object. |
 | `Synced=False` `DeleteFailed` (generated kinds) | The object is being deleted with `deletionPolicy: Delete` and Cloudflare refused the DELETE; the message has the API error. The finalizer stays and retries with back-off. R2Bucket: the bucket still holds objects (the error code is UNVERIFIED). | Empty the bucket (or fix what the message names), or set `deletionPolicy: Orphan` to keep the resource. |
-| `Synced=False` `NameConflict` (Tunnel, VPCService, WorkerScript, PagesProject; VectorizeIndex, SecretsStore, AIGateway, R2Bucket; any generated kind with tagging off) | A same-named resource exists and cannot be proven to be this object's. | Set `cloudflare.flare.dev/external-id` to adopt it, or rename. |
+| `Synced=False` `NameConflict` (Tunnel, VPCService, WorkerScript, PagesProject; VectorizeIndex, SecretsStore, AIGateway, R2Bucket; any generated kind with tagging off) | A same-named resource exists and cannot be proven to be this object's. | Set `flare.dev/external-id` to adopt it, or rename. |
 | `Synced=False` `InvalidHostname` (VPCService) | `host.hostname` looks like a short in-cluster name; `cloudflared` never applies DNS search domains. | Use the fully qualified name. |
 | `Synced=False` `InvalidScriptName` (WorkerScript) | `forProvider.script_name` (or `metadata.name`) is not a valid Workers script name. | Set a valid `script_name`. |
 | `Synced=False` `InvalidSpec` (WorkerScript) | The modules cannot be uploaded: a bad module name or type, content that is not base64 for `wasm-base64`, a `main_module` that is not a module, an unusable `sourceRef` ConfigMap. | Fix `forProvider` or the ConfigMap. |
@@ -462,11 +469,11 @@ kubectl get cloudflareaccounts -A -o json |
 
 What makes a restore safe:
 
-- Keep the annotation **`cloudflare.flare.dev/external-id`**. It pins each object to its
+- Keep the annotation **`flare.dev/external-id`**. It pins each object to its
   Cloudflare resource, so the restored object adopts it instead of creating a second one.
   `status` is not needed; the manager fills it again.
 - Restore **with the same `clusterName`**, so the owner tags (`<clusterName>/<ns>/<name>`)
-  still name the restored objects. `cloudflare.flare.dev/ownership-proof` contains the old
+  still name the restored objects. `flare.dev/ownership-proof` contains the old
   object UID and no longer matches after a restore. The owner tag, which is read again, is
   the proof from then on. With `ownershipTags=false`, the external-id annotation alone is the
   proof.

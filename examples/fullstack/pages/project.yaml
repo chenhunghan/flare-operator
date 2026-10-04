@@ -6,7 +6,7 @@
 # For a new project Cloudflare recommends Workers static assets (worker.yaml) over Pages; this
 # variant is for teams that already run on Pages. To deploy only the Worker, drop the pages/
 # resources and the notes-pages-site generator from kustomization.yaml.
-apiVersion: pages.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: PagesProject
 metadata:
   name: notes-pages

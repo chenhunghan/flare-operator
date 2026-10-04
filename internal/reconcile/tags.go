@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"flare.dev/operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
 )
 
 // OwnerTagKey is the Resource Tagging key that records which Kubernetes object manages a

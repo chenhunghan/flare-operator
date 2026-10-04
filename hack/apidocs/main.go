@@ -145,7 +145,7 @@ func Render(root string) ([]byte, error) {
 	p("Managed kinds share one shape, Crossplane-style: `spec.accountRef`, `spec.forProvider` (Cloudflare API fields, named exactly as in the API), ")
 	p("`spec.deletionPolicy`, `spec.managementPolicies`; `status.id` (the Cloudflare ID), `status.conditions` (`Ready`, `Synced`), ")
 	p("`status.observedGeneration` and `status.atProvider` (the resource as last read from Cloudflare). ")
-	p("An existing resource is adopted by setting the `cloudflare.flare.dev/external-id` annotation to its ID.\n\n")
+	p("An existing resource is adopted by setting the `flare.dev/external-id` annotation to its ID.\n\n")
 
 	p("## Kinds\n\n")
 	p("| Kind | API version | Short names | Categories | Default `deletionPolicy` |\n|---|---|---|---|---|\n")

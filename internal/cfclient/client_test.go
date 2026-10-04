@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"flare.dev/operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/fake"
 )
 
 func TestMain(m *testing.M) {

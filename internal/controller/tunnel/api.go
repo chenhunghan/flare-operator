@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"net/url"
 
-	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/reconcile"
+	tunnelsv1alpha1 "github.com/chenhunghan/flare-operator/api/tunnels/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // Cloudflare Tunnel API calls (x-fern-sdk-group-name "tunnels"). Shapes follow recordings
@@ -107,7 +107,7 @@ func findTunnelByName(ctx context.Context, cf cfclient.Client, accountID, name s
 	case 1:
 		return &match[0], nil
 	}
-	return nil, fmt.Errorf("%d live tunnels are named %q; pin one with the %s annotation: %w", len(match), name, "cloudflare.flare.dev/external-id", reconcile.ErrAmbiguousName)
+	return nil, fmt.Errorf("%d live tunnels are named %q; pin one with the %s annotation: %w", len(match), name, "flare.dev/external-id", reconcile.ErrAmbiguousName)
 }
 
 // createTunnel creates a remotely managed tunnel (config_src=cloudflare, 0174). The response

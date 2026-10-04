@@ -34,46 +34,6 @@ rules:
   - create
   - patch
 - apiGroups:
-  - aigateway.cloudflare.flare.dev
-  resources:
-  - aigateways
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - aigateway.cloudflare.flare.dev
-  resources:
-  - aigateways/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - aigateway.cloudflare.flare.dev
-  resources:
-  - aigateways/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - aigateway.cloudflare.flare.dev
-  - d1.cloudflare.flare.dev
-  - kv.cloudflare.flare.dev
-  - queues.cloudflare.flare.dev
-  - secretsstore.cloudflare.flare.dev
-  - tunnels.cloudflare.flare.dev
-  - vectorize.cloudflare.flare.dev
-  - workers.cloudflare.flare.dev
-  - workersvpc.cloudflare.flare.dev
-  resources:
-  - '*'
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - apps
   resources:
   - deployments
@@ -85,24 +45,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - cloudflare.flare.dev
-  resources:
-  - cloudflareaccounts
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - cloudflare.flare.dev
-  resources:
-  - cloudflareaccounts/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - coordination.k8s.io
   resources:
@@ -116,33 +58,29 @@ rules:
   - update
   - watch
 - apiGroups:
-  - d1.cloudflare.flare.dev
+  - flare.dev
   resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - flare.dev
+  resources:
+  - aigateways
+  - cloudflareaccounts
   - d1databases
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - d1.cloudflare.flare.dev
-  resources:
-  - d1databases/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - d1.cloudflare.flare.dev
-  resources:
-  - d1databases/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - kv.cloudflare.flare.dev
-  resources:
   - kvnamespaces
+  - pagesdeployments
+  - pagesprojects
+  - queues
+  - r2buckets
+  - secretsstores
+  - tunnels
+  - vectorizeindexes
+  - vpcservices
+  - workerscripts
   verbs:
   - get
   - list
@@ -150,15 +88,38 @@ rules:
   - update
   - watch
 - apiGroups:
-  - kv.cloudflare.flare.dev
+  - flare.dev
   resources:
+  - aigateways/finalizers
+  - d1databases/finalizers
   - kvnamespaces/finalizers
+  - pagesdeployments/finalizers
+  - pagesprojects/finalizers
+  - queues/finalizers
+  - r2buckets/finalizers
+  - secretsstores/finalizers
+  - tunnels/finalizers
+  - vectorizeindexes/finalizers
+  - vpcservices/finalizers
+  - workerscripts/finalizers
   verbs:
   - update
 - apiGroups:
-  - kv.cloudflare.flare.dev
+  - flare.dev
   resources:
+  - aigateways/status
+  - cloudflareaccounts/status
+  - d1databases/status
   - kvnamespaces/status
+  - pagesdeployments/status
+  - pagesprojects/status
+  - queues/status
+  - r2buckets/status
+  - secretsstores/status
+  - tunnels/status
+  - vectorizeindexes/status
+  - vpcservices/status
+  - workerscripts/status
   verbs:
   - get
   - patch
@@ -175,198 +136,3 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - pages.cloudflare.flare.dev
-  resources:
-  - pagesdeployments
-  - pagesprojects
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - pages.cloudflare.flare.dev
-  resources:
-  - pagesdeployments/finalizers
-  - pagesprojects/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - pages.cloudflare.flare.dev
-  resources:
-  - pagesdeployments/status
-  - pagesprojects/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - queues.cloudflare.flare.dev
-  resources:
-  - queues
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - queues.cloudflare.flare.dev
-  resources:
-  - queues/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - queues.cloudflare.flare.dev
-  resources:
-  - queues/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - r2.cloudflare.flare.dev
-  resources:
-  - r2buckets
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - r2.cloudflare.flare.dev
-  resources:
-  - r2buckets/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - r2.cloudflare.flare.dev
-  resources:
-  - r2buckets/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - secretsstore.cloudflare.flare.dev
-  resources:
-  - secretsstores
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - secretsstore.cloudflare.flare.dev
-  resources:
-  - secretsstores/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - secretsstore.cloudflare.flare.dev
-  resources:
-  - secretsstores/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - tunnels.cloudflare.flare.dev
-  resources:
-  - tunnels
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - tunnels.cloudflare.flare.dev
-  resources:
-  - tunnels/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - tunnels.cloudflare.flare.dev
-  resources:
-  - tunnels/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - vectorize.cloudflare.flare.dev
-  resources:
-  - vectorizeindexes
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - vectorize.cloudflare.flare.dev
-  resources:
-  - vectorizeindexes/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - vectorize.cloudflare.flare.dev
-  resources:
-  - vectorizeindexes/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - workers.cloudflare.flare.dev
-  resources:
-  - workerscripts
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - workers.cloudflare.flare.dev
-  resources:
-  - workerscripts/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - workers.cloudflare.flare.dev
-  resources:
-  - workerscripts/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - workersvpc.cloudflare.flare.dev
-  resources:
-  - vpcservices
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - workersvpc.cloudflare.flare.dev
-  resources:
-  - vpcservices/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - workersvpc.cloudflare.flare.dev
-  resources:
-  - vpcservices/status
-  verbs:
-  - get
-  - patch
-  - update

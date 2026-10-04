@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crreconcile "sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"flare.dev/operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // LaggingClient is a reconciler's client whose Get serves a stale view of objects: the lag

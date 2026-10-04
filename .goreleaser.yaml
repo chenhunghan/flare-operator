@@ -36,9 +36,9 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w
-      - -X flare.dev/operator/internal/version.Version={{ .Version }}
-      - -X flare.dev/operator/internal/version.Commit={{ .FullCommit }}
-      - -X flare.dev/operator/internal/version.Date={{ .CommitDate }}
+      - -X github.com/chenhunghan/flare-operator/internal/version.Version={{ .Version }}
+      - -X github.com/chenhunghan/flare-operator/internal/version.Commit={{ .FullCommit }}
+      - -X github.com/chenhunghan/flare-operator/internal/version.Date={{ .CommitDate }}
     mod_timestamp: "{{ .CommitTimestamp }}"
   - id: flarefake
     main: ./cmd/flarefake
@@ -48,9 +48,9 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w
-      - -X flare.dev/operator/internal/version.Version={{ .Version }}
-      - -X flare.dev/operator/internal/version.Commit={{ .FullCommit }}
-      - -X flare.dev/operator/internal/version.Date={{ .CommitDate }}
+      - -X github.com/chenhunghan/flare-operator/internal/version.Version={{ .Version }}
+      - -X github.com/chenhunghan/flare-operator/internal/version.Commit={{ .FullCommit }}
+      - -X github.com/chenhunghan/flare-operator/internal/version.Date={{ .CommitDate }}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:

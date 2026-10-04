@@ -19,8 +19,7 @@ It ships as one Go manager binary and one Helm chart (`charts/flare-operator`).
 - **API.** Every kind is `v1alpha1` and may change without notice. There is no conversion
   webhook; [docs/api-versioning.md](docs/api-versioning.md) describes the path to `v1beta1`.
 - **Releases.** There are no releases and no published images, so you build the images
-  yourself. The Go module path `flare.dev/operator` is a placeholder until the repository has a
-  permanent home.
+  yourself. The Go module path is `github.com/chenhunghan/flare-operator`.
 - **How it is verified.** Every controller is tested against `flarefake`, an in-memory
   emulator of the Cloudflare API, in envtest suites and in fault, crash and scale tests. The
   chart has an e2e suite (`test/e2e`) that runs on a real cluster with flarefake in the
@@ -56,21 +55,23 @@ Open issues are tracked in [docs/STATUS.md](docs/STATUS.md).
 
 ## Kinds
 
-| Kind | API group (all `v1alpha1`) | Short names | Own printer columns (`-o wide` in italics) | Default `deletionPolicy` | How it is built |
+Every kind is in one API group, `flare.dev`, at version `v1alpha1` (`apiVersion: flare.dev/v1alpha1`).
+
+| Kind | Product category | Short names | Own printer columns (`-o wide` in italics) | Default `deletionPolicy` | How it is built |
 |---|---|---|---|---|---|
-| `CloudflareAccount` | `cloudflare.flare.dev` | `cfaccount`, `cfacct` | `TOKEN`, `REASON` | (none) | hand-written |
-| `KVNamespace` | `kv.cloudflare.flare.dev` | `cfkv` | `TITLE` | `Orphan` | generated (`generator.yaml`) |
-| `Queue` | `queues.cloudflare.flare.dev` | `cfqueue`, `cfq` | `QUEUE`, *`CONSUMERS`* | `Orphan` | generated |
-| `D1Database` | `d1.cloudflare.flare.dev` | `cfd1` | `DATABASE`, *`VERSION`* | `Orphan` | generated |
-| `VectorizeIndex` | `vectorize.cloudflare.flare.dev` | `cfvec` | `DIMENSIONS`, `METRIC` | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
-| `SecretsStore` | `secretsstore.cloudflare.flare.dev` | `cfstore` | `STORE` | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
-| `AIGateway` | `aigateway.cloudflare.flare.dev` | `cfaigw` | `COLLECT-LOGS`, *`CACHE-TTL`* | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
-| `R2Bucket` | `r2.cloudflare.flare.dev` | `cfr2`, `cfbucket` | `LOCATION`, `STORAGE-CLASS`, *`JURISDICTION`* | `Orphan` | generated, with `generator.yaml` extensions (jurisdiction header, CORS sub-resource); emulated by the generic profile (mostly UNVERIFIED) |
-| `Tunnel` | `tunnels.cloudflare.flare.dev` | `cftunnel`, `cftun` | `STATUS`, `CONNECTORS` | `Delete` | hand-written; also runs `cloudflared` and an egress NetworkPolicy |
-| `VPCService` | `workersvpc.cloudflare.flare.dev` | `cfvpcsvc`, `cfvpc` | `TYPE`, `TUNNEL` | `Delete` | hand-written (Workers VPC) |
-| `WorkerScript` | `workers.cloudflare.flare.dev` | `cfworker`, `cfscript` | `URL`, *`VERSION`* | `Delete` | hand-written (Workers scripts: modules, static assets, bindings, workers.dev) |
-| `PagesProject` | `pages.cloudflare.flare.dev` | `cfpages`, `cfpp` | `URL`, `BRANCH`, *`LIVE`* | `Delete` | hand-written (Cloudflare Pages projects: deployment configs, bindings) |
-| `PagesDeployment` | `pages.cloudflare.flare.dev` | `cfpagesdeploy`, `cfpd` | `PROJECT`, `ENV`, `STAGE`, *`URL`* | `Delete` | hand-written (Pages Direct Upload of an artifact) |
+| `CloudflareAccount` | (none) | `cfaccount`, `cfacct` | `TOKEN`, `REASON` | (none) | hand-written |
+| `KVNamespace` | `kv` | `cfkv` | `TITLE` | `Orphan` | generated (`generator.yaml`) |
+| `Queue` | `queues` | `cfqueue`, `cfq` | `QUEUE`, *`CONSUMERS`* | `Orphan` | generated |
+| `D1Database` | `d1` | `cfd1` | `DATABASE`, *`VERSION`* | `Orphan` | generated |
+| `VectorizeIndex` | `vectorize` | `cfvec` | `DIMENSIONS`, `METRIC` | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
+| `SecretsStore` | `secretsstore` | `cfstore` | `STORE` | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
+| `AIGateway` | `aigateway` | `cfaigw` | `COLLECT-LOGS`, *`CACHE-TTL`* | `Delete` | generated; emulated by the generic profile (mostly UNVERIFIED) |
+| `R2Bucket` | `r2` | `cfr2`, `cfbucket` | `LOCATION`, `STORAGE-CLASS`, *`JURISDICTION`* | `Orphan` | generated, with `generator.yaml` extensions (jurisdiction header, CORS sub-resource); emulated by the generic profile (mostly UNVERIFIED) |
+| `Tunnel` | `tunnels` | `cftunnel`, `cftun` | `STATUS`, `CONNECTORS` | `Delete` | hand-written; also runs `cloudflared` and an egress NetworkPolicy |
+| `VPCService` | `workersvpc` | `cfvpcsvc`, `cfvpc` | `TYPE`, `TUNNEL` | `Delete` | hand-written (Workers VPC) |
+| `WorkerScript` | `workers` | `cfworker`, `cfscript` | `URL`, *`VERSION`* | `Delete` | hand-written (Workers scripts: modules, static assets, bindings, workers.dev) |
+| `PagesProject` | `pages` | `cfpages`, `cfpp` | `URL`, `BRANCH`, *`LIVE`* | `Delete` | hand-written (Cloudflare Pages projects: deployment configs, bindings) |
+| `PagesDeployment` | `pages` | `cfpagesdeploy`, `cfpd` | `PROJECT`, `ENV`, `STAGE`, *`URL`* | `Delete` | hand-written (Pages Direct Upload of an artifact) |
 
 Every kind prints `READY`, `SYNCED` and `EXTERNAL-ID` (`status.id`) first, then its own
 columns, then `AGE`. Every kind is namespaced and belongs to the `cloudflare` category, so
@@ -158,7 +159,7 @@ Flux and Argo CD, and describes the tested upgrade path (`make e2e-upgrade`).
 kubectl create namespace demo
 kubectl -n demo create secret generic cloudflare-token --from-literal=token="$CLOUDFLARE_API_TOKEN"
 kubectl -n demo apply -f - <<'EOF'
-apiVersion: cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: CloudflareAccount
 metadata:
   name: main
@@ -185,7 +186,7 @@ Failure reasons include `SecretNotFound`, `TokenInvalid`, `TokenExpired`, `Accou
 
 ```sh
 kubectl -n demo apply -f - <<'EOF'
-apiVersion: kv.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: KVNamespace
 metadata:
   name: sessions
@@ -332,12 +333,12 @@ status:
 
 `spec.accountRef.name` names a `CloudflareAccount` in the **same namespace**. Namespaces are the
 tenancy boundary: an object cannot use another namespace's credentials. Each object is labelled
-`cloudflare.flare.dev/account=<name>`. Two finalizers protect the credentials while they are
+`flare.dev/account=<name>`. Two finalizers protect the credentials while they are
 still needed:
 
-- `cloudflare.flare.dev/account-in-use` keeps the account until no object in the namespace uses
+- `flare.dev/account-in-use` keeps the account until no object in the namespace uses
   it.
-- `cloudflare.flare.dev/account-token` keeps the token Secret until the account is released.
+- `flare.dev/account-token` keeps the token Secret until the account is released.
 
 Because of these, deleting a namespace still cleans up in Cloudflare before the token disappears.
 
@@ -370,7 +371,7 @@ it does not yet for `VectorizeIndex` and `SecretsStore`.
 Even with `Delete`, the operator deletes only resources it can **prove** it owns:
 
 - the object created the resource, or confirmed its owner tag (recorded in the
-  `cloudflare.flare.dev/ownership-proof` annotation, value `<uid>/<id>`);
+  `flare.dev/ownership-proof` annotation, value `<uid>/<id>`);
 - a readable owner tag names the object; or
 - the resource cannot be tagged (or ownership tagging is off) and the object pins the ID with
   the external-id annotation.
@@ -408,11 +409,11 @@ everything.
   `Delete`, the resource is never deleted, whatever the `deletionPolicy`.
 - `LateInitialize` is accepted, but no kind fills unset spec fields from the observed state yet.
 
-### Adoption: `cloudflare.flare.dev/external-id`
+### Adoption: `flare.dev/external-id`
 
-The annotation `cloudflare.flare.dev/external-id: <Cloudflare ID>` pins an object to an existing
+The annotation `flare.dev/external-id: <Cloudflare ID>` pins an object to an existing
 resource and adopts it. The operator also writes the annotation itself right after a create, and
-a `cloudflare.flare.dev/create-pending` record right before it, so a crash between the create
+a `flare.dev/create-pending` record right before it, so a crash between the create
 and the status write cannot orphan or duplicate a resource ([Crash consistency](docs/operations.md#crash-consistency)).
 
 Without the annotation, what happens depends on the kind:
@@ -512,7 +513,7 @@ Kubernetes Service.
   (none for `default`), so it takes no `jurisdiction` of its own.
   Until every referenced object is Ready, nothing is uploaded and `Synced` is `False` with
   reason `DependencyNotReady`. A `secret_text` Secret must carry the label
-  `cloudflare.flare.dev/worker-binding=true` and must not be a service account token: the
+  `flare.dev/worker-binding=true` and must not be a service account token: the
   Worker's code can return the value, so only Secrets opted in for Workers are read (see
   [SECURITY.md](SECURITY.md#api-tokens)).
 - **Updates.** Cloudflare does not return script content, so the operator stores a hash of the
@@ -549,7 +550,7 @@ to it with Pages Direct Upload.
   the `<name>.pages.dev` subdomain. `production_branch` marks production deployments.
   `deployment_configs.production` and `.preview` hold compatibility settings, environment
   variables (`plain_text`, or `secret_text` from a Secret labelled
-  `cloudflare.flare.dev/worker-binding=true`, tracked in `status.writeOnlyHash`) and bindings:
+  `flare.dev/worker-binding=true`, tracked in `status.writeOnlyHash`) and bindings:
   `kv_namespaces`, `d1_databases`, `r2_buckets`, `queue_producers` and `services`, each by raw
   value or by a `kvNamespaceRef`, `d1DatabaseRef`, `r2BucketRef` (its bucket name and
   jurisdiction), `queueRef` or `serviceRef` (a `WorkerScript`); a referenced object waits for
@@ -624,7 +625,7 @@ suggests alerts.
 | `--metrics-bind-address` | `:8080` | `metrics.enabled`, `metrics.port` | Metrics endpoint address; `0` disables it. |
 | `--health-probe-bind-address` | `:8081` | `probes.port` | `/healthz` and `/readyz` address. |
 | `--leader-elect` | `false` | `leaderElection.enabled` (chart default `true`) | Leader election; required with more than one replica. |
-| `--leader-election-namespace` | `""` | (the release namespace) | Namespace of the Lease `flare-operator.cloudflare.flare.dev` (empty: the in-cluster namespace). |
+| `--leader-election-namespace` | `""` | (the release namespace) | Namespace of the Lease `flare-operator.flare.dev` (empty: the in-cluster namespace). |
 | `--cluster-name` | `default` | `clusterName` | Cluster identity in ownership tags. |
 | `--ownership-tags` | `true` | `ownershipTags` | Tag managed resources with `flare.dev/owner`. |
 | `--user-agent` | `flare-operator` | `userAgent` | User-Agent of Cloudflare API calls. |

@@ -18,6 +18,13 @@
 //
 // Per kind (generator.yaml can override each):
 //
+//   - Kind: the singular of the last fern segment ("kv.namespaces" → Namespace);
+//     Plural: the lower-case Kind, pluralised; Product (Go package api/<product>,
+//     kubectl category): the first fern segment. The API group is generator.yaml
+//     group (flare.dev) for every kind, so CheckNames fails the run when two kinds
+//     (generated, or hand-written CRDs in config/crd/bases) share a Kind, plural,
+//     singular or short name. The fix is an explicit kind/plural for the new kind;
+//     flaregen never renames on its own, so enabling a kind cannot rename another.
 //   - forProvider = create body ∪ chosen update body, readOnly properties removed.
 //     Top-level fields the create body requires (nothing for singletons) are
 //     optional pointers in Go and required by a CEL rule on spec only when the
@@ -80,7 +87,7 @@
 //     pointers; required ones (below the top level of forProvider) are values.
 //
 // Output: api/<product>/v1alpha1 (types, groupversion_info.go, deepcopy),
-// config/crd/bases/<group>_<plural>.yaml, and
+// config/crd/bases/flare.dev_<plural>.yaml, and
 // internal/generic/descriptors/zz_generated.go. flaregen writes deepcopy and
 // CRD YAML itself (no controller-gen); the kubebuilder markers in the Go types
 // document the same schema.

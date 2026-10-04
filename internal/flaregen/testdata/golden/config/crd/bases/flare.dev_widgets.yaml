@@ -4,24 +4,22 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    argocd.argoproj.io/sync-options: Delete=false,Prune=false
-    flare.dev/fern-group: queues
+    flare.dev/fern-group: widgets.gadgets
     flare.dev/generated-by: flaregen
-  name: queues.queues.cloudflare.flare.dev
+  name: widgets.flare.dev
 spec:
-  group: queues.cloudflare.flare.dev
+  group: flare.dev
   names:
     categories:
     - cloudflare
     - managed
-    - queues
-    kind: Queue
-    listKind: QueueList
-    plural: queues
+    - widgets
+    kind: Widget
+    listKind: WidgetList
+    plural: widgets
     shortNames:
-    - cfqueue
-    - cfq
-    singular: queue
+    - cfwidget
+    singular: widget
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -34,20 +32,22 @@ spec:
     - jsonPath: .status.id
       name: EXTERNAL-ID
       type: string
-    - jsonPath: .status.atProvider.queue_name
-      name: QUEUE
+    - description: the widget kind
+      jsonPath: .status.atProvider.kind
+      name: KIND
       type: string
-    - jsonPath: .status.atProvider.consumers_total_count
-      name: CONSUMERS
+    - jsonPath: .status.atProvider.created_on
+      name: CREATED
       priority: 1
-      type: number
+      type: date
     - jsonPath: .metadata.creationTimestamp
       name: AGE
       type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Queue is a Cloudflare queues (x-fern-sdk-group-name "queues").
+        description: Widget is a Cloudflare widgets gadgets (x-fern-sdk-group-name
+          "widgets.gadgets").
         properties:
           apiVersion:
             description: APIVersion defines the versioned schema of this representation
@@ -60,7 +60,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: QueueSpec defines the desired state of a Queue.
+            description: WidgetSpec defines the desired state of a Widget.
             properties:
               accountRef:
                 description: AccountRef names the CloudflareAccount (same namespace)
@@ -72,7 +72,7 @@ spec:
                 - name
                 type: object
               deletionPolicy:
-                default: Orphan
+                default: Delete
                 description: DeletionPolicy says what happens to the Cloudflare resource
                   when this object is deleted.
                 enum:
@@ -83,31 +83,88 @@ spec:
                 description: ForProvider holds the Cloudflare API fields, named exactly
                   as in the API.
                 properties:
-                  jurisdiction:
-                    enum:
-                    - eu
-                    - us
-                    - fedramp
-                    type: string
-                  queue_name:
-                    type: string
-                  settings:
+                  combo:
                     properties:
-                      delivery_delay:
-                        description: Number of seconds to delay delivery of all messages
-                          to consumers.
-                        format: int64
-                        type: integer
-                      delivery_paused:
-                        description: Indicates if message delivery to consumers is
-                          currently paused.
+                      extra:
                         type: boolean
-                      message_retention_period:
-                        description: Number of seconds after which an unconsumed message
-                          will be delayed.
-                        format: int64
-                        type: integer
+                      name:
+                        type: string
+                      weight:
+                        type: number
+                    required:
+                    - name
                     type: object
+                  kind:
+                    enum:
+                    - a
+                    - b
+                    type: string
+                  labels:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  lookahead:
+                    type: string
+                  meta:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                  mode:
+                    enum:
+                    - x
+                    - "y"
+                    type: string
+                  name:
+                    description: Widget name.
+                    maxLength: 64
+                    pattern: ^[a-z][a-z0-9-]*$
+                    type: string
+                  note:
+                    type: string
+                  origin:
+                    properties:
+                      bucket:
+                        type: string
+                      timeout:
+                        format: int64
+                        maximum: 60
+                        minimum: 1
+                        type: integer
+                      type:
+                        enum:
+                        - http
+                        - s3
+                        type: string
+                      url:
+                        description: Origin URL.
+                        type: string
+                    required:
+                    - type
+                    type: object
+                  region:
+                    description: Create-only and never read back.
+                    type: string
+                  secret:
+                    type: string
+                  tags:
+                    items:
+                      maxLength: 16
+                      type: string
+                    maxItems: 5
+                    type: array
+                  target:
+                    x-kubernetes-preserve-unknown-fields: true
+                  tree:
+                    description: A tree node (recursive).
+                    properties:
+                      children:
+                        items:
+                          x-kubernetes-preserve-unknown-fields: true
+                        type: array
+                      value:
+                        type: string
+                    type: object
+                  ttl:
+                    type: number
                 type: object
               managementPolicies:
                 description: ManagementPolicies default to ["*"]. ["Observe"] makes
@@ -135,13 +192,20 @@ spec:
             - accountRef
             type: object
             x-kubernetes-validations:
-            - fieldPath: .forProvider.queue_name
-              message: forProvider.queue_name is required unless managementPolicies
-                exclude Create (e.g. ["Observe"])
+            - fieldPath: .forProvider.kind
+              message: forProvider.kind is required unless managementPolicies exclude
+                Create (e.g. ["Observe"])
               reason: FieldValueRequired
               rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
                 == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
-                || (has(self.forProvider) && has(self.forProvider.queue_name))'
+                || (has(self.forProvider) && has(self.forProvider.kind))'
+            - fieldPath: .forProvider.name
+              message: forProvider.name is required unless managementPolicies exclude
+                Create (e.g. ["Observe"])
+              reason: FieldValueRequired
+              rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
+                == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
+                || (has(self.forProvider) && has(self.forProvider.name))'
             - fieldPath: .accountRef.name
               message: accountRef.name must name a CloudflareAccount in this namespace
                 (1-253 characters)
@@ -149,104 +213,75 @@ spec:
               rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
                 253
           status:
-            description: QueueStatus defines the observed state of a Queue.
+            description: WidgetStatus defines the observed state of a Widget.
             properties:
               atProvider:
                 description: AtProvider is the resource as last read from the Cloudflare
                   API.
                 properties:
-                  consumers:
-                    items:
-                      description: Response body representing a consumer
-                      properties:
-                        consumer_id:
-                          description: A Resource identifier.
-                          type: string
-                        created_on:
-                          type: string
-                        dead_letter_queue:
-                          description: Name of the dead letter queue, or empty string
-                            if not configured
-                          type: string
-                        queue_name:
-                          type: string
-                        script_name:
-                          description: Name of a Worker
-                          type: string
-                        settings:
-                          properties:
-                            batch_size:
-                              description: The maximum number of messages to include
-                                in a batch.
-                              type: number
-                            max_concurrency:
-                              description: Maximum number of concurrent consumers
-                                that may consume from this Queue. Set to `null` to
-                                automatically opt in to the platform's maximum (recommended).
-                              type: number
-                            max_retries:
-                              description: The maximum number of retries
-                              type: number
-                            max_wait_time_ms:
-                              description: The number of milliseconds to wait for
-                                a batch to fill up before attempting to deliver it
-                              type: number
-                            retry_delay:
-                              description: The number of seconds to delay before making
-                                the message available for another attempt.
-                              type: number
-                            visibility_timeout_ms:
-                              description: The number of milliseconds that a message
-                                is exclusively leased. After the timeout, the message
-                                becomes available for another attempt.
-                              type: number
-                          type: object
-                        type:
-                          type: string
-                      type: object
-                    type: array
-                  consumers_total_count:
-                    type: number
+                  combo:
+                    properties:
+                      extra:
+                        type: boolean
+                      name:
+                        type: string
+                      weight:
+                        type: number
+                    type: object
                   created_on:
                     type: string
-                  jurisdiction:
+                  id:
+                    description: Widget identifier.
                     type: string
-                  modified_on:
+                  kind:
                     type: string
-                  producers:
-                    items:
-                      properties:
-                        bucket_name:
-                          type: string
-                        script:
-                          type: string
-                        type:
-                          type: string
-                      type: object
-                    type: array
-                  producers_total_count:
-                    type: number
-                  queue_id:
-                    type: string
-                  queue_name:
-                    type: string
-                  settings:
-                    properties:
-                      delivery_delay:
-                        description: Number of seconds to delay delivery of all messages
-                          to consumers.
-                        format: int64
-                        type: integer
-                      delivery_paused:
-                        description: Indicates if message delivery to consumers is
-                          currently paused.
-                        type: boolean
-                      message_retention_period:
-                        description: Number of seconds after which an unconsumed message
-                          will be delayed.
-                        format: int64
-                        type: integer
+                  labels:
+                    additionalProperties:
+                      type: string
                     type: object
+                  lookahead:
+                    type: string
+                  meta:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                  mode:
+                    type: string
+                  name:
+                    description: Widget name.
+                    type: string
+                  note:
+                    type: string
+                  origin:
+                    properties:
+                      bucket:
+                        type: string
+                      timeout:
+                        format: int64
+                        type: integer
+                      type:
+                        type: string
+                      url:
+                        description: Origin URL.
+                        type: string
+                    type: object
+                  tags:
+                    items:
+                      type: string
+                    type: array
+                  target:
+                    x-kubernetes-preserve-unknown-fields: true
+                  tree:
+                    description: A tree node (recursive).
+                    properties:
+                      children:
+                        items:
+                          x-kubernetes-preserve-unknown-fields: true
+                        type: array
+                      value:
+                        type: string
+                    type: object
+                  ttl:
+                    type: number
                 type: object
               conditions:
                 items:
@@ -321,17 +356,14 @@ spec:
           reason: FieldValueInvalid
           rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
             > 0) || self.spec.accountRef.name == oldSelf.spec.accountRef.name'
-        - fieldPath: .spec.forProvider.jurisdiction
-          message: 'forProvider.jurisdiction is immutable once the resource exists
-            (status.id is set): recreate the object to change it, or set it to the
-            value Cloudflare reports (status.atProvider.jurisdiction)'
+        - fieldPath: .spec.forProvider.region
+          message: 'forProvider.region is immutable once the resource exists (status.id
+            is set): recreate the object to change it'
           reason: FieldValueInvalid
           rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
-            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.jurisdiction)
-            || !has(self.spec.forProvider) || !has(self.spec.forProvider.jurisdiction)
-            || self.spec.forProvider.jurisdiction == oldSelf.spec.forProvider.jurisdiction
-            || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.jurisdiction)
-            && oldSelf.status.atProvider.jurisdiction == self.spec.forProvider.jurisdiction)'
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.region)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.region) ||
+            self.spec.forProvider.region == oldSelf.spec.forProvider.region'
     served: true
     storage: true
     subresources:

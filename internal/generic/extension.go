@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"strings"
 
-	"flare.dev/operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
 )
 
 // Extension is per-kind behavior that Descriptor (a frozen contract) cannot express. cmd/flaregen

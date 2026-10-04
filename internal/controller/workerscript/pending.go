@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/reconcile"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // Crash consistency of the first upload (docs/resilience.md). Before uploading a script that

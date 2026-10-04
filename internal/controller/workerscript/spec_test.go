@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/fake"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/fake"
 )
 
 // TestAPICallsAgainstSpec runs every Workers call of this controller against flarefake with

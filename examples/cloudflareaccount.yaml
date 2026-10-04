@@ -11,7 +11,7 @@ type: Opaque
 stringData:
   token: REPLACE-WITH-YOUR-API-TOKEN
 ---
-apiVersion: cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: CloudflareAccount
 metadata:
   name: main

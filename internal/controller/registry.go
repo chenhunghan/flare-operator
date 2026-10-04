@@ -41,8 +41,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"flare.dev/operator/internal/artifact"
-	"flare.dev/operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/artifact"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // Deps is the shared runtime handed to every controller's Setup.

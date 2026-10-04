@@ -3,7 +3,7 @@ package reconcile_test
 import (
 	"testing"
 
-	"flare.dev/operator/internal/testenv"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 // TestMain validates every flarefake response against the pinned spec (testenv.StrictMain).

@@ -56,17 +56,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	ctrlreconcile "sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	pagesv1alpha1 "flare.dev/operator/api/pages/v1alpha1"
-	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
-	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller"
-	"flare.dev/operator/internal/generic"
-	"flare.dev/operator/internal/reconcile"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	d1v1alpha1 "github.com/chenhunghan/flare-operator/api/d1/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	pagesv1alpha1 "github.com/chenhunghan/flare-operator/api/pages/v1alpha1"
+	queuesv1alpha1 "github.com/chenhunghan/flare-operator/api/queues/v1alpha1"
+	r2v1alpha1 "github.com/chenhunghan/flare-operator/api/r2/v1alpha1"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller"
+	"github.com/chenhunghan/flare-operator/internal/generic"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // Name is the registration name of this controller.
@@ -144,17 +144,17 @@ type appliedState struct {
 	name, settings, secrets string
 }
 
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesprojects,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesprojects/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesprojects/finalizers,verbs=update
-// +kubebuilder:rbac:groups=pages.cloudflare.flare.dev,resources=pagesdeployments,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kv.cloudflare.flare.dev,resources=kvnamespaces,verbs=get;list;watch
-// +kubebuilder:rbac:groups=queues.cloudflare.flare.dev,resources=queues,verbs=get;list;watch
-// +kubebuilder:rbac:groups=d1.cloudflare.flare.dev,resources=d1databases,verbs=get;list;watch
-// +kubebuilder:rbac:groups=r2.cloudflare.flare.dev,resources=r2buckets,verbs=get;list;watch
-// +kubebuilder:rbac:groups=workers.cloudflare.flare.dev,resources=workerscripts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesprojects,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesprojects/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesprojects/finalizers,verbs=update
+// +kubebuilder:rbac:groups=flare.dev,resources=pagesdeployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=kvnamespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=queues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=d1databases,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=r2buckets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=workerscripts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 func (r *Reconciler) lockCreate(key string) func() {

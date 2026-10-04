@@ -17,12 +17,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller/tunnel"
-	"flare.dev/operator/internal/reconcile"
-	"flare.dev/operator/internal/testenv"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	tunnelsv1alpha1 "github.com/chenhunghan/flare-operator/api/tunnels/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller/tunnel"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 func TestTunnelLifecycle(t *testing.T) {
@@ -61,7 +61,7 @@ func TestTunnelLifecycle(t *testing.T) {
 	if err := json.Unmarshal(raw, &tok); err != nil || tok.A != h.acct.AccountID || tok.T != id || tok.S == "" {
 		t.Errorf("token %s (%v)", raw, err)
 	}
-	if !metav1.IsControlledBy(&sec, tun) || sec.Annotations["cloudflare.flare.dev/tunnel-id"] != id {
+	if !metav1.IsControlledBy(&sec, tun) || sec.Annotations["flare.dev/tunnel-id"] != id {
 		t.Errorf("secret meta %+v", sec.ObjectMeta)
 	}
 
@@ -81,7 +81,7 @@ func TestTunnelLifecycle(t *testing.T) {
 	if p := c.ReadinessProbe; p == nil || p.HTTPGet == nil || p.HTTPGet.Path != "/ready" || p.HTTPGet.Port.IntValue() != 2000 {
 		t.Errorf("readiness probe %+v", p)
 	}
-	if dep.Spec.Template.Annotations["cloudflare.flare.dev/tunnel-id"] != id {
+	if dep.Spec.Template.Annotations["flare.dev/tunnel-id"] != id {
 		t.Errorf("pod template annotations %v", dep.Spec.Template.Annotations)
 	}
 

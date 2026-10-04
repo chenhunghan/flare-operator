@@ -8,14 +8,14 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"flare.dev/operator/internal/artifact"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller"
-	"flare.dev/operator/internal/controller/pagesdeployment"
-	"flare.dev/operator/internal/controller/pagesproject"
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/reconcile"
-	"flare.dev/operator/internal/testenv"
+	"github.com/chenhunghan/flare-operator/internal/artifact"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller"
+	"github.com/chenhunghan/flare-operator/internal/controller/pagesdeployment"
+	"github.com/chenhunghan/flare-operator/internal/controller/pagesproject"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 // A deployment's create is made in Cloudflare but its answer is lost (the client gives up), so

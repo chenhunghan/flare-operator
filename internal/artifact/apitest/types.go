@@ -12,7 +12,7 @@ package apitest
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
+	sharedv1alpha1 "github.com/chenhunghan/flare-operator/api/shared/v1alpha1"
 )
 
 // ArtifactHolderSpec embeds an ArtifactSource.

@@ -11,11 +11,13 @@ import (
 
 // Config is generator.yaml: which resources become kinds, with per-kind overrides.
 type Config struct {
-	// Version of every generated API group (default v1alpha1).
+	// Version of every generated kind (default v1alpha1).
 	Version string `json:"version,omitempty"`
-	// GroupSuffix is appended to the product (default cloudflare.flare.dev).
-	GroupSuffix string       `json:"groupSuffix,omitempty"`
-	Kinds       []KindConfig `json:"kinds"`
+	// Group is the one API group of every kind, generated or hand-written (default
+	// DefaultGroup). Kind names, plurals, singulars and short names must therefore be unique
+	// across all of them: Generate fails on a collision (CheckNames) and never renames a kind.
+	Group string       `json:"group,omitempty"`
+	Kinds []KindConfig `json:"kinds"`
 }
 
 // KindConfig selects one resource of the model and overrides what the model derives.
@@ -26,8 +28,13 @@ type KindConfig struct {
 	// collection path (CRUD) or the item path (singleton), exactly as in the spec.
 	Path string `json:"path,omitempty"`
 
-	Kind  string `json:"kind,omitempty"`  // default: singular of the last fern segment
-	Group string `json:"group,omitempty"` // product; default: first fern segment without "_"
+	// Kind is the CRD kind (default: singular of the last fern segment). Its lower-case form is
+	// the CRD singular. Set it (and Plural) when the default collides with another kind of the
+	// API group (CheckNames).
+	Kind string `json:"kind,omitempty"`
+	// Product names the Go package (api/<product>/<version>) and the kubectl category of the
+	// kind (default: first fern segment without "_" and "-"). It is not part of the API group.
+	Product string `json:"product,omitempty"`
 	// Plural is the CRD resource name (default: lower-case Kind, pluralised).
 	Plural string `json:"plural,omitempty"`
 	// ShortNames are kubectl short names of the kind. They must not collide with the short
@@ -152,8 +159,8 @@ func ParseConfig(b []byte) (*Config, error) {
 	if c.Version == "" {
 		c.Version = "v1alpha1"
 	}
-	if c.GroupSuffix == "" {
-		c.GroupSuffix = "cloudflare.flare.dev"
+	if c.Group == "" {
+		c.Group = DefaultGroup
 	}
 	for i, k := range c.Kinds {
 		if k.FernGroup == "" {

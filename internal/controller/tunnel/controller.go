@@ -73,13 +73,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	ctrlreconcile "sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
-	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller"
-	"flare.dev/operator/internal/controller/tunnelnet"
-	"flare.dev/operator/internal/reconcile"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	tunnelsv1alpha1 "github.com/chenhunghan/flare-operator/api/tunnels/v1alpha1"
+	workersvpcv1alpha1 "github.com/chenhunghan/flare-operator/api/workersvpc/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller"
+	"github.com/chenhunghan/flare-operator/internal/controller/tunnelnet"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // Name is the registration name of this controller.
@@ -137,11 +137,11 @@ type Reconciler struct {
 // Delete policy is deleted but its Cloudflare tunnel is kept because another owner holds it.
 const EventReasonTunnelKept = "ForeignOwnerTunnelKept"
 
-// +kubebuilder:rbac:groups=tunnels.cloudflare.flare.dev,resources=tunnels,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=tunnels.cloudflare.flare.dev,resources=tunnels/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=tunnels.cloudflare.flare.dev,resources=tunnels/finalizers,verbs=update
-// +kubebuilder:rbac:groups=workersvpc.cloudflare.flare.dev,resources=vpcservices,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=tunnels,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=tunnels/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=tunnels/finalizers,verbs=update
+// +kubebuilder:rbac:groups=flare.dev,resources=vpcservices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete

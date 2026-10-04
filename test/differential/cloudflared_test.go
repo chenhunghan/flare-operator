@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"flare.dev/operator/test/differential/harness"
+	"github.com/chenhunghan/flare-operator/test/differential/harness"
 )
 
 // Evidence citations into cloudflared's source use the pinned release, tag 2026.9.3

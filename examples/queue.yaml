@@ -1,5 +1,5 @@
 # A Cloudflare Queue. Default deletionPolicy: Orphan (undelivered messages).
-apiVersion: queues.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: Queue
 metadata:
   name: jobs

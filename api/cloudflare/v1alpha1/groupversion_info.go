@@ -1,8 +1,8 @@
-// Package v1alpha1 contains the cloudflare.flare.dev API group: CloudflareAccount, the
+// Package v1alpha1 contains CloudflareAccount, a kind of the flare.dev API group: the
 // credentials and account binding every managed kind refers to through spec.accountRef.
 //
 // +kubebuilder:object:generate=true
-// +groupName=cloudflare.flare.dev
+// +groupName=flare.dev
 package v1alpha1
 
 import (
@@ -13,7 +13,7 @@ import (
 
 var (
 	// GroupVersion is the group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "cloudflare.flare.dev", Version: "v1alpha1"}
+	GroupVersion = schema.GroupVersion{Group: "flare.dev", Version: "v1alpha1"}
 
 	// SchemeBuilder registers this package's kinds. It is apimachinery's runtime.SchemeBuilder
 	// (as in the flaregen-generated packages), not controller-runtime's deprecated

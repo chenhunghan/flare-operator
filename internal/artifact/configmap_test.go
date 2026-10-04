@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
+	sharedv1alpha1 "github.com/chenhunghan/flare-operator/api/shared/v1alpha1"
 )
 
 func configMap(ns, name string, labelled bool, data map[string]string, bin map[string][]byte) *corev1.ConfigMap {

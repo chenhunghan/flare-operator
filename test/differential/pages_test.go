@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"flare.dev/operator/internal/controller/pagesdeployment"
-	"flare.dev/operator/test/differential/harness"
+	"github.com/chenhunghan/flare-operator/internal/controller/pagesdeployment"
+	"github.com/chenhunghan/flare-operator/test/differential/harness"
 )
 
 const pagesProject = "flare-diff-pages"

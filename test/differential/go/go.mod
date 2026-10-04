@@ -1,9 +1,9 @@
-module flare.dev/operator/test/differential/go
+module github.com/chenhunghan/flare-operator/test/differential/go
 
 go 1.26.1
 
 require (
-	flare.dev/operator v0.0.0-00010101000000-000000000000
+	github.com/chenhunghan/flare-operator v0.0.0-00010101000000-000000000000
 	github.com/cloudflare/cloudflare-go/v7 v7.11.0
 )
 
@@ -25,4 +25,4 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
 
-replace flare.dev/operator => ../../..
+replace github.com/chenhunghan/flare-operator => ../../..

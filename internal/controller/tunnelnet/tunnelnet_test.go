@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
+	workersvpcv1alpha1 "github.com/chenhunghan/flare-operator/api/workersvpc/v1alpha1"
 )
 
 func TestParseServiceFQDN(t *testing.T) {

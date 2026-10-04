@@ -1,4 +1,4 @@
-// Package v1alpha1 contains the tunnels.cloudflare.flare.dev API group (x-fern-sdk-group-name
+// Package v1alpha1 contains kinds of the flare.dev API group (x-fern-sdk-group-name
 // "tunnels"): Tunnel, a remotely managed Cloudflare Tunnel (cfd_tunnel) together with the
 // cloudflared connector Deployment, its token Secret and an egress NetworkPolicy.
 //
@@ -6,7 +6,7 @@
 // (controller-gen) produces their deepcopy methods and CRD.
 //
 // +kubebuilder:object:generate=true
-// +groupName=tunnels.cloudflare.flare.dev
+// +groupName=flare.dev
 package v1alpha1
 
 import (
@@ -17,7 +17,7 @@ import (
 
 var (
 	// GroupVersion is the group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "tunnels.cloudflare.flare.dev", Version: "v1alpha1"}
+	GroupVersion = schema.GroupVersion{Group: "flare.dev", Version: "v1alpha1"}
 
 	// SchemeBuilder registers this package's kinds. It is apimachinery's runtime.SchemeBuilder
 	// (as in the flaregen-generated packages), not controller-runtime's deprecated

@@ -11,7 +11,7 @@ kind: ConfigMap
 metadata:
   name: shop-site
   labels:
-    cloudflare.flare.dev/artifact: "true"   # opt-in: only labelled ConfigMaps are published
+    flare.dev/artifact: "true"   # opt-in: only labelled ConfigMaps are published
 data:
   index.html: |
     <!doctype html>
@@ -25,7 +25,7 @@ data:
     /*
       X-Frame-Options: DENY
 ---
-apiVersion: workers.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: WorkerScript
 metadata:
   name: shop
@@ -77,7 +77,7 @@ spec:
 # The bucket the shop Worker binds as env.MEDIA. Until it is Ready, the WorkerScript waits
 # (Synced=False, DependencyNotReady) and uploads nothing; while the binding exists, deleting
 # this object (with deletionPolicy Delete) waits for the WorkerScript. See r2bucket.yaml.
-apiVersion: r2.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: R2Bucket
 metadata:
   name: shop-media
@@ -89,7 +89,7 @@ spec:
     jurisdiction: eu                         # bound too: the binding's jurisdiction is eu
 ---
 # An assets-only site (no main_module, no modules): a single-page app from a release archive.
-apiVersion: workers.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: WorkerScript
 metadata:
   name: docs-site
@@ -112,7 +112,7 @@ spec:
 ---
 # Worker modules from an OCI image built by CI (FROM scratch, COPY dist/ /worker/), pinned by
 # digest. Every file under path is a module; its type comes from the extension.
-apiVersion: workers.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: WorkerScript
 metadata:
   name: bundled-api

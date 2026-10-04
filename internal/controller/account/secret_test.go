@@ -13,14 +13,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller/account"
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/reconcile"
-	"flare.dev/operator/internal/testenv"
+	cloudflarev1alpha1 "github.com/chenhunghan/flare-operator/api/cloudflare/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller/account"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 // cleanupFinalizer stands in for a managed controller's finalizer: the object stays until the
@@ -283,7 +283,7 @@ func TestDeletingNotReadyAccount(t *testing.T) {
 				return false, c.Type + " message lacks the hint: " + c.Message
 			}
 		}
-		if !strings.Contains(s.Message, "KVNamespace.kv.cloudflare.flare.dev/data") {
+		if !strings.Contains(s.Message, "KVNamespace.flare.dev/data") {
 			return false, "Synced message lacks the user: " + s.Message
 		}
 		return true, ""

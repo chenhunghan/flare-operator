@@ -5,16 +5,16 @@ package descriptors
 import (
 	"k8s.io/apimachinery/pkg/runtime"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	widgetsv1alpha1 "flare.dev/operator/api/widgets/v1alpha1"
-	widgettoolsv1alpha1 "flare.dev/operator/api/widgettools/v1alpha1"
-	"flare.dev/operator/internal/generic"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	widgetsv1alpha1 "github.com/chenhunghan/flare-operator/api/widgets/v1alpha1"
+	widgettoolsv1alpha1 "github.com/chenhunghan/flare-operator/api/widgettools/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/generic"
 )
 
 var generated = []Entry{
 	{
 		Descriptor: generic.Descriptor{
-			Group: "widgets.cloudflare.flare.dev", Version: "v1alpha1", Kind: "Widget",
+			Group: "flare.dev", Version: "v1alpha1", Kind: "Widget",
 			Scope:                 "account",
 			CreatePath:            "/accounts/{account_id}/widgets",
 			ItemPath:              "/accounts/{account_id}/widgets/{id}",
@@ -35,7 +35,7 @@ var generated = []Entry{
 	},
 	{
 		Descriptor: generic.Descriptor{
-			Group: "widgettools.cloudflare.flare.dev", Version: "v1alpha1", Kind: "WidgetSettings",
+			Group: "flare.dev", Version: "v1alpha1", Kind: "WidgetSettings",
 			Scope:                 "zone",
 			ItemPath:              "/zones/{zone_id}/widget_settings",
 			UpdateMethod:          "PATCH",

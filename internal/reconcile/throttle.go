@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"flare.dev/operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
 )
 
 // ReasonRateLimited is the Synced=False reason of an object whose reconcile hit Cloudflare's

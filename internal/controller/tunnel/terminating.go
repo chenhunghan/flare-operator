@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
+	tunnelsv1alpha1 "github.com/chenhunghan/flare-operator/api/tunnels/v1alpha1"
 )
 
 // Namespace teardown. The namespace controller deletes a namespace's objects in no particular

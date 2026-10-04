@@ -4,20 +4,22 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    flare.dev/fern-group: widget_tools.settings
+    flare.dev/fern-group: vectorize
     flare.dev/generated-by: flaregen
-  name: widgetsettings.widgettools.cloudflare.flare.dev
+  name: vectorizeindexes.flare.dev
 spec:
-  group: widgettools.cloudflare.flare.dev
+  group: flare.dev
   names:
     categories:
     - cloudflare
     - managed
-    - widgettools
-    kind: WidgetSettings
-    listKind: WidgetSettingsList
-    plural: widgetsettings
-    singular: widgetsettings
+    - vectorize
+    kind: VectorizeIndex
+    listKind: VectorizeIndexList
+    plural: vectorizeindexes
+    shortNames:
+    - cfvec
+    singular: vectorizeindex
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -30,14 +32,20 @@ spec:
     - jsonPath: .status.id
       name: EXTERNAL-ID
       type: string
+    - jsonPath: .status.atProvider.config.dimensions
+      name: DIMENSIONS
+      type: integer
+    - jsonPath: .status.atProvider.config.metric
+      name: METRIC
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: AGE
       type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: WidgetSettings is a Cloudflare widget_tools settings (x-fern-sdk-group-name
-          "widget_tools.settings").
+        description: VectorizeIndex is a Cloudflare vectorize (x-fern-sdk-group-name
+          "vectorize").
         properties:
           apiVersion:
             description: APIVersion defines the versioned schema of this representation
@@ -50,7 +58,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: WidgetSettingsSpec defines the desired state of a WidgetSettings.
+            description: VectorizeIndexSpec defines the desired state of a VectorizeIndex.
             properties:
               accountRef:
                 description: AccountRef names the CloudflareAccount (same namespace)
@@ -62,7 +70,7 @@ spec:
                 - name
                 type: object
               deletionPolicy:
-                default: Orphan
+                default: Delete
                 description: DeletionPolicy says what happens to the Cloudflare resource
                   when this object is deleted.
                 enum:
@@ -73,16 +81,40 @@ spec:
                 description: ForProvider holds the Cloudflare API fields, named exactly
                   as in the API.
                 properties:
-                  enabled:
-                    description: Whether widgets are on.
-                    type: boolean
-                  level:
-                    enum:
-                    - 1
-                    - 2
-                    - 3
-                    format: int64
-                    type: integer
+                  config:
+                    description: Specifies the type of configuration to use for the
+                      index.
+                    properties:
+                      dimensions:
+                        description: Specifies the number of dimensions for the index
+                        format: int64
+                        maximum: 1536
+                        minimum: 1
+                        type: integer
+                      metric:
+                        description: Specifies the type of metric to use calculating
+                          distance.
+                        enum:
+                        - cosine
+                        - euclidean
+                        - dot-product
+                        type: string
+                      preset:
+                        description: Specifies the preset to use for the index.
+                        enum:
+                        - '@cf/baai/bge-small-en-v1.5'
+                        - '@cf/baai/bge-base-en-v1.5'
+                        - '@cf/baai/bge-large-en-v1.5'
+                        - openai/text-embedding-ada-002
+                        - cohere/embed-multilingual-v2.0
+                        type: string
+                    type: object
+                  description:
+                    description: Specifies the description of the index.
+                    type: string
+                  name:
+                    pattern: ^([a-z]+[a-z0-9_-]*[a-z0-9]+)$
+                    type: string
                 type: object
               managementPolicies:
                 description: ManagementPolicies default to ["*"]. ["Observe"] makes
@@ -108,33 +140,58 @@ spec:
                 type: object
             required:
             - accountRef
-            - zoneRef
             type: object
             x-kubernetes-validations:
+            - fieldPath: .forProvider.config
+              message: forProvider.config is required unless managementPolicies exclude
+                Create (e.g. ["Observe"])
+              reason: FieldValueRequired
+              rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
+                == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
+                || (has(self.forProvider) && has(self.forProvider.config))'
+            - fieldPath: .forProvider.name
+              message: forProvider.name is required unless managementPolicies exclude
+                Create (e.g. ["Observe"])
+              reason: FieldValueRequired
+              rule: '!(!has(self.managementPolicies) || size(self.managementPolicies)
+                == 0 || ''*'' in self.managementPolicies || ''Create'' in self.managementPolicies)
+                || (has(self.forProvider) && has(self.forProvider.name))'
             - fieldPath: .accountRef.name
               message: accountRef.name must name a CloudflareAccount in this namespace
                 (1-253 characters)
               reason: FieldValueInvalid
               rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
                 253
-            - fieldPath: .zoneRef
-              message: zoneRef needs exactly one of id or name
-              reason: FieldValueInvalid
-              rule: has(self.zoneRef.id) != has(self.zoneRef.name)
           status:
-            description: WidgetSettingsStatus defines the observed state of a WidgetSettings.
+            description: VectorizeIndexStatus defines the observed state of a VectorizeIndex.
             properties:
               atProvider:
                 description: AtProvider is the resource as last read from the Cloudflare
                   API.
                 properties:
-                  enabled:
-                    description: Whether widgets are on.
-                    type: boolean
-                  level:
-                    format: int64
-                    type: integer
-                  updated_at:
+                  config:
+                    properties:
+                      dimensions:
+                        description: Specifies the number of dimensions for the index
+                        format: int64
+                        type: integer
+                      metric:
+                        description: Specifies the type of metric to use calculating
+                          distance.
+                        type: string
+                    type: object
+                  created_on:
+                    description: Specifies the timestamp the resource was created
+                      as an ISO8601 string.
+                    type: string
+                  description:
+                    description: Specifies the description of the index.
+                    type: string
+                  modified_on:
+                    description: Specifies the timestamp the resource was modified
+                      as an ISO8601 string.
+                    type: string
+                  name:
                     type: string
                 type: object
               conditions:
@@ -210,6 +267,36 @@ spec:
           reason: FieldValueInvalid
           rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
             > 0) || self.spec.accountRef.name == oldSelf.spec.accountRef.name'
+        - fieldPath: .spec.forProvider.config
+          message: 'forProvider.config is immutable once the resource exists (status.id
+            is set): recreate the object to change it'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.config)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.config) ||
+            self.spec.forProvider.config == oldSelf.spec.forProvider.config'
+        - fieldPath: .spec.forProvider.description
+          message: 'forProvider.description is immutable once the resource exists
+            (status.id is set): recreate the object to change it, or set it to the
+            value Cloudflare reports (status.atProvider.description)'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.description)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.description)
+            || self.spec.forProvider.description == oldSelf.spec.forProvider.description
+            || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.description)
+            && oldSelf.status.atProvider.description == self.spec.forProvider.description)'
+        - fieldPath: .spec.forProvider.name
+          message: 'forProvider.name is immutable once the resource exists (status.id
+            is set): recreate the object to change it, or set it to the value Cloudflare
+            reports (status.atProvider.name)'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.name)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.name) ||
+            self.spec.forProvider.name == oldSelf.spec.forProvider.name || (has(oldSelf.status.atProvider)
+            && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name
+            == self.spec.forProvider.name)'
     served: true
     storage: true
     subresources:

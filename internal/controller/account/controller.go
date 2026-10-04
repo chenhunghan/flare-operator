@@ -13,8 +13,8 @@
 // Usage protection: every account carries the finalizer AccountInUseFinalizer. When it is
 // deleted, the controller keeps verifying it (so managed objects can still use it to clean up
 // in Cloudflare) and keeps the finalizer, with Synced=False reason DependencyNotReady, while any
-// object of an API group ending in ".cloudflare.flare.dev" in the same namespace carries the
-// label cloudflare.flare.dev/account=<name> (set by reconcile.Accounts.Resolve). While blocked it
+// managed object (any kind of the flare.dev API group but CloudflareAccount) in the same namespace
+// carries the label flare.dev/account=<name> (set by reconcile.Accounts.Resolve). While blocked it
 // re-lists users every DependencyRequeue but re-verifies with Cloudflare only on the normal
 // schedule and writes status only on change. An account nothing uses is released at once,
 // whatever its Ready condition says; one that is used but not Ready (token expired, Secret gone,
@@ -62,11 +62,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	ctrlreconcile "sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	cloudflarev1alpha1 "flare.dev/operator/api/cloudflare/v1alpha1"
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller"
-	"flare.dev/operator/internal/reconcile"
+	cloudflarev1alpha1 "github.com/chenhunghan/flare-operator/api/cloudflare/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // Name is the registration name of this controller.
@@ -88,8 +88,12 @@ const cacheRetry = time.Second
 // again, instead of waiting for the next scheduled verify.
 const cacheSettle = 5 * time.Second
 
-// ManagedGroupSuffix selects the API groups whose objects can use an account.
-const ManagedGroupSuffix = ".cloudflare.flare.dev"
+// ManagedGroup is the API group whose objects can use an account (every kind of it but
+// CloudflareAccount itself).
+const ManagedGroup = "flare.dev"
+
+// accountKind is not a user of an account: usersOf does not list it.
+const accountKind = "CloudflareAccount"
 
 // maxListedUsers bounds the objects named in the DependencyNotReady message.
 const maxListedUsers = 5
@@ -140,14 +144,13 @@ type verifySchedule struct {
 	readyReason string
 }
 
-// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=cloudflareaccounts,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=cloudflareaccounts/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;update;patch
 //
-// Usage protection lists every kind of the *.cloudflare.flare.dev groups (metadata only). RBAC
-// cannot match a group suffix, so each group is listed here; a group missing from this list is
-// skipped (logged) because the operator could not manage its objects either.
-// +kubebuilder:rbac:groups=kv.cloudflare.flare.dev;queues.cloudflare.flare.dev;d1.cloudflare.flare.dev;tunnels.cloudflare.flare.dev;workersvpc.cloudflare.flare.dev;workers.cloudflare.flare.dev;vectorize.cloudflare.flare.dev;secretsstore.cloudflare.flare.dev;aigateway.cloudflare.flare.dev,resources=*,verbs=get;list;watch
+// Usage protection lists every managed kind of the flare.dev group (metadata only), so the
+// operator may read every resource of it; a kind it cannot list is skipped (logged).
+// +kubebuilder:rbac:groups=flare.dev,resources=*,verbs=get;list;watch
 
 // SetupWithManager registers the controller. It watches CloudflareAccounts (spec changes only,
 // so its own status writes do not loop) and the Secrets they reference. It also registers the
@@ -533,7 +536,7 @@ func (r *Reconciler) clearSchedule(nn types.NamespacedName) {
 	delete(r.nextVerify, nn)
 }
 
-// usersOf lists (metadata only) the objects of every *.cloudflare.flare.dev kind in acct's
+// usersOf lists (metadata only) the objects of every managed flare.dev kind in acct's
 // namespace that carry the account label. It returns up to maxListedUsers "Kind.group/name"
 // strings and whether there are more.
 func (r *Reconciler) usersOf(ctx context.Context, acct *cloudflarev1alpha1.CloudflareAccount) ([]string, bool, error) {
@@ -544,7 +547,7 @@ func (r *Reconciler) usersOf(ctx context.Context, acct *cloudflarev1alpha1.Cloud
 			return nil, false, fmt.Errorf("discovery: %w", err)
 		}
 		for gv, gerr := range gdf.Groups {
-			if strings.HasSuffix(gv.Group, ManagedGroupSuffix) {
+			if gv.Group == ManagedGroup {
 				return nil, false, fmt.Errorf("discovery of %s: %w", gv, gerr)
 			}
 		}
@@ -554,11 +557,11 @@ func (r *Reconciler) usersOf(ctx context.Context, acct *cloudflarev1alpha1.Cloud
 	more := false
 	for _, l := range lists {
 		gv, err := schema.ParseGroupVersion(l.GroupVersion)
-		if err != nil || !strings.HasSuffix(gv.Group, ManagedGroupSuffix) {
+		if err != nil || gv.Group != ManagedGroup {
 			continue
 		}
 		for _, res := range l.APIResources {
-			if strings.Contains(res.Name, "/") || !slices.Contains(res.Verbs, "list") {
+			if strings.Contains(res.Name, "/") || !slices.Contains(res.Verbs, "list") || res.Kind == accountKind {
 				continue
 			}
 			gvr := gv.WithResource(res.Name)

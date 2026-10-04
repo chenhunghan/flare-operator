@@ -6,10 +6,10 @@ import (
 	"os"
 	"testing"
 
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/generic/descriptors"
-	"flare.dev/operator/internal/generic/kindsuite"
-	"flare.dev/operator/internal/testenv"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/generic/descriptors"
+	"github.com/chenhunghan/flare-operator/internal/generic/kindsuite"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 var env *testenv.Env

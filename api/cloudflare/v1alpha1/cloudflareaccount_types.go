@@ -83,15 +83,15 @@ const (
 const (
 	// AccountLabel is set on every managed object to the name of the CloudflareAccount it uses
 	// (see AccountLabelValue in internal/reconcile for names longer than a label value allows).
-	AccountLabel = "cloudflare.flare.dev/account"
+	AccountLabel = "flare.dev/account"
 	// AccountInUseFinalizer keeps a CloudflareAccount until no managed object in its namespace
 	// carries AccountLabel for it.
-	AccountInUseFinalizer = "cloudflare.flare.dev/account-in-use"
+	AccountInUseFinalizer = "flare.dev/account-in-use"
 	// AccountTokenFinalizer keeps a token Secret while a CloudflareAccount references it and
 	// has not been released (it is not being deleted, or still has AccountInUseFinalizer), so
 	// a namespace deletion cannot remove the token before the account's users have cleaned up
 	// in Cloudflare.
-	AccountTokenFinalizer = "cloudflare.flare.dev/account-token"
+	AccountTokenFinalizer = "flare.dev/account-token"
 )
 
 // CloudflareAccountObservation is the API token as last returned by

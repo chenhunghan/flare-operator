@@ -13,16 +13,16 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	pagesv1alpha1 "flare.dev/operator/api/pages/v1alpha1"
-	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
-	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/controller/r2bind"
-	"flare.dev/operator/internal/generic"
-	"flare.dev/operator/internal/reconcile"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	d1v1alpha1 "github.com/chenhunghan/flare-operator/api/d1/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	pagesv1alpha1 "github.com/chenhunghan/flare-operator/api/pages/v1alpha1"
+	queuesv1alpha1 "github.com/chenhunghan/flare-operator/api/queues/v1alpha1"
+	r2v1alpha1 "github.com/chenhunghan/flare-operator/api/r2/v1alpha1"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/controller/r2bind"
+	"github.com/chenhunghan/flare-operator/internal/generic"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // ReasonInvalidSpec marks a forProvider the controller cannot send.
@@ -278,7 +278,7 @@ func (r *Reconciler) getRef(ctx context.Context, pp *pagesv1alpha1.PagesProject,
 }
 
 // secretValue reads a secret_text value. Only a Secret labelled
-// cloudflare.flare.dev/worker-binding=true (and not a service account token) is read: the
+// flare.dev/worker-binding=true (and not a service account token) is read: the
 // operator reads Secrets with its own cluster-wide access, and the Pages Functions code can
 // return the value, so without the opt-in anyone allowed to create PagesProjects could read
 // every Secret of the namespace. One message for every refusal, so a spec cannot probe which

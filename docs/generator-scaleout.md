@@ -18,11 +18,17 @@ The pieces:
    Check the spec (create/get/update bodies, the ID's path parameter) and whether the Free plan can
    create it (the live recording pass must be able to).
 2. **Add a `generator.yaml` entry** with `emulate: generic` and a `why` for every override (cite a
-   recording or say `UNVERIFIED`). Typical overrides: `kind` (avoid generic names), `group` (the
-   product must be a Go package name, e.g. `aigateway`), `idField` when the item path takes a
-   field the generator cannot find (Vectorize: `name`), `defaultDeletionPolicy: Orphan` for
-   data-bearing kinds, `tagResourceType` when Resource Tagging supports it.
-3. **Regenerate:** `make generate-crds manifests chart-sync`. This writes `api/<group>/v1alpha1`,
+   recording or say `UNVERIFIED`). Typical overrides: `kind` and `plural` (avoid generic names),
+   `product` (the Go package and kubectl category; it must be a Go package name, e.g.
+   `aigateway`), `idField` when the item path takes a field the generator cannot find
+   (Vectorize: `name`), `defaultDeletionPolicy: Orphan` for data-bearing kinds,
+   `tagResourceType` when Resource Tagging supports it. Every kind shares the API group
+   `flare.dev`, so flaregen fails when the new kind's kind, plural, singular or a short name is
+   already taken by another kind (generated, or a hand-written CRD in `config/crd/bases`). Give
+   the new kind an explicit `kind:` and `plural:` (e.g. prefixed with its product); never rename
+   an existing kind, and flaregen never renames one by itself. With default names, the whole
+   spec has 80 such collisions (`TestWholeSpecGenerates` pins the count).
+3. **Regenerate:** `make generate-crds manifests chart-sync`. This writes `api/<product>/v1alpha1`,
    `config/crd/bases`, `internal/generic/descriptors/zz_generated.go`, the RBAC markers, and
    `internal/fake/zz_generated_generic.go` (the kinds the generic profile may serve). The kind is
    registered with the manager automatically (`internal/generic/kinds`). `make generate-check` and

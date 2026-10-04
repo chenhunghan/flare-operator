@@ -8,8 +8,8 @@ import (
 	"log"
 	"net/http"
 
-	"flare.dev/operator/internal/fake"
-	"flare.dev/operator/internal/version"
+	"github.com/chenhunghan/flare-operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/version"
 )
 
 func main() {

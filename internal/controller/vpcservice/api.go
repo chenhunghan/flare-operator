@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strings"
 
-	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
+	workersvpcv1alpha1 "github.com/chenhunghan/flare-operator/api/workersvpc/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
 )
 
 // Workers VPC connectivity service API calls (x-fern-sdk-group-name "workers-vpc.services").

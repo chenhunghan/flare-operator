@@ -10,9 +10,9 @@
 # finalizer until the bucket is empty or deletionPolicy becomes Orphan.
 #
 # R2Bucket has no owner tag, so an existing bucket with this name is not adopted: the object
-# reports NameConflict until the cloudflare.flare.dev/external-id annotation pins it (the bucket
+# reports NameConflict until the flare.dev/external-id annotation pins it (the bucket
 # name). A pinned bucket is deleted with the object under Delete.
-apiVersion: r2.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: R2Bucket
 metadata:
   name: assets

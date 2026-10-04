@@ -18,7 +18,7 @@ func TestGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := Generate(loadFragment(t), cfg, Options{Module: "flare.dev/operator"})
+	out, err := Generate(loadFragment(t), cfg, Options{Module: "github.com/chenhunghan/flare-operator"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestGolden(t *testing.T) {
 	for _, want := range []string{
 		"api/widgets/v1alpha1/widget_types.go", "api/widgets/v1alpha1/groupversion_info.go", "api/widgets/v1alpha1/zz_generated.deepcopy.go",
 		"api/widgettools/v1alpha1/widgetsettings_types.go",
-		"config/crd/bases/widgets.cloudflare.flare.dev_widgets.yaml", "config/crd/bases/widgettools.cloudflare.flare.dev_widgetsettings.yaml",
+		"config/crd/bases/flare.dev_widgets.yaml", "config/crd/bases/flare.dev_widgetsettings.yaml",
 		DescriptorFile,
 	} {
 		if _, ok := out.Files[want]; !ok {
@@ -56,7 +56,11 @@ func TestGeneratedUpToDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := Generate(doc, cfg, Options{Module: "flare.dev/operator"})
+	handWritten, err := LoadHandWrittenNames(filepath.Join(root, CRDDir), cfg.Group)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Generate(doc, cfg, Options{Module: "github.com/chenhunghan/flare-operator", HandWritten: handWritten})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,8 +75,8 @@ func TestGeneratedUpToDate(t *testing.T) {
 	for _, m := range out.Kinds {
 		kinds = append(kinds, m.Group+"/"+m.Kind)
 	}
-	if want := "aigateway.cloudflare.flare.dev/AIGateway d1.cloudflare.flare.dev/D1Database kv.cloudflare.flare.dev/KVNamespace " +
-		"queues.cloudflare.flare.dev/Queue r2.cloudflare.flare.dev/R2Bucket secretsstore.cloudflare.flare.dev/SecretsStore vectorize.cloudflare.flare.dev/VectorizeIndex"; strings.Join(sortedStrings(kinds), " ") != want {
+	if want := "flare.dev/AIGateway flare.dev/D1Database flare.dev/KVNamespace " +
+		"flare.dev/Queue flare.dev/R2Bucket flare.dev/SecretsStore flare.dev/VectorizeIndex"; strings.Join(sortedStrings(kinds), " ") != want {
 		t.Errorf("kinds = %v", kinds)
 	}
 }

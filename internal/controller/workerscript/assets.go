@@ -19,9 +19,9 @@ import (
 
 	"lukechampine.com/blake3"
 
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/artifact"
-	"flare.dev/operator/internal/cfclient"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/artifact"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
 )
 
 // Workers static assets (forProvider.assets). The manifest and the upload follow wrangler at

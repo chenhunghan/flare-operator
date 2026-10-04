@@ -1,9 +1,9 @@
 // Package version holds the build's version stamp. The release build (Makefile LDFLAGS,
 // Dockerfile, .goreleaser.yaml) sets the variables with
 //
-//	-ldflags "-X flare.dev/operator/internal/version.Version=v0.1.0
-//	          -X flare.dev/operator/internal/version.Commit=<sha>
-//	          -X flare.dev/operator/internal/version.Date=<RFC 3339>"
+//	-ldflags "-X github.com/chenhunghan/flare-operator/internal/version.Version=v0.1.0
+//	          -X github.com/chenhunghan/flare-operator/internal/version.Commit=<sha>
+//	          -X github.com/chenhunghan/flare-operator/internal/version.Date=<RFC 3339>"
 //
 // A plain `go build` or `go run` leaves Version "dev"; Commit and Date then fall back to the
 // VCS stamp that the go command embeds (runtime/debug.BuildInfo), when there is one.

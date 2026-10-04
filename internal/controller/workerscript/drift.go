@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"sort"
 
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/generic"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/generic"
 )
 
 // jsonValue round-trips v through encoding/json, so it compares with decoded API responses

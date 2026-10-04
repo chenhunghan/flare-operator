@@ -12,20 +12,20 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 
-	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
+	tunnelsv1alpha1 "github.com/chenhunghan/flare-operator/api/tunnels/v1alpha1"
 )
 
 // Labels and annotations on owned objects.
 const (
 	// LabelTunnel names the Tunnel that owns a cloudflared pod, Deployment, Secret or policy.
-	LabelTunnel = "cloudflare.flare.dev/tunnel"
+	LabelTunnel = "flare.dev/tunnel"
 	// AnnotationSpecHash records the hash of the desired spec last applied to an owned object,
 	// so an unchanged spec is never rewritten (API-server defaulting would otherwise look like
 	// drift).
-	AnnotationSpecHash = "cloudflare.flare.dev/spec-hash"
+	AnnotationSpecHash = "flare.dev/spec-hash"
 	// AnnotationTunnelID records the Cloudflare tunnel ID on the token Secret and the pod
 	// template (a new tunnel ID rolls the pods).
-	AnnotationTunnelID = "cloudflare.flare.dev/tunnel-id"
+	AnnotationTunnelID = "flare.dev/tunnel-id"
 	// TokenKey is the token Secret's data key.
 	TokenKey = "token"
 	// MetricsPort serves cloudflared's /ready and /metrics.

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	queuesv1alpha1 "github.com/chenhunghan/flare-operator/api/queues/v1alpha1"
 )
 
 func jsonValue(t *testing.T, s string) any {

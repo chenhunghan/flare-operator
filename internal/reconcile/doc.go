@@ -15,12 +15,12 @@
 //     removes its finalizer).
 //   - Conditions (conditions.go): Ready and Synced with the reasons from api/common, stamped with
 //     the object's generation; SetObservedGeneration.
-//   - External ID (externalid.go): the cloudflare.flare.dev/external-id annotation pins or
+//   - External ID (externalid.go): the flare.dev/external-id annotation pins or
 //     adopts a Cloudflare resource; PersistExternalID writes it without clobbering status.
 //   - Accounts (accounts.go): Resolve(mg) maps spec.accountRef to a Ready CloudflareAccount in
 //     the same namespace and returns its cached cfclient.Client and account ID, or an
 //     *AccountError (reason AccountNotReady) the caller surfaces with MarkAccountNotReady.
-//     It also labels mg cloudflare.flare.dev/account=<accountRef.name> (AccountLabel), which the
+//     It also labels mg flare.dev/account=<accountRef.name> (AccountLabel), which the
 //     CloudflareAccount controller uses to block the account's deletion while it is in use, so
 //     every managed kind must resolve its account through Resolve. spec.baseURL overrides are
 //     refused unless allowed by the BaseURLPolicy (manager flags --allow-base-url-override,

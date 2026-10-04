@@ -9,14 +9,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	"flare.dev/operator/internal/controller/workerscript"
-	"flare.dev/operator/internal/testenv"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/controller/workerscript"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 // TestSecretBindingOptIn: a secret_text binding reads only a Secret labelled
-// cloudflare.flare.dev/worker-binding=true. Other Secrets of the namespace (a CloudflareAccount's
+// flare.dev/worker-binding=true. Other Secrets of the namespace (a CloudflareAccount's
 // token, a service account token) are refused with the same message as a missing one, and
 // nothing is uploaded, so a WorkerScript author cannot read them through the Worker nor probe
 // which exist.

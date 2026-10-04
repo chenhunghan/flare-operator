@@ -3,7 +3,7 @@ package v1alpha1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
 )
 
 // VPCServiceNetwork is host.network of an IP host.
@@ -88,7 +88,7 @@ type VPCServiceParameters struct {
 	// service of the same name is never adopted by a managing object (VPC services carry no
 	// ownership tag, so two objects could otherwise manage, and delete, one service): the
 	// object reports Synced=False, reason NameConflict. To adopt it, set the
-	// cloudflare.flare.dev/external-id annotation to its service_id. Observe-only objects do
+	// flare.dev/external-id annotation to its service_id. Observe-only objects do
 	// look services up by name; the ID found that way is reported only in
 	// status.atProvider.service_id, so it never counts as an adoption.
 	// +optional

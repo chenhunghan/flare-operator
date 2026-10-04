@@ -16,10 +16,10 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"flare.dev/operator/internal/artifact"
-	"flare.dev/operator/internal/controller"
-	"flare.dev/operator/internal/controller/account"
-	"flare.dev/operator/internal/reconcile"
+	"github.com/chenhunghan/flare-operator/internal/artifact"
+	"github.com/chenhunghan/flare-operator/internal/controller"
+	"github.com/chenhunghan/flare-operator/internal/controller/account"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // ManagerOptions configures StartManager.

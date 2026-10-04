@@ -19,17 +19,17 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	d1v1alpha1 "flare.dev/operator/api/d1/v1alpha1"
-	kvv1alpha1 "flare.dev/operator/api/kv/v1alpha1"
-	queuesv1alpha1 "flare.dev/operator/api/queues/v1alpha1"
-	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
-	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
-	workersv1alpha1 "flare.dev/operator/api/workers/v1alpha1"
-	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
-	"flare.dev/operator/internal/artifact"
-	"flare.dev/operator/internal/controller/r2bind"
-	"flare.dev/operator/internal/reconcile"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	d1v1alpha1 "github.com/chenhunghan/flare-operator/api/d1/v1alpha1"
+	kvv1alpha1 "github.com/chenhunghan/flare-operator/api/kv/v1alpha1"
+	queuesv1alpha1 "github.com/chenhunghan/flare-operator/api/queues/v1alpha1"
+	r2v1alpha1 "github.com/chenhunghan/flare-operator/api/r2/v1alpha1"
+	sharedv1alpha1 "github.com/chenhunghan/flare-operator/api/shared/v1alpha1"
+	workersv1alpha1 "github.com/chenhunghan/flare-operator/api/workers/v1alpha1"
+	workersvpcv1alpha1 "github.com/chenhunghan/flare-operator/api/workersvpc/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/artifact"
+	"github.com/chenhunghan/flare-operator/internal/controller/r2bind"
+	"github.com/chenhunghan/flare-operator/internal/reconcile"
 )
 
 // desired is the resolved upload of a WorkerScript: modules, metadata with the IDs its
@@ -490,12 +490,12 @@ func (r *Reconciler) bindings(ctx context.Context, ws *workersv1alpha1.WorkerScr
 }
 
 // LabelWorkerBinding opts a Secret in to secret_text bindings: only a Secret labelled
-// cloudflare.flare.dev/worker-binding=true can be read through a WorkerScript's secretKeyRef.
+// flare.dev/worker-binding=true can be read through a WorkerScript's secretKeyRef.
 // The operator reads Secrets with its own, cluster-wide access, and the Worker's code (which the
 // WorkerScript's author writes) can return a binding's value, so without the opt-in anyone
 // allowed to create WorkerScripts could read every Secret of the namespace, the CloudflareAccount
 // token included.
-const LabelWorkerBinding = "cloudflare.flare.dev/worker-binding"
+const LabelWorkerBinding = "flare.dev/worker-binding"
 
 func (r *Reconciler) secretValue(ctx context.Context, ws *workersv1alpha1.WorkerScript, b workersv1alpha1.WorkerBinding) (string, *problem, error) {
 	ref := b.SecretKeyRef

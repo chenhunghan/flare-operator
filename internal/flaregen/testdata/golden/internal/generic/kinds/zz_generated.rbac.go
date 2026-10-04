@@ -4,13 +4,13 @@ package kinds
 
 // RBAC of the generic controllers, one block per generated kind.
 //
-// +kubebuilder:rbac:groups=widgets.cloudflare.flare.dev,resources=widgets,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=widgets.cloudflare.flare.dev,resources=widgets/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=widgets.cloudflare.flare.dev,resources=widgets/finalizers,verbs=update
-// +kubebuilder:rbac:groups=widgettools.cloudflare.flare.dev,resources=widgetsettings,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=widgettools.cloudflare.flare.dev,resources=widgetsettings/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=widgettools.cloudflare.flare.dev,resources=widgetsettings/finalizers,verbs=update
-// +kubebuilder:rbac:groups=cloudflare.flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=flare.dev,resources=widgets,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=widgets/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=widgets/finalizers,verbs=update
+// +kubebuilder:rbac:groups=flare.dev,resources=widgetsettings,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=widgetsettings/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=flare.dev,resources=widgetsettings/finalizers,verbs=update
+// +kubebuilder:rbac:groups=flare.dev,resources=cloudflareaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // generatedRBAC documents that the free-floating markers above are generated

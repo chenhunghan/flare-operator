@@ -11,7 +11,7 @@ type Kind int
 
 const (
 	// KindDependency: a referenced ConfigMap or Secret is missing, not labelled
-	// cloudflare.flare.dev/artifact=true, or of the wrong type. It can be fixed without changing
+	// flare.dev/artifact=true, or of the wrong type. It can be fixed without changing
 	// the object; retry when the ConfigMap or Secret changes.
 	KindDependency Kind = iota + 1
 	// KindInvalid: the source in the spec cannot be used (a malformed image reference, URL or

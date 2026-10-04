@@ -5,7 +5,7 @@ package r2bind
 import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
+	r2v1alpha1 "github.com/chenhunghan/flare-operator/api/r2/v1alpha1"
 )
 
 // Kind is the group kind of R2Bucket.

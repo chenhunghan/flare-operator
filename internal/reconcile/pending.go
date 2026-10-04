@@ -49,7 +49,7 @@ import (
 // resource another object has tagged.
 
 // AnnotationCreatePending records a create in progress: "<metadata.uid>/<key>".
-const AnnotationCreatePending = "cloudflare.flare.dev/create-pending"
+const AnnotationCreatePending = "flare.dev/create-pending"
 
 // MarkCreatePending durably records that mg is about to create the Cloudflare resource
 // identified by key (a name, or name plus content hash; it must not contain a newline). Call it

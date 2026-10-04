@@ -16,7 +16,7 @@ type genericQuirk struct {
 var genericQuirks = map[string]genericQuirk{
 	// 0155: GET /secrets_store/stores answers result_info {page, per_page, count, total_count};
 	// the spec also declares total_pages.
-	"secretsstore.cloudflare.flare.dev/SecretsStore": {resultInfoOmit: []string{"total_pages"}},
+	"flare.dev/SecretsStore": {resultInfoOmit: []string{"total_pages"}},
 
 	// VectorizeIndex: the list without result_info (0154) is what the spec says; no quirk.
 
@@ -25,5 +25,5 @@ var genericQuirks = map[string]genericQuirk{
 	// (R2Handler.isConnectedToExistingResource treats an APIError with code 10006 from
 	// GET …/r2/buckets/{name} as "the bucket does not exist"; wrangler 4.143.0
 	// wrangler-dist/cli.js#L170260). The HTTP status (404) and the message are UNVERIFIED.
-	"r2.cloudflare.flare.dev/R2Bucket": {notFound: &APIError{Code: 10006, Message: "The specified bucket does not exist."}},
+	"flare.dev/R2Bucket": {notFound: &APIError{Code: 10006, Message: "The specified bucket does not exist."}},
 }

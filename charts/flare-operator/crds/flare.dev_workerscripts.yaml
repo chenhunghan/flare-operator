@@ -3,10 +3,11 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    argocd.argoproj.io/sync-options: Delete=false,Prune=false
     controller-gen.kubebuilder.io/version: v0.22.0
-  name: workerscripts.workers.cloudflare.flare.dev
+  name: workerscripts.flare.dev
 spec:
-  group: workers.cloudflare.flare.dev
+  group: flare.dev
   names:
     categories:
     - cloudflare
@@ -159,12 +160,12 @@ spec:
                           configMapRef:
                             description: |-
                               ConfigMapRef takes the files from one or more ConfigMaps in the object's namespace. Each
-                              ConfigMap must carry the label cloudflare.flare.dev/artifact=true. A ConfigMap holds at
+                              ConfigMap must carry the label flare.dev/artifact=true. A ConfigMap holds at
                               most 1 MiB (data and binaryData together), so larger artifacts belong in ociRef or url.
                             properties:
                               configMaps:
                                 description: ConfigMaps in the object's namespace,
-                                  each labelled cloudflare.flare.dev/artifact=true.
+                                  each labelled flare.dev/artifact=true.
                                 items:
                                   description: |-
                                     ConfigMapArtifact is one ConfigMap of an artifact. Every key of data and binaryData is a file
@@ -246,7 +247,7 @@ spec:
                               pullSecretRef:
                                 description: |-
                                   PullSecretRef names a kubernetes.io/dockerconfigjson Secret in the object's namespace
-                                  with the registry credentials. It must carry the label cloudflare.flare.dev/artifact=true.
+                                  with the registry credentials. It must carry the label flare.dev/artifact=true.
                                   Without it the image is pulled anonymously.
                                 properties:
                                   name:
@@ -419,7 +420,7 @@ spec:
                           description: |-
                             SecretKeyRef is the value of a secret_text binding. It is write-only in Cloudflare: a
                             change of the Secret's value is detected through status.writeOnlyHash. The Secret must
-                            carry the label cloudflare.flare.dev/worker-binding=true (and not be a service account
+                            carry the label flare.dev/worker-binding=true (and not be a service account
                             token): the Worker's code can return the value, so only Secrets opted in for Workers are
                             read.
                           properties:
@@ -574,12 +575,12 @@ spec:
                       configMapRef:
                         description: |-
                           ConfigMapRef takes the files from one or more ConfigMaps in the object's namespace. Each
-                          ConfigMap must carry the label cloudflare.flare.dev/artifact=true. A ConfigMap holds at
+                          ConfigMap must carry the label flare.dev/artifact=true. A ConfigMap holds at
                           most 1 MiB (data and binaryData together), so larger artifacts belong in ociRef or url.
                         properties:
                           configMaps:
                             description: ConfigMaps in the object's namespace, each
-                              labelled cloudflare.flare.dev/artifact=true.
+                              labelled flare.dev/artifact=true.
                             items:
                               description: |-
                                 ConfigMapArtifact is one ConfigMap of an artifact. Every key of data and binaryData is a file
@@ -661,7 +662,7 @@ spec:
                           pullSecretRef:
                             description: |-
                               PullSecretRef names a kubernetes.io/dockerconfigjson Secret in the object's namespace
-                              with the registry credentials. It must carry the label cloudflare.flare.dev/artifact=true.
+                              with the registry credentials. It must carry the label flare.dev/artifact=true.
                               Without it the image is pulled anonymously.
                             properties:
                               name:

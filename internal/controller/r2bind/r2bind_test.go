@@ -3,8 +3,8 @@ package r2bind_test
 import (
 	"testing"
 
-	r2v1alpha1 "flare.dev/operator/api/r2/v1alpha1"
-	"flare.dev/operator/internal/controller/r2bind"
+	r2v1alpha1 "github.com/chenhunghan/flare-operator/api/r2/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/controller/r2bind"
 )
 
 func str(s string) *string { return &s }

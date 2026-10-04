@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"flare.dev/operator/internal/fake"
+	"github.com/chenhunghan/flare-operator/internal/fake"
 )
 
 // The deployment create body keeps wrangler's encoding (form fields without a Content-Type,

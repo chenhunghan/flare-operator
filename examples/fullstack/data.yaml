@@ -5,7 +5,7 @@
 #
 # The operator creates the D1 database but runs no SQL in it: apply schema.sql yourself
 # (README.md, "Apply the D1 schema").
-apiVersion: d1.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: D1Database
 metadata:
   name: notes-db
@@ -18,7 +18,7 @@ spec:
     name: notes-db                 # the Cloudflare name (wrangler d1 execute notes-db ...)
     primary_location_hint: WEUR    # create-only: WNAM ENAM WEUR EEUR APAC OC
 ---
-apiVersion: r2.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: R2Bucket
 metadata:
   name: notes-files
@@ -30,7 +30,7 @@ spec:
   forProvider:
     name: notes-files              # unique per account; the Worker binds it as env.FILES
 ---
-apiVersion: kv.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: KVNamespace
 metadata:
   name: notes-sessions

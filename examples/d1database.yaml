@@ -1,5 +1,5 @@
 # A D1 (serverless SQLite) database. Default deletionPolicy: Orphan (SQL data).
-apiVersion: d1.cloudflare.flare.dev/v1alpha1
+apiVersion: flare.dev/v1alpha1
 kind: D1Database
 metadata:
   name: app-db

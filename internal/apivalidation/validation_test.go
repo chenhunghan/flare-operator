@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	"flare.dev/operator/internal/testenv"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 var env *testenv.Env
@@ -93,41 +93,41 @@ func forProvider(obj map[string]any) map[string]any {
 
 // Minimal valid objects of every kind.
 const (
-	kvNamespace = `apiVersion: kv.cloudflare.flare.dev/v1alpha1
+	kvNamespace = `apiVersion: flare.dev/v1alpha1
 kind: KVNamespace
 spec:
   accountRef: {name: acct}
   forProvider: {title: t}`
-	queue = `apiVersion: queues.cloudflare.flare.dev/v1alpha1
+	queue = `apiVersion: flare.dev/v1alpha1
 kind: Queue
 spec:
   accountRef: {name: acct}
   forProvider: {queue_name: q}`
-	d1Database = `apiVersion: d1.cloudflare.flare.dev/v1alpha1
+	d1Database = `apiVersion: flare.dev/v1alpha1
 kind: D1Database
 spec:
   accountRef: {name: acct}
   forProvider: {name: db}`
-	vectorizeIndex = `apiVersion: vectorize.cloudflare.flare.dev/v1alpha1
+	vectorizeIndex = `apiVersion: flare.dev/v1alpha1
 kind: VectorizeIndex
 spec:
   accountRef: {name: acct}
   forProvider: {name: idx, config: {dimensions: 3, metric: cosine}}`
-	secretsStore = `apiVersion: secretsstore.cloudflare.flare.dev/v1alpha1
+	secretsStore = `apiVersion: flare.dev/v1alpha1
 kind: SecretsStore
 spec:
   accountRef: {name: acct}
   forProvider: {name: store}`
-	aiGateway = `apiVersion: aigateway.cloudflare.flare.dev/v1alpha1
+	aiGateway = `apiVersion: flare.dev/v1alpha1
 kind: AIGateway
 spec:
   accountRef: {name: acct}
   forProvider: {id: gw, cache_invalidate_on_update: false, cache_ttl: 0, collect_logs: true, rate_limiting_interval: 0, rate_limiting_limit: 0}`
-	tunnel = `apiVersion: tunnels.cloudflare.flare.dev/v1alpha1
+	tunnel = `apiVersion: flare.dev/v1alpha1
 kind: Tunnel
 spec:
   accountRef: {name: acct}`
-	vpcService = `apiVersion: workersvpc.cloudflare.flare.dev/v1alpha1
+	vpcService = `apiVersion: flare.dev/v1alpha1
 kind: VPCService
 spec:
   accountRef: {name: acct}
@@ -136,7 +136,7 @@ spec:
     tcp_port: 5432
     host: {ipv4: 10.0.0.1}
     tunnelRef: {name: tun}`
-	workerScript = `apiVersion: workers.cloudflare.flare.dev/v1alpha1
+	workerScript = `apiVersion: flare.dev/v1alpha1
 kind: WorkerScript
 spec:
   accountRef: {name: acct}
@@ -144,7 +144,7 @@ spec:
     main_module: index.js
     modules:
       index.js: {content: "export default {}"}`
-	cloudflareAccount = `apiVersion: cloudflare.flare.dev/v1alpha1
+	cloudflareAccount = `apiVersion: flare.dev/v1alpha1
 kind: CloudflareAccount
 spec:
   accountID: ` + accountID + `
@@ -405,7 +405,7 @@ func TestKubectlNames(t *testing.T) {
 		seen := map[string]bool{}
 		shortOwner := map[string]string{}
 		for _, l := range all {
-			if !strings.HasSuffix(l.GroupVersion, "cloudflare.flare.dev/v1alpha1") {
+			if l.GroupVersion != "flare.dev/v1alpha1" {
 				continue
 			}
 			for _, r := range l.APIResources {

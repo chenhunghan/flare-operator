@@ -5,22 +5,22 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     argocd.argoproj.io/sync-options: Delete=false,Prune=false
-    flare.dev/fern-group: secrets-store.stores
+    flare.dev/fern-group: d1
     flare.dev/generated-by: flaregen
-  name: secretsstores.secretsstore.cloudflare.flare.dev
+  name: d1databases.flare.dev
 spec:
-  group: secretsstore.cloudflare.flare.dev
+  group: flare.dev
   names:
     categories:
     - cloudflare
     - managed
-    - secretsstore
-    kind: SecretsStore
-    listKind: SecretsStoreList
-    plural: secretsstores
+    - d1
+    kind: D1Database
+    listKind: D1DatabaseList
+    plural: d1databases
     shortNames:
-    - cfstore
-    singular: secretsstore
+    - cfd1
+    singular: d1database
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -34,7 +34,11 @@ spec:
       name: EXTERNAL-ID
       type: string
     - jsonPath: .status.atProvider.name
-      name: STORE
+      name: DATABASE
+      type: string
+    - jsonPath: .status.atProvider.version
+      name: VERSION
+      priority: 1
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: AGE
@@ -42,8 +46,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: SecretsStore is a Cloudflare secrets-store stores (x-fern-sdk-group-name
-          "secrets-store.stores").
+        description: D1Database is a Cloudflare d1 (x-fern-sdk-group-name "d1").
         properties:
           apiVersion:
             description: APIVersion defines the versioned schema of this representation
@@ -56,7 +59,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: SecretsStoreSpec defines the desired state of a SecretsStore.
+            description: D1DatabaseSpec defines the desired state of a D1Database.
             properties:
               accountRef:
                 description: AccountRef names the CloudflareAccount (same namespace)
@@ -68,7 +71,7 @@ spec:
                 - name
                 type: object
               deletionPolicy:
-                default: Delete
+                default: Orphan
                 description: DeletionPolicy says what happens to the Cloudflare resource
                   when this object is deleted.
                 enum:
@@ -79,9 +82,47 @@ spec:
                 description: ForProvider holds the Cloudflare API fields, named exactly
                   as in the API.
                 properties:
-                  name:
-                    description: The name of the store.
+                  jurisdiction:
+                    description: Specify the location to restrict the D1 database
+                      to run and store data. If this option is present, the location
+                      hint is ignored.
+                    enum:
+                    - eu
+                    - fedramp
+                    - us
                     type: string
+                  name:
+                    description: D1 database name.
+                    pattern: ^[a-zA-Z0-9][a-zA-Z0-9_-]*$
+                    type: string
+                  primary_location_hint:
+                    description: Specify the region to create the D1 primary, if available.
+                      If this option is omitted, the D1 will be created as close as
+                      possible to the current user.
+                    enum:
+                    - WNAM
+                    - ENAM
+                    - WEUR
+                    - EEUR
+                    - APAC
+                    - OC
+                    type: string
+                  read_replication:
+                    description: Configuration for D1 read replication.
+                    properties:
+                      mode:
+                        description: The read replication mode for the database. Use
+                          'auto' to create replicas and allow D1 automatically place
+                          them around the world, or 'disabled' to not use any database
+                          replicas (it can take a few hours for all replicas to be
+                          deleted).
+                        enum:
+                        - auto
+                        - disabled
+                        type: string
+                    required:
+                    - mode
+                    type: object
                 type: object
               managementPolicies:
                 description: ManagementPolicies default to ["*"]. ["Observe"] makes
@@ -123,26 +164,46 @@ spec:
               rule: size(self.accountRef.name) > 0 && size(self.accountRef.name) <=
                 253
           status:
-            description: SecretsStoreStatus defines the observed state of a SecretsStore.
+            description: D1DatabaseStatus defines the observed state of a D1Database.
             properties:
               atProvider:
                 description: AtProvider is the resource as last read from the Cloudflare
                   API.
                 properties:
-                  account_id:
-                    description: Account Identifier.
+                  created_at:
+                    description: Specifies the timestamp the resource was created
+                      as an ISO8601 string.
                     type: string
-                  created:
-                    description: When the secret was created.
-                    type: string
-                  id:
-                    description: Store Identifier.
-                    type: string
-                  modified:
-                    description: When the secret was modified.
+                  file_size:
+                    description: The D1 database's size, in bytes.
+                    type: number
+                  jurisdiction:
+                    description: Specify the location to restrict the D1 database
+                      to run and store data. If this option is present, the location
+                      hint is ignored.
                     type: string
                   name:
-                    description: The name of the store.
+                    description: D1 database name.
+                    type: string
+                  num_tables:
+                    description: The number of tables in the D1 database. This count
+                      is no longer accurate and should not be relied upon. (deprecated
+                      in the Cloudflare API)
+                    type: number
+                  read_replication:
+                    description: Configuration for D1 read replication.
+                    properties:
+                      mode:
+                        description: The read replication mode for the database. Mode
+                          'auto' denotes that D1 creates replicas and automatically
+                          places them around the world. Mode 'disabled' denotes that
+                          no database replicas are used.
+                        type: string
+                    type: object
+                  uuid:
+                    description: D1 database identifier (UUID).
+                    type: string
+                  version:
                     type: string
                 type: object
               conditions:
@@ -218,6 +279,17 @@ spec:
           reason: FieldValueInvalid
           rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
             > 0) || self.spec.accountRef.name == oldSelf.spec.accountRef.name'
+        - fieldPath: .spec.forProvider.jurisdiction
+          message: 'forProvider.jurisdiction is immutable once the resource exists
+            (status.id is set): recreate the object to change it, or set it to the
+            value Cloudflare reports (status.atProvider.jurisdiction)'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.jurisdiction)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.jurisdiction)
+            || self.spec.forProvider.jurisdiction == oldSelf.spec.forProvider.jurisdiction
+            || (has(oldSelf.status.atProvider) && has(oldSelf.status.atProvider.jurisdiction)
+            && oldSelf.status.atProvider.jurisdiction == self.spec.forProvider.jurisdiction)'
         - fieldPath: .spec.forProvider.name
           message: 'forProvider.name is immutable once the resource exists (status.id
             is set): recreate the object to change it, or set it to the value Cloudflare
@@ -229,6 +301,14 @@ spec:
             self.spec.forProvider.name == oldSelf.spec.forProvider.name || (has(oldSelf.status.atProvider)
             && has(oldSelf.status.atProvider.name) && oldSelf.status.atProvider.name
             == self.spec.forProvider.name)'
+        - fieldPath: .spec.forProvider.primary_location_hint
+          message: 'forProvider.primary_location_hint is immutable once the resource
+            exists (status.id is set): recreate the object to change it'
+          reason: FieldValueInvalid
+          rule: '!(has(oldSelf.status) && has(oldSelf.status.id) && size(oldSelf.status.id)
+            > 0) || !has(oldSelf.spec.forProvider) || !has(oldSelf.spec.forProvider.primary_location_hint)
+            || !has(self.spec.forProvider) || !has(self.spec.forProvider.primary_location_hint)
+            || self.spec.forProvider.primary_location_hint == oldSelf.spec.forProvider.primary_location_hint'
     served: true
     storage: true
     subresources:

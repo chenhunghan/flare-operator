@@ -3,10 +3,11 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    argocd.argoproj.io/sync-options: Delete=false,Prune=false
     controller-gen.kubebuilder.io/version: v0.22.0
-  name: pagesprojects.pages.cloudflare.flare.dev
+  name: pagesprojects.flare.dev
 spec:
-  group: pages.cloudflare.flare.dev
+  group: flare.dev
   names:
     categories:
     - cloudflare
@@ -204,7 +205,7 @@ spec:
                                       type: string
                                     name:
                                       description: |-
-                                        Name of the Secret. It must carry the label cloudflare.flare.dev/worker-binding=true and
+                                        Name of the Secret. It must carry the label flare.dev/worker-binding=true and
                                         not be a service account token.
                                       maxLength: 253
                                       minLength: 1
@@ -491,7 +492,7 @@ spec:
                                       type: string
                                     name:
                                       description: |-
-                                        Name of the Secret. It must carry the label cloudflare.flare.dev/worker-binding=true and
+                                        Name of the Secret. It must carry the label flare.dev/worker-binding=true and
                                         not be a service account token.
                                       maxLength: 253
                                       minLength: 1

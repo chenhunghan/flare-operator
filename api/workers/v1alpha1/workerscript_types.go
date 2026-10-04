@@ -5,8 +5,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	sharedv1alpha1 "flare.dev/operator/api/shared/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	sharedv1alpha1 "github.com/chenhunghan/flare-operator/api/shared/v1alpha1"
 )
 
 // Module types of WorkerModule.Type and the upload part Content-Type each one is sent with.
@@ -111,7 +111,7 @@ type WorkerBinding struct {
 	Text *string `json:"text,omitempty"`
 	// SecretKeyRef is the value of a secret_text binding. It is write-only in Cloudflare: a
 	// change of the Secret's value is detected through status.writeOnlyHash. The Secret must
-	// carry the label cloudflare.flare.dev/worker-binding=true (and not be a service account
+	// carry the label flare.dev/worker-binding=true (and not be a service account
 	// token): the Worker's code can return the value, so only Secrets opted in for Workers are
 	// read.
 	// +optional

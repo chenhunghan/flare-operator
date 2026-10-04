@@ -7,9 +7,9 @@ metadata:
     argocd.argoproj.io/sync-options: Delete=false,Prune=false
     flare.dev/fern-group: vectorize
     flare.dev/generated-by: flaregen
-  name: vectorizeindexes.vectorize.cloudflare.flare.dev
+  name: vectorizeindexes.flare.dev
 spec:
-  group: vectorize.cloudflare.flare.dev
+  group: flare.dev
   names:
     categories:
     - cloudflare

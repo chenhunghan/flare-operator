@@ -1,4 +1,4 @@
-module flare.dev/operator
+module github.com/chenhunghan/flare-operator
 
 go 1.26.1
 

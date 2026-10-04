@@ -13,12 +13,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
-	tunnelsv1alpha1 "flare.dev/operator/api/tunnels/v1alpha1"
-	workersvpcv1alpha1 "flare.dev/operator/api/workersvpc/v1alpha1"
-	"flare.dev/operator/internal/cfclient"
-	"flare.dev/operator/internal/controller/vpcservice"
-	"flare.dev/operator/internal/testenv"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
+	tunnelsv1alpha1 "github.com/chenhunghan/flare-operator/api/tunnels/v1alpha1"
+	workersvpcv1alpha1 "github.com/chenhunghan/flare-operator/api/workersvpc/v1alpha1"
+	"github.com/chenhunghan/flare-operator/internal/cfclient"
+	"github.com/chenhunghan/flare-operator/internal/controller/vpcservice"
+	"github.com/chenhunghan/flare-operator/internal/testenv"
 )
 
 func hostnameParams(host string, port int32, tunnel string) *workersvpcv1alpha1.VPCServiceParameters {
@@ -192,7 +192,7 @@ func TestNetworkPolicyBackends(t *testing.T) {
 	}
 	np := h.networkPolicy("np")
 	if !metav1.IsControlledBy(np, tun) || !reflect.DeepEqual(np.Spec.PolicyTypes, []networkingv1.PolicyType{networkingv1.PolicyTypeEgress}) ||
-		!reflect.DeepEqual(np.Spec.PodSelector.MatchLabels, map[string]string{"app.kubernetes.io/name": "cloudflared", "cloudflare.flare.dev/tunnel": "np"}) {
+		!reflect.DeepEqual(np.Spec.PodSelector.MatchLabels, map[string]string{"app.kubernetes.io/name": "cloudflared", "flare.dev/tunnel": "np"}) {
 		t.Errorf("policy meta/selector:\n%s", dumpNP(np))
 	}
 	world := networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0", Except: []string{"10.0.0.0/8", "172.16.0.0/12"}}}

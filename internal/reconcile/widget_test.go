@@ -5,7 +5,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	commonv1alpha1 "flare.dev/operator/api/common/v1alpha1"
+	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
 )
 
 // Widget is a minimal managed kind for helper tests.
@@ -53,7 +53,7 @@ func (l *WidgetList) DeepCopyObject() runtime.Object {
 	return &out
 }
 
-var widgetGV = schema.GroupVersion{Group: "test.cloudflare.flare.dev", Version: "v1alpha1"}
+var widgetGV = schema.GroupVersion{Group: "test.flare.dev", Version: "v1alpha1"}
 
 func addWidget(s *runtime.Scheme) error {
 	s.AddKnownTypes(widgetGV, &Widget{}, &WidgetList{})
