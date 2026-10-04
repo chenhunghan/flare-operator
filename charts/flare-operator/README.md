@@ -2,11 +2,21 @@
 
 Installs the flare-operator manager, its CRDs (`crds/`), RBAC, and a metrics Service.
 
+Released versions are published as an OCI chart, with images on GHCR
+(`ghcr.io/chenhunghan/flare-operator`, `ghcr.io/chenhunghan/flarefake`):
+
+```sh
+helm install flare-operator oci://ghcr.io/chenhunghan/charts/flare-operator --version <version> \
+  -n flare-system --create-namespace --set clusterName=<unique-cluster-name> \
+  --set reconcile.pollInterval=10m --set reconcile.maxConcurrentReconciles=2
+```
+
+From a checkout, with locally built images:
+
 ```sh
 make docker-build docker-build-fake          # flare-operator:dev, flarefake:dev
 helm install flare-operator charts/flare-operator -n flare-system --create-namespace \
-  --set image.tag=dev --set clusterName=<unique-cluster-name> \
-  --set reconcile.pollInterval=10m --set reconcile.maxConcurrentReconciles=2
+  --set image.repository=flare-operator --set image.tag=dev --set clusterName=<unique-cluster-name>
 ```
 
 The `reconcile.*` values are optional; the defaults are in the table below, and
@@ -28,7 +38,8 @@ rather than a hook Job. `make e2e-upgrade` tests the upgrade path from a previou
 
 ## e2e with flarefake
 
-`--set flarefake.enabled=true --set flarefake.image.tag=dev` (or `-f ci/flarefake-values.yaml`)
+`--set flarefake.enabled=true` (or `-f ci/flarefake-values.yaml`; add
+`--set flarefake.image.repository=flarefake --set flarefake.image.tag=dev` for a local build)
 runs the Cloudflare API emulator as a Deployment and Service in the release namespace and passes
 the manager `--allowed-base-url` for that Service's URL only, in three spellings
 (`<svc>`, `<svc>.<ns>.svc`, `<svc>.<ns>.svc.<clusterDomain>`). Use
@@ -64,7 +75,7 @@ toolchain has no helm-docs generator; the test takes its place.
 |---|---|---|---|
 | `nameOverride` | string | `""` | Override the chart name used in resource names. |
 | `fullnameOverride` | string | `""` | Override the full resource name prefix (default: `<release>-<chart>`, or `<release>` if it already contains the chart name). |
-| `image.repository` | string | `"flare-operator"` | Manager image repository. Build it with `make docker-build`. |
+| `image.repository` | string | `"ghcr.io/chenhunghan/flare-operator"` | Manager image repository: the published multi-arch image. For a local build (`make docker-build`), set it to `flare-operator`. |
 | `image.tag` | string | `""` | Manager image tag (empty: the chart `appVersion`). |
 | `image.pullPolicy` | string | `"IfNotPresent"` | `Always`, `IfNotPresent` or `Never`. |
 | `imagePullSecrets` | array | `[]` | Pull secrets for the manager and flarefake pods. |
@@ -132,7 +143,7 @@ toolchain has no helm-docs generator; the test takes its place.
 | `affinity` | object | `{}` | Affinity of the manager pods. |
 | `clusterDomain` | string | `"cluster.local"` | Cluster DNS domain, used to build the flarefake Service URL. |
 | `flarefake.enabled` | boolean | `false` | Run the flarefake emulator as a Deployment and Service, and pass the manager `--allowed-base-url` for its URL only. **Never in a cluster that manages a real Cloudflare account.** |
-| `flarefake.image.repository` | string | `"flarefake"` | flarefake image repository. Build it with `make docker-build-fake`. |
+| `flarefake.image.repository` | string | `"ghcr.io/chenhunghan/flarefake"` | flarefake image repository: the published multi-arch image. For a local build (`make docker-build-fake`), set it to `flarefake`. |
 | `flarefake.image.tag` | string | `""` | flarefake image tag (empty: the chart `appVersion`). |
 | `flarefake.image.pullPolicy` | string | `"IfNotPresent"` | `Always`, `IfNotPresent` or `Never`. |
 | `flarefake.port` | integer | `8787` | flarefake port. |
