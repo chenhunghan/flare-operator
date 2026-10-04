@@ -149,7 +149,7 @@ Each discrepancy is a `harness.Discrepancy` in the test that found it. Two remai
 | WR-WORKER-GET | `GET …/workers/workers/{id}` (by name or tag) answers the spec's `workers_Worker`, including `subdomain` |
 | WR-REDEPLOY-VERSIONS | `POST …/versions` (not deployed; `inherit` bindings and `keep_bindings` resolved against the deployed version, 400/10057 for an unresolvable inherit under `bindings_inherit=strict`), `POST …/deployments` (percentages over known versions, adding up to 100), `GET`/`PATCH …/script-settings` (no new version) |
 | WR-VERSION-GET | `GET …/versions/{id}` with `resources.bindings/script/script_runtime` |
-| WR-QUEUE-LIST-COUNTS | already fixed by PR-1 (list items carry the producer/consumer counts); the discrepancy only reported "no longer reproduces" |
+| WR-QUEUE-LIST-COUNTS | already fixed by the emulator evidence pass (list items carry the producer/consumer counts); the discrepancy only reported "no longer reproduces" |
 | WR-QUEUE-CREATE-CONTENT-TYPE | request validation reads a `text/plain` body as the declared media type for the two operations where wrangler is shown to send one (queue create, KV value put, `spec.go` `plainTextBodies`); the body is still validated, and `text/plain` stays a violation everywhere else |
 | WR-KV-VALUES | KV values `PUT`/`GET`/`DELETE`, `…/metadata/{key}` and `…/keys` (sorted, prefix, cursor, expiration) (`kv_values.go`) |
 | WR-D1-EXECUTE | `POST …/query` executes constant `SELECT`s (numbers, strings, NULL, TRUE/FALSE, parameters, aliases; several statements; `batch`) and answers 400/99999 "not emulated" for anything else (`d1_sql.go`). No SQL engine: a pure-Go SQLite driver would pull a large transpiled C runtime into the operator's module for a surface the operator does not use. |

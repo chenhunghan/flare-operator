@@ -1,7 +1,6 @@
 // Package generic holds the generic reconciler that runs any Descriptor.
 //
-// CONTRACT (docs/plan-parallel.md §2.2). This file is frozen by the
-// orchestrator: workstreams implement against it but do not edit it.
+// Stable contract shared by all controllers; change deliberately.
 package generic
 
 // Descriptor is emitted by cmd/flaregen and consumed by the generic reconciler.

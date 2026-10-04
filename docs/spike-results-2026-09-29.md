@@ -1,6 +1,6 @@
 # Spike results: 2026-09-29
 
-These spikes ran against the user's own Cloudflare account, which is on the **Free plan**. Four spikes ran; roughly 330 API calls were made in total, well within the 1,200 per 5 minutes rate limit. The raw recordings are sanitized in `test/recordings/2026-09-29/`, with account ID, subdomain, email, IP and geolocation replaced and secrets redacted.
+These spikes ran against the maintainer's own Cloudflare account, which is on the **Free plan**. Four spikes ran; roughly 330 API calls were made in total, well within the 1,200 per 5 minutes rate limit. The raw recordings are sanitized in `test/recordings/2026-09-29/`, with account ID, subdomain, email, IP and geolocation replaced and secrets redacted.
 
 **Cleanup.** Everything we created was deleted and checked against the baseline inventory taken beforehand.
 - **Exception:** the `default` virtual network, which Cloudflare created automatically when the first tunnel was made. It returned `400/1049` ("Cannot delete the Virtual Network because: it is the default virtual network"). It is free and empty, and left in place.

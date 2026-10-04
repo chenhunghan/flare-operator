@@ -4,3 +4,8 @@
 .DS_Store
 .claude/
 /dist/
+
+# Personal / session notes, kept locally only
+CLAUDE.local.md
+docs/STATUS.md
+docs/plan-parallel.md

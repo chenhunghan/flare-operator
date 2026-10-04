@@ -121,7 +121,7 @@ the `{"buckets": [...]}` list with cursor paging, and the CORS policy as a sub-r
 (relies) from wrangler 4.143.0 (`generic_quirks.go`). Its HTTP status and message are
 UNVERIFIED.
 
-**Update 2026-09-30 (FX-emu).** The allowlist has 16 entries: 13 backed by recordings and 3
+**Update 2026-09-30 (emulator evidence pass).** The allowlist has 16 entries: 13 backed by recordings and 3
 unsatisfiable ones. The 971 field-report entry is gone. Two unsatisfiable entries are new, and
 both cover surfaces that no recording shows yet:
 
@@ -140,7 +140,7 @@ past what its evidence shows.
 Marker counts are occurrences in the non-test source (SOURCED/DOCS count citation markers, not
 behaviors). "Recordings" counts the distinct recordings cited. Of the 216 recordings,
 `TestConformance` replays 149; the rest hit surfaces that are not emulated yet (Workers
-observability, tails, Hyperdrive and others). Counts as of 2026-09-30 (FX-emu); the generic
+observability, tails, Hyperdrive and others). Counts as of 2026-09-30; the generic
 profile (`generic*.go`, 13 UNVERIFIED markers; one SOURCED quirk, R2's 10006 "bucket not found" from wrangler 4.143.0) is not in the table.
 
 | Surface (file) | Routes | Recordings cited | SOURCED | DOCS | UNVERIFIED |
@@ -170,7 +170,7 @@ deployments reports `latest_deployment`/`canonical_deployment` null, which
 also declares the security scheme `pages_upload_token` that the asset operations require but
 the spec never defines; without it kin-openapi refused every asset request and lost its body.
 
-**2026-09-30 (FX-emu).** UNVERIFIED occurrences in `internal/fake` non-test code went from 97 to
+**2026-09-30 (differential fixes).** UNVERIFIED occurrences in `internal/fake` non-test code went from 97 to
 149. On the files that existed before, they went from 97 to 98: two new D1 query details, one
 for VPC list paging, and two fewer in `workers.go` because the upload parsing moved to
 `workers_versions.go`. The other 51 are on the four new surfaces that real clients needed (KV
@@ -178,7 +178,7 @@ values, D1 constant SELECTs, tunnel IP routes, and the Workers versions API with
 reads). They are mostly error codes and messages, and response fields no client reads. SOURCED
 markers went from 26 to 54.
 
-In the PR-1 pass, UNVERIFIED occurrences went from 86 to 84. The count fell only a little, for two
+In the first evidence pass, UNVERIFIED occurrences went from 86 to 84. The count fell only a little, for two
 reasons:
 
 - Most upgrades resolve the main behavior while a detail stays open. For example, a 404 status
@@ -207,7 +207,7 @@ reasons:
 | `last_deployed_from` and the version/deployment `source` are `wrangler` for uploads by wrangler (else `api`, as recorded) | SOURCED statement: wrangler warns on `api` as "last updated via the script API"; the User-Agent rule is UNVERIFIED |
 | VPC services list honors `page`/`per_page` | SOURCED relies: cloudflare-go pages until a page is empty |
 | Handler detection finds methods after `{` or `,` (one-line and esbuild modules) | 0036 (fetch module → `[fetch]`); still a heuristic (UNVERIFIED) |
-| Tunnel and virtual-network 404s: SOURCED wording corrected from "relies" to "tolerates" (terraform's generated 404 handling) | review of PR-1 |
+| Tunnel and virtual-network 404s: SOURCED wording corrected from "relies" to "tolerates" (terraform's generated 404 handling) | review of the evidence pass |
 | Tags list: cursor pagination, fixed page size 100, `cursor: null` on the last page; more than 20 tag filters answer 1010 | DOCS Resource Tagging filter-resources |
 | VPC service host must be ipv4/ipv6 + network or hostname + resolver_network | spec (the rejection code is UNVERIFIED) |
 | `GET /accounts/{id}` omits the null `abuse_contact_email` | spec (response validation) |
