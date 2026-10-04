@@ -48,7 +48,7 @@ jobs:
           cache-dependency-path: go.sum
       # STATICCHECK_VERSION / GOVULNCHECK_VERSION live in the Makefile, hence the key.
       - name: Cache tool binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: bin
           key: tools-static-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
@@ -96,14 +96,14 @@ jobs:
           cache-dependency-path: go.sum
       # ./bin tools are versioned in the Makefile; one key per tool set so each job saves its own.
       - name: Cache tool binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: bin
           key: tools-setup-envtest-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
       # The Makefile's ENVTEST_DIR default ($HOME/.cache/flare-operator/envtest);
       # ENVTEST_K8S_VERSION lives in the Makefile, hence the key.
       - name: Cache envtest assets
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/flare-operator/envtest
           key: envtest-${{ runner.os }}-${{ hashFiles('Makefile') }}
@@ -128,12 +128,12 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
       - name: Cache tool binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: bin
           key: tools-setup-envtest-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
       - name: Cache envtest assets
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/flare-operator/envtest
           key: envtest-${{ runner.os }}-${{ hashFiles('Makefile') }}
@@ -154,7 +154,7 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
       - name: Cache tool binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: bin
           key: tools-controller-gen-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
