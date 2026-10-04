@@ -16,4 +16,10 @@
 // once TUNNEL_TOKEN decodes as a tunnel token, which is what the Tunnel controller's readiness
 // (a ready cloudflared replica) needs. Tunnel connections are simulated with flarefake's
 // /_fake/accounts/{a}/tunnels/{id}/connect|disconnect control endpoints.
+//
+// TestWorkersLogs (`kubectl logs` for WorkerScripts) needs the release installed with
+// workersLogs.enabled (add -f charts/flare-operator/ci/workers-logs-values.yaml) and skips
+// otherwise. It runs the real kubectl, injects Worker log events through flarefake's
+// /_fake/accounts/{a}/workers/{script}/logs and checks tails through …/tails; its last step
+// toggles the feature with helm (E2E_WORKERS_LOGS_TOGGLE=0 skips that).
 package e2e

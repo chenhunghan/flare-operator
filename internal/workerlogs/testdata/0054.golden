@@ -1,0 +1,20 @@
+2026-09-29T06:58:34.829000000Z [log] FSLMARK7c57e9c4 info path=/a counter=1 t=2026-09-29T06:58:34.829Z
+2026-09-29T06:58:34.829000000Z [error] FSLMARK7c57e9c4 err path=/a counter=1
+2026-09-29T06:58:34.829000000Z [fetch] GET https://flare-spike-logs-1.example-subdomain.workers.dev/a?phase=1 -> 200 ok (wall 0ms, cpu 0ms) ray=a42919a7ae7f15a4
+2026-09-29T06:58:36.307000000Z [log] FSLMARK7c57e9c4 info path=/b counter=1 t=2026-09-29T06:58:36.307Z
+2026-09-29T06:58:36.307000000Z [error] FSLMARK7c57e9c4 err path=/b counter=1
+2026-09-29T06:58:36.307000000Z [fetch] GET https://flare-spike-logs-1.example-subdomain.workers.dev/b?phase=1 -> 200 ok (wall 0ms, cpu 0ms) ray=a42919b0db66dc3c
+2026-09-29T06:58:37.798000000Z [log] FSLMARK7c57e9c4 info path=/c counter=2 t=2026-09-29T06:58:37.798Z
+2026-09-29T06:58:37.798000000Z [error] FSLMARK7c57e9c4 err path=/c counter=2
+2026-09-29T06:58:37.798000000Z [fetch] GET https://flare-spike-logs-1.example-subdomain.workers.dev/c?phase=1 -> 200 ok (wall 0ms, cpu 0ms) ray=a42919ba3fd9dac8
+2026-09-29T06:58:39.291000000Z [log] FSLMARK7c57e9c4 info path=/throw counter=1 t=2026-09-29T06:58:39.291Z
+2026-09-29T06:58:39.291000000Z [error] FSLMARK7c57e9c4 err path=/throw counter=1
+2026-09-29T06:58:39.291000000Z [exception] Error: FSLMARK7c57e9c4 boom counter=1
+2026-09-29T06:58:39.291000000Z     at Object.fetch (worker.mjs:10:13)
+2026-09-29T06:58:39.291000000Z [fetch] GET https://flare-spike-logs-1.example-subdomain.workers.dev/throw?phase=1 -> 500 exception (wall 1ms, cpu 0ms) ray=a42919c389e7cf26
+2026-09-29T06:58:40.889000000Z [log] FSLMARK7c57e9c4 info path=/d counter=1 t=2026-09-29T06:58:40.889Z
+2026-09-29T06:58:40.889000000Z [error] FSLMARK7c57e9c4 err path=/d counter=1
+2026-09-29T06:58:40.889000000Z [fetch] GET https://flare-spike-logs-1.example-subdomain.workers.dev/d?phase=1 -> 200 ok (wall 1ms, cpu 0ms) ray=a42919cd8bcc6c4d
+2026-09-29T06:58:42.368000000Z [log] FSLMARK7c57e9c4 info path=/e counter=3 t=2026-09-29T06:58:42.368Z
+2026-09-29T06:58:42.368000000Z [error] FSLMARK7c57e9c4 err path=/e counter=3
+2026-09-29T06:58:42.368000000Z [fetch] GET https://flare-spike-logs-1.example-subdomain.workers.dev/e?phase=1 -> 200 ok (wall 0ms, cpu 0ms) ray=a42919d6cd448b3c

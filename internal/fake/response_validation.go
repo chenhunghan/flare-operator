@@ -181,6 +181,8 @@ const (
 	opScript        = "/accounts/{account_id}/workers/scripts/{script_name}"
 	opScriptSetting = "/accounts/{account_id}/workers/scripts/{script_name}/settings"
 	opScriptVers    = "/accounts/{account_id}/workers/scripts/{script_name}/versions"
+	opScriptTails   = "/accounts/{account_id}/workers/scripts/{script_name}/tails"
+	opTelemetryQry  = "/accounts/{account_id}/workers/observability/telemetry/query"
 	opD1List        = "/accounts/{account_id}/d1/database"
 	opD1            = "/accounts/{account_id}/d1/database/{database_id}"
 	opD1Query       = "/accounts/{account_id}/d1/database/{database_id}/query"
@@ -263,6 +265,16 @@ var responseAllowlist = []allowedResponseViolation{
 	{id: "vnet-null-deleted-at", operations: []string{opVnets, opVnet}, status: 200,
 		errRe: regexp.MustCompile(`^/result(/\d+)?/deleted_at: Value is not nullable$`), recording: "0160",
 		why: "virtual networks carry deleted_at null when not deleted; create/delete return the same object"},
+	{id: "telemetry-query-run-query", method: http.MethodPost, operations: []string{opTelemetryQry}, status: 200,
+		errRe:     regexp.MustCompile(`^/result/run/query/((adhoc|createdBy|updatedBy): property "(adhoc|createdBy|updatedBy)" is missing|name: minimum string length is 1)$`),
+		recording: "0054",
+		why:       "the ad-hoc query echo carries id, description, name \"\", generated, parameters, workspaceId, environmentId, userId, created and updated: no adhoc, createdBy or updatedBy"},
+	{id: "telemetry-query-zod-error", method: http.MethodPost, operations: []string{opTelemetryQry}, status: 400,
+		errRe: regexp.MustCompile(`^/(errors|messages): property "(errors|messages)" is missing$`), recording: "0096",
+		why: "observability validation errors are zod's {success:false, _e, _i, _c} with no errors or messages"},
+	{id: "tails-list-result-array", method: http.MethodGet, operations: []string{opScriptTails}, status: 200,
+		errRe: regexp.MustCompile(`^/result: value must be an object$`), recording: "0073",
+		why: "the spec types the tails list's result as one tail; the API returns an array of tails"},
 	{id: "unsatisfiable-4xx-allof-success", operations: []string{"*"}, status4xx: true,
 		errRe:    regexp.MustCompile(`^/(success: value is not one of the allowed values \[true\]|result: Value is not nullable|result: doesn't match any schema from "anyOf")$`),
 		requires: reSuccessTrue, recording: "0095",

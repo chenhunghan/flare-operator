@@ -276,3 +276,78 @@ flarefake:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+# `kubectl logs` for WorkerScripts (docs/workers-logs-design.md, README "Worker logs with
+# kubectl"). Off by default. When enabled, a second Deployment (<fullname>-workers-vk, the
+# /workers-vk binary of the operator image) registers one virtual node and keeps one stand-in
+# Pod per WorkerScript bound to it; `kubectl logs <name>-worker` then reads the Worker's logs
+# from Cloudflare (Workers Logs for history, a tail for -f). Anyone with `get pods/log` in a
+# namespace (the built-in view, edit and admin roles) can then read the logs of its Workers.
+workersLogs:
+  # -- Run the Workers virtual kubelet and create stand-in Pods.
+  enabled: false
+  # -- The virtual node's name (--node-name). One per cluster: two releases must not share it.
+  nodeName: cf-workers
+  # -- Namespaces whose WorkerScripts get stand-in Pods, as a label selector (matchLabels,
+  # matchExpressions); empty selects every namespace. The annotation flare.dev/stand-in-pod:
+  # "false" opts a single WorkerScript out.
+  namespaceSelector: {}
+  # -- Run on the host network and advertise the host IP instead of the Pod IP, for control
+  # planes that reach node IPs but not Pod IPs. The kubelet API then listens on 10260 unless
+  # port is set to something other than 10250 (the real kubelet holds 10250). Most CNIs do not
+  # enforce NetworkPolicy on host-network Pods: protect that port on the nodes instead.
+  hostNetwork: false
+  # -- Kubelet API port (status.daemonEndpoints.kubeletEndpoint.Port of the node).
+  port: 10250
+  tls:
+    # -- Serving certificate of the kubelet API: csr (a kubernetes.io/kubelet-serving CSR;
+    # works where the API server verifies kubelet certificates, e.g. k0s), selfSigned (only
+    # where it does not, e.g. kubeadm defaults) or secret (tls.crt/tls.key of secretName).
+    mode: csr
+    # -- kubernetes.io/tls Secret in the release namespace (mode secret). Its SANs must cover
+    # the node address.
+    secretName: ""
+    csr:
+      # -- Let the virtual kubelet approve its own CSR (RBAC approve on
+      # signers/kubernetes.io/kubelet-serving; see the security note in the README). false:
+      # approve each CSR with `kubectl certificate approve` (one per Pod restart).
+      approve: true
+      # -- Requested certificate lifetime; it is renewed at 80%.
+      lifetime: 24h
+  # -- Placeholder image of the stand-in Pods (never pulled: nothing runs). Pinned, not the
+  # operator image, so upgrades leave the Pods alone; a change is patched into the running Pods.
+  # Set it to an image your admission policies accept (an allowlisted registry).
+  podImage: registry.k8s.io/pause:3.10
+  # -- Requests (and equal limits) of the stand-in container, so ResourceQuotas and
+  # LimitRanges accept the Pods.
+  podResources:
+    cpu: 1m
+    memory: 1Mi
+  # -- Extra labels of every stand-in Pod (e.g. labels an admission policy requires).
+  podLabels: {}
+  # -- Cloudflare API requests per 5 minutes per token of the virtual kubelet, on top of the
+  # manager's (default 1080): keep the sum at or under 1200.
+  apiBudget: 120
+  logs:
+    # -- History window of `kubectl logs` without --since (the Free plan keeps 3 days).
+    defaultWindow: 72h
+    # -- Most events one `kubectl logs` reads (2000 per API request).
+    maxEvents: 10000
+    # -- Most concurrent `kubectl logs -f` sessions.
+    maxFollowers: 100
+  networkPolicy:
+    # -- Extra NetworkPolicyPeers allowed to reach the kubelet API port, besides
+    # networkPolicy.apiServer.cidrs (e.g. konnectivity-agent Pods). Used with networkPolicy.enabled.
+    kubeletAPIFrom: []
+  # -- Extra command-line arguments of the virtual kubelet.
+  extraArgs: []
+  # -- Resources of the virtual kubelet container.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

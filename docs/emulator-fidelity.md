@@ -139,8 +139,9 @@ past what its evidence shows.
 
 Marker counts are occurrences in the non-test source (SOURCED/DOCS count citation markers, not
 behaviors). "Recordings" counts the distinct recordings cited. Of the 216 recordings,
-`TestConformance` replays 149; the rest hit surfaces that are not emulated yet (Workers
-observability, tails, Hyperdrive and others). Counts as of 2026-09-30; the generic
+`TestConformance` replays 183 (149 before the Workers Logs and tail profiles of 2026-10-04); the
+rest hit surfaces that are not emulated yet (Observability keys/values and live-tail, Hyperdrive
+and others). Counts as of 2026-09-30; the generic
 profile (`generic*.go`, 13 UNVERIFIED markers; one SOURCED quirk, R2's 10006 "bucket not found" from wrangler 4.143.0) is not in the table.
 
 | Surface (file) | Routes | Recordings cited | SOURCED | DOCS | UNVERIFIED |
@@ -159,6 +160,8 @@ profile (`generic*.go`, 13 UNVERIFIED markers; one SOURCED quirk, R2's 10006 "bu
 | Resource Tagging (`tags.go`) | 4 | 0 | 0 | 8 | 8 |
 | Cross-cutting (`server.go`, `spec.go`, `envelope.go`, `state.go`) | — | 14 | 4 | 3 | 9 |
 | Pages projects, Direct Upload assets, deployments (`pages.go`, `pages_assets.go`, `pages_deployments.go`) | 13 | 0 | 12 | 1 | 43 |
+| Workers Logs telemetry query (`workers_logs.go`; 2026-10-04) | 1 | 26 | 0 | 0 | 17 |
+| Workers legacy tail + `trace-v1` WebSocket (`workers_tail.go`; 2026-10-04) | 3 + WS | 7 | 8 | 1 | 8 |
 
 **2026-09-30 (FS-pages).** Pages has no recording. Its flow and hashing come from wrangler
 4.143.0's `pages deploy` (SOURCED, relies), which `TestWranglerPages` runs against the profile;
@@ -212,6 +215,8 @@ reasons:
 | VPC service host must be ipv4/ipv6 + network or hostname + resolver_network | spec (the rejection code is UNVERIFIED) |
 | `GET /accounts/{id}` omits the null `abuse_contact_email` | spec (response validation) |
 | Workers static assets: `POST …/scripts/{name}/assets-upload-session` (buckets of the hashes not uploaded yet; an all-uploaded manifest answers no bucket and a completion token), `POST …/workers/assets/upload?base64=true` with the session JWT (202 {} per bucket, 201 {jwt} for the last), `metadata.assets.jwt` / `keep_assets` in script and version uploads, assets-only Workers, one-hour JWTs, the asset hash (BLAKE3 of base64 + extension) checked on upload | DOCS direct-upload; SOURCED relies: wrangler `syncAssets`, `hashFile`, `isJwtExpired`, `createWorkerUploadForm`; proven by the differential test `TestWranglerAssets`. Bucket sizing, error codes, per-script scoping of uploaded files and the JWT claims are UNVERIFIED |
+| Workers Logs: `POST …/workers/observability/telemetry/query`, view `events` only. Events are `cf-worker` (one per console call, one per uncaught exception) and `cf-worker-event` (the request); IDs are the ULID time of the timestamp plus a 16-digit sequence (…1, …2 logs, …3 exception, request …n+2); console.log carries no level; newest first; `limit` ≤ 2000 else zod `too_big` 400 without a v4 envelope; `offset` + `offsetDirection` next/prev; `from` clamped to now − 7 d; granularity ⌈span/60⌉ s; series buckets from the second boundary after `from` to the bucket of `to`; header field names lower-cased; ingestion lag configurable (real 15–30 s) | 0054, 0077…0088, 0092…0098, 0122…0130 (all replayed, with the spike's dataset rebuilt from the recordings, `logs_conformance_test.go`). UNVERIFIED: other views, filter semantics beyond `eq`, needle fields, info/warn/debug levels, multi-argument messages, default limit, `prev` with more than `limit` newer events, `from` on a bucket boundary, the in-type order of `fields` (conformance compares fields as a set and scan `statistics` by type) |
+| Legacy tail: `POST`/`GET …/scripts/{name}/tails`, `DELETE …/tails/{id}`; `expires_at` = create + 6 h; the URL is `ws[s]://<flarefake host>/<32 hex>` (`Options.TailURLBase`); the WebSocket needs subprotocol `trace-v1`, sends binary JSON frames (wrangler's `TailEventMessage`), answers pings, never closes itself; DELETE leaves connections open and the URL upgrading until expiry; delivery stops at expiry | 0064, 0073…0075, 0139…0141 (replayed; the URL is compared by shape because recordings redact it); SOURCED wrangler `tail/createTail.ts`, `tail/index.ts`, `tail/filters.ts`, `__tests__/tail.test.ts`; spike §1. UNVERIFIED: error codes, events still flowing to a deleted tail's connections, the upgrade after expiry (404), filter combination, frame fields beyond wrangler's type (`event.response` is DOCS) |
 | Request validation skips a security requirement that names a scheme the spec does not declare (`assets_jwt` of the assets upload) | spec (self-inconsistent: kin-openapi fails every such request before authentication) |
 
 ## 5. How to add evidence

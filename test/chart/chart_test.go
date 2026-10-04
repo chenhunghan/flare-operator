@@ -53,6 +53,10 @@ func renderDir(t *testing.T, dir string, sets ...string) (map[string][][]byte, s
 			args = append(args, "--set-string", v)
 			continue
 		}
+		if v, ok := strings.CutPrefix(s, "flag:"); ok { // a raw helm flag, e.g. flag:--skip-schema-validation
+			args = append(args, v)
+			continue
+		}
 		args = append(args, "--set", s)
 	}
 	var out, stderr bytes.Buffer

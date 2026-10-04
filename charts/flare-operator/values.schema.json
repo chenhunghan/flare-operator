@@ -97,6 +97,45 @@
           "$ref": "#/definitions/pullPolicy"
         }
       }
+    },
+    "labelSelector": {
+      "description": "A label selector (metav1.LabelSelector): matchLabels and matchExpressions.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "matchLabels": {
+          "$ref": "#/definitions/stringMap"
+        },
+        "matchExpressions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key",
+              "operator"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "operator": {
+                "type": "string",
+                "enum": [
+                  "In",
+                  "NotIn",
+                  "Exists",
+                  "DoesNotExist"
+                ]
+              },
+              "values": {
+                "$ref": "#/definitions/stringList"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "properties": {
@@ -511,6 +550,127 @@
           "type": "string",
           "pattern": "^$|^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
           "description": "Timeout of one Cloudflare API HTTP request."
+        }
+      }
+    },
+    "workersLogs": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "kubectl logs for WorkerScripts: the Workers virtual kubelet (docs/workers-logs-design.md).",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "nodeName": {
+          "type": "string",
+          "maxLength": 63,
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+        },
+        "namespaceSelector": {
+          "$ref": "#/definitions/labelSelector"
+        },
+        "hostNetwork": {
+          "type": "boolean"
+        },
+        "port": {
+          "$ref": "#/definitions/port"
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "csr",
+                "selfSigned",
+                "secret"
+              ]
+            },
+            "secretName": {
+              "type": "string"
+            },
+            "csr": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "approve": {
+                  "type": "boolean"
+                },
+                "lifetime": {
+                  "type": "string",
+                  "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+                }
+              }
+            }
+          }
+        },
+        "podImage": {
+          "type": "string"
+        },
+        "podResources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?m?$"
+            },
+            "memory": {
+              "type": "string",
+              "pattern": "^[0-9]+(Ki|Mi|Gi|k|M|G)?$"
+            }
+          }
+        },
+        "podLabels": {
+          "$ref": "#/definitions/stringMap"
+        },
+        "apiBudget": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1200
+        },
+        "logs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "defaultWindow": {
+              "type": "string",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+            },
+            "maxEvents": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxFollowers": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kubeletAPIFrom": {
+              "$ref": "#/definitions/objectList"
+            }
+          }
+        },
+        "extraArgs": {
+          "$ref": "#/definitions/stringList"
+        },
+        "resources": {
+          "$ref": "#/definitions/resources"
+        },
+        "nodeSelector": {
+          "$ref": "#/definitions/stringMap"
+        },
+        "tolerations": {
+          "$ref": "#/definitions/objectList"
+        },
+        "affinity": {
+          "type": "object"
         }
       }
     }

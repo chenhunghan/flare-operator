@@ -1,0 +1,195 @@
+{{- /*
+RBAC of the Workers virtual kubelet (workersLogs.enabled), as in docs/workers-logs-design.md
+§4.3. The ClusterRole is also the owner of the virtual Node: when Helm deletes it (feature
+disabled or release uninstalled) the garbage collector deletes the Node, and the pod GC then
+deletes the stand-in Pods bound to it. Rendered with rbac.create; without it, an administrator
+must create the same objects (the ClusterRole name is the --owner-cluster-role flag).
+*/ -}}
+{{- $wl := include "flare-operator.workersVK.values" . | fromYaml }}
+{{- if and $wl.enabled .Values.rbac.create }}
+{{- $name := include "flare-operator.workersVK.fullname" . }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers-vk
+rules:
+  # The node controller: create the Node, then manage only that one.
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [create, list, watch]
+  - apiGroups: [""]
+    resources: [nodes]
+    resourceNames: [{{ $wl.nodeName | quote }}]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [""]
+    resources: [nodes/status]
+    resourceNames: [{{ $wl.nodeName | quote }}]
+    verbs: [update, patch]
+  # Stand-in Pods (the stand-in controller creates, repairs the metadata of, and deletes them)
+  # and the Pod controller (status of the Pods bound to the node).
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [""]
+    resources: [pods/status]
+    verbs: [update, patch]
+  - apiGroups: ["", events.k8s.io]
+    resources: [events]
+    verbs: [create, patch]
+  # Read-only: WorkerScripts and their CloudflareAccounts; token Secrets by name only.
+  - apiGroups: [flare.dev]
+    resources: [workerscripts, cloudflareaccounts]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get]
+  # workersLogs.namespaceSelector.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  # The Node's owner (this ClusterRole): its UID goes into the Node's ownerReference.
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    resourceNames: [{{ $name | quote }}]
+    verbs: [get]
+  {{- if eq $wl.tls.mode "csr" }}
+  # The kubelet-serving certificate (tls.mode csr). delete: the virtual kubelet deletes its own
+  # CSRs (UID precondition) once the certificate is installed, or when one is not issued.
+  - apiGroups: [certificates.k8s.io]
+    resources: [certificatesigningrequests]
+    verbs: [create, get, list, watch, delete]
+  {{- if $wl.tls.csr.approve }}
+  # Self-approval (tls.csr.approve): RBAC cannot limit it to one CN; see the README's security
+  # note. The virtual kubelet approves only CSRs it created for its own node and address.
+  - apiGroups: [certificates.k8s.io]
+    resources: [certificatesigningrequests/approval]
+    verbs: [update]
+  - apiGroups: [certificates.k8s.io]
+    resources: [signers]
+    resourceNames: [kubernetes.io/kubelet-serving]
+    verbs: [approve]
+  {{- end }}
+  {{- end }}
+  # Kubelet API authentication (bearer tokens) and authorization (nodes/proxy, nodes/log ...).
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers-vk
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+# Leader election (Lease flare-operator-workers-vk.flare.dev in the release namespace), as the
+# manager's.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers-vk
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  {{- if eq $wl.tls.mode "secret" }}
+  # The serving certificate Secret (tls.mode secret), watched by name for reloads.
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ $wl.tls.secretName | quote }}]
+    verbs: [get, list, watch]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers-vk
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+# The node lease (kube-node-lease/<nodeName>).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}-node-lease
+  namespace: kube-node-lease
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers-vk
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [{{ $wl.nodeName | quote }}]
+    verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-node-lease
+  namespace: kube-node-lease
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers-vk
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}-node-lease
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+# The cluster client CA (ConfigMap kube-system/extension-apiserver-authentication), to verify
+# kube-apiserver's kubelet client certificate.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-authentication-reader
+  namespace: kube-system
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers-vk
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

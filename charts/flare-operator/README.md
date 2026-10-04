@@ -55,6 +55,59 @@ release, its CRDs and the namespace again. The images are loaded into the node's
 runtime with `E2E_IMAGE_LOAD` and removed again by `e2e-uninstall` with `E2E_IMAGE_REMOVE` (for
 k0s: `sudo k0s ctr -n k8s.io images rm`); see the Makefile and `test/e2e/doc.go`.
 
+## Worker logs with kubectl
+
+`--set workersLogs.enabled=true` (off by default) adds a second Deployment,
+`<fullname>-workers-vk`, running `/workers-vk` from the operator image. It registers one virtual
+node (`workersLogs.nodeName`, default `cf-workers`) and keeps one stand-in Pod `<name>-worker`
+per WorkerScript bound to it, so `kubectl logs` reads the Worker's logs from Cloudflare (Workers
+Logs for history, a tail for `-f`). Design: [docs/workers-logs-design.md](../../docs/workers-logs-design.md);
+usage and limits: the repository README and [docs/operations.md](../../docs/operations.md#worker-logs-with-kubectl).
+
+- **Who can read logs.** Anyone with `get pods/log` on a stand-in Pod, that is, in the
+  WorkerScript's namespace. The built-in `view`, `edit` and `admin` roles include `pods/log`, so
+  **namespace viewers can read Worker logs**, which may contain client IPs, headers, URLs and
+  whatever the code logs. Limit the feature with `workersLogs.namespaceSelector`, or opt a
+  WorkerScript out with the annotation `flare.dev/stand-in-pod: "false"`.
+- **Self-approved certificates.** With `tls.mode: csr` and `tls.csr.approve: true` (the defaults)
+  the virtual kubelet's ServiceAccount may approve `kubernetes.io/kubelet-serving` CSRs. RBAC
+  cannot limit that to one name: a stolen token of that ServiceAccount could get a serving
+  certificate for any node name and IP, and with a network position between kube-apiserver and a
+  kubelet impersonate that kubelet (exec and log streams of real Pods). The virtual kubelet only
+  approves CSRs it created for its own node and address, and its token is a short-lived projected
+  token in a dedicated Deployment. Where that trade-off is not acceptable, set
+  `tls.csr.approve: false` and approve each CSR by hand (`kubectl certificate approve`; one per
+  virtual kubelet restart, since the Pod IP changes), or use `tls.mode: secret` with a certificate
+  you issue.
+- **RBAC** (ClusterRole `<fullname>-workers-vk`, which also owns the virtual Node): nodes (create;
+  the one node by name), pods and pods/status, events, read-only WorkerScripts and
+  CloudflareAccounts, `get` on Secrets (no list or watch), namespaces, CSRs (mode `csr`) and the
+  `approve` verb on `signers/kubernetes.io/kubelet-serving` (`csr.approve`), TokenReviews and
+  SubjectAccessReviews; Roles for the leader-election Lease, the node Lease in `kube-node-lease`,
+  and a RoleBinding to `kube-system/extension-apiserver-authentication-reader`. The manager's
+  RBAC does not change. With `rbac.create=false` none of this is rendered: create it yourself,
+  including the ClusterRole `<fullname>-workers-vk` (the `--owner-cluster-role` the virtual
+  kubelet sets as the Node's owner).
+- **Network.** kube-apiserver dials the node's address on the kubelet port (the Pod IP and 10250
+  by default). With `networkPolicy.enabled`, the virtual kubelet's NetworkPolicy admits that port
+  from `networkPolicy.apiServer.cidrs` and `workersLogs.networkPolicy.kubeletAPIFrom`, and allows
+  egress to `networkPolicy.cloudflareAPI.cidrs` (empty means no egress to Cloudflare, and the
+  install NOTES warn). Health probes need no rule: they come from the kubelet on the Pod's own
+  node, which NetworkPolicy always allows. With `hostNetwork: true` most CNIs do not enforce
+  NetworkPolicy on the Pod at all; protect the kubelet port on the nodes instead.
+- **Stand-in Pod image.** `podImage` (default `registry.k8s.io/pause:3.10`) is never pulled and
+  does not follow operator releases, so upgrades leave the stand-in Pods alone. Changing it patches
+  the image into the running Pods. Changing the node name or `podResources` recreates every
+  stand-in Pod, at most two per second.
+- **Disabling** (`workersLogs.enabled=false`, or uninstalling) deletes the ClusterRole; the
+  garbage collector then deletes the Node it owns, and the Pods bound to it within about a minute.
+  With `rbac.create=false` Helm does not own that ClusterRole, so the Node and its stand-in Pods
+  stay: delete your ClusterRole `<fullname>-workers-vk`, or the Node itself
+  (`kubectl delete node cf-workers`; the pod garbage collector then removes the Pods).
+
+`ci/workers-logs-values.yaml` turns the feature on with flarefake for the e2e test
+(`test/e2e` `TestWorkersLogs`).
+
 ## Values
 
 `values.schema.json` validates the values: an unknown key or a wrong type fails `helm install`,
@@ -155,6 +208,29 @@ toolchain has no helm-docs generator; the test takes its place.
 | `flarefake.nodeSelector` | object | `{}` | nodeSelector of the flarefake pod. |
 | `flarefake.tolerations` | array | `[]` | Tolerations of the flarefake pod. |
 | `flarefake.affinity` | object | `{}` | Affinity of the flarefake pod. |
+| `workersLogs.enabled` | boolean | `false` | `kubectl logs` for WorkerScripts: the Workers virtual kubelet Deployment `<fullname>-workers-vk`, its virtual node and one stand-in Pod per WorkerScript ([Worker logs with kubectl](#worker-logs-with-kubectl)). Lets anyone with `get pods/log` read Worker logs. |
+| `workersLogs.nodeName` | string | `"cf-workers"` | The virtual node's name. One per cluster; two releases must not share it. |
+| `workersLogs.namespaceSelector` | object | `{}` | Label selector (`matchLabels`, `matchExpressions`) of the namespaces whose WorkerScripts get stand-in Pods; empty selects all. |
+| `workersLogs.hostNetwork` | boolean | `false` | Run on the host network and advertise the host IP (port 10260 unless `port` is changed), for control planes that reach node IPs but not Pod IPs. |
+| `workersLogs.port` | integer | `10250` | Kubelet API port of the virtual node. |
+| `workersLogs.tls.mode` | string | `"csr"` | Serving certificate: `csr` (kubelet-serving CSR; needed where kube-apiserver verifies kubelet certificates, e.g. k0s), `selfSigned` (only where it does not) or `secret`. |
+| `workersLogs.tls.secretName` | string | `""` | `kubernetes.io/tls` Secret in the release namespace for mode `secret`; its SANs must cover the node address. |
+| `workersLogs.tls.csr.approve` | boolean | `true` | The virtual kubelet approves its own CSR (RBAC `approve` on `signers/kubernetes.io/kubelet-serving`; see the security note). `false`: approve each CSR by hand. |
+| `workersLogs.tls.csr.lifetime` | string | `"24h"` | Requested certificate lifetime; renewed at 80%. |
+| `workersLogs.podImage` | string | `"registry.k8s.io/pause:3.10"` | Placeholder image of the stand-in Pods, never pulled. Pinned rather than the operator image, so upgrades leave the Pods alone; a change is patched into running Pods without recreating them. Set an image your admission policies accept. |
+| `workersLogs.podResources.cpu` | string | `"1m"` | CPU request and limit of a stand-in Pod (for ResourceQuotas and LimitRanges). |
+| `workersLogs.podResources.memory` | string | `"1Mi"` | Memory request and limit of a stand-in Pod. |
+| `workersLogs.podLabels` | object | `{}` | Extra labels of every stand-in Pod (e.g. for admission policies). |
+| `workersLogs.apiBudget` | integer | `120` | Cloudflare requests per 5 minutes per token for logs, on top of the manager's; keep the sum at or under 1200. |
+| `workersLogs.logs.defaultWindow` | string | `"72h"` | History window of `kubectl logs` without `--since` (the Free plan keeps 3 days). |
+| `workersLogs.logs.maxEvents` | integer | `10000` | Most events one `kubectl logs` reads (one API request per 2000). |
+| `workersLogs.logs.maxFollowers` | integer | `100` | Most concurrent `kubectl logs -f` sessions. |
+| `workersLogs.networkPolicy.kubeletAPIFrom` | array | `[]` | NetworkPolicyPeers besides `networkPolicy.apiServer.cidrs` allowed to reach the kubelet API port (e.g. konnectivity-agent Pods). |
+| `workersLogs.extraArgs` | array | `[]` | Extra arguments of the virtual kubelet. |
+| `workersLogs.resources` | object | `{"requests": {"cpu": "10m", "memory": "64Mi"}, "limits": {"memory": "256Mi"}}` | Resources of the virtual kubelet container. |
+| `workersLogs.nodeSelector` | object | `{}` | nodeSelector of the virtual kubelet pod. |
+| `workersLogs.tolerations` | array | `[]` | Tolerations of the virtual kubelet pod. |
+| `workersLogs.affinity` | object | `{}` | Affinity of the virtual kubelet pod. |
 <!-- values-table:end -->
 
 Production options (all off or empty by default):

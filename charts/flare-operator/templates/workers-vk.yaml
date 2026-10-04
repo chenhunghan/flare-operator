@@ -1,0 +1,270 @@
+{{- /*
+The Workers virtual kubelet (workersLogs.enabled): `kubectl logs` for WorkerScripts through one
+virtual node and a stand-in Pod per WorkerScript. docs/workers-logs-design.md §4.3.
+
+Flags of /workers-vk (cmd/workers-vk) this template passes:
+  --node-name --address-mode=podIP|hostIP --listen-address --tls-mode --tls-secret-namespace
+  --tls-secret-name --tls-approve-csr --tls-lifetime --owner-cluster-role --pod-image --pod-cpu
+  --pod-memory --pod-label=<k>=<v> --namespace-selector --api-budget --logs-default-window
+  --logs-max-events --logs-max-followers --leader-elect --leader-election-namespace
+  --health-probe-bind-address --allowed-base-url --allow-base-url-override --user-agent
+  --zap-log-level --zap-encoder
+and the environment POD_IP, HOST_IP and POD_NAMESPACE (downward API).
+*/ -}}
+{{- $wl := include "flare-operator.workersVK.values" . | fromYaml }}
+{{- if $wl.enabled }}
+{{- $name := include "flare-operator.workersVK.fullname" . }}
+{{- $port := include "flare-operator.workersVK.port" $wl | int }}
+{{- $probePort := include "flare-operator.workersVK.probePort" $wl | int }}
+{{- if and (eq $wl.tls.mode "secret") (not $wl.tls.secretName) }}
+{{- fail "workersLogs.tls.mode=secret requires workersLogs.tls.secretName" }}
+{{- end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers-vk
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers-vk
+spec:
+  # One active replica (leader election on the Lease flare-operator-workers-vk.flare.dev), and
+  # Recreate so an old Pod never serves the node beside a new one.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "flare-operator.workersVK.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: workers-vk
+      labels:
+        {{- include "flare-operator.workersVK.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/part-of: flare-operator
+    spec:
+      serviceAccountName: {{ $name }}
+      # A projected, short-lived token (kubelet-rotated).
+      automountServiceAccountToken: true
+      {{- if $wl.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: workers-vk
+          image: {{ include "flare-operator.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /workers-vk
+          args:
+            - --node-name={{ $wl.nodeName }}
+            - --address-mode={{ if $wl.hostNetwork }}hostIP{{ else }}podIP{{ end }}
+            - --listen-address=:{{ $port }}
+            - --tls-mode={{ $wl.tls.mode }}
+            {{- if eq $wl.tls.mode "secret" }}
+            - --tls-secret-namespace={{ .Release.Namespace }}
+            - --tls-secret-name={{ $wl.tls.secretName }}
+            {{- end }}
+            {{- if eq $wl.tls.mode "csr" }}
+            - --tls-approve-csr={{ $wl.tls.csr.approve }}
+            - --tls-lifetime={{ $wl.tls.csr.lifetime }}
+            {{- end }}
+            - --owner-cluster-role={{ $name }}
+            - --pod-image={{ $wl.podImage | default "registry.k8s.io/pause:3.10" }}
+            - --pod-cpu={{ $wl.podResources.cpu }}
+            - --pod-memory={{ $wl.podResources.memory }}
+            {{- range $k, $v := $wl.podLabels }}
+            - --pod-label={{ $k }}={{ $v }}
+            {{- end }}
+            {{- with include "flare-operator.workersVK.namespaceSelector" $wl }}
+            - --namespace-selector={{ . }}
+            {{- end }}
+            - --api-budget={{ $wl.apiBudget }}
+            - --logs-default-window={{ $wl.logs.defaultWindow }}
+            - --logs-max-events={{ $wl.logs.maxEvents }}
+            - --logs-max-followers={{ $wl.logs.maxFollowers }}
+            - --leader-elect=true
+            - --leader-election-namespace={{ .Release.Namespace }}
+            - --health-probe-bind-address=:{{ $probePort }}
+            {{- with .Values.userAgent }}
+            - --user-agent={{ . }}
+            {{- end }}
+            {{- if .Values.baseURLOverride.allowAny }}
+            - --allow-base-url-override
+            {{- end }}
+            {{- range .Values.baseURLOverride.allowed }}
+            - --allowed-base-url={{ . }}
+            {{- end }}
+            {{- if .Values.flarefake.enabled }}
+            {{- range splitList "\n" (include "flare-operator.flarefake.baseURLs" .) }}
+            - --allowed-base-url={{ . }}
+            {{- end }}
+            {{- end }}
+            - --zap-log-level={{ .Values.logging.level }}
+            - --zap-encoder={{ .Values.logging.encoder }}
+            {{- range $wl.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if dig "limits" "memory" "" $wl.resources }}
+            - name: GOMEMLIMIT
+              valueFrom:
+                resourceFieldRef:
+                  containerName: workers-vk
+                  resource: limits.memory
+            {{- end }}
+          ports:
+            - name: kubelet-api
+              containerPort: {{ $port }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ $probePort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml $wl.resources | nindent 12 }}
+      {{- with $wl.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $wl.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $wl.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if dig "enabled" false (.Values.networkPolicy | default (dict)) }}
+{{- $np := .Values.networkPolicy }}
+{{- if not $np.apiServer.cidrs }}
+{{- fail "networkPolicy.enabled requires networkPolicy.apiServer.cidrs (the API server endpoint addresses: kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes)" }}
+{{- end }}
+---
+# The virtual kubelet: kube-apiserver (networkPolicy.apiServer.cidrs) and
+# workersLogs.networkPolicy.kubeletAPIFrom reach the kubelet API port; egress to DNS, the API
+# server, Cloudflare (which also serves the tail WebSockets) and flarefake when enabled. The
+# health probes need no rule: they come from the kubelet on the Pod's own node, which
+# NetworkPolicy always allows. With hostNetwork most CNIs do not enforce this policy at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flare-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers-vk
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "flare-operator.workersVK.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: {{ $port }}
+          protocol: TCP
+      from:
+        {{- range $np.apiServer.cidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+        {{- with $wl.networkPolicy.kubeletAPIFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+  egress:
+    # Cluster DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $np.dns.namespaceSelector | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $np.dns.podSelector | nindent 14 }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Kubernetes API server (endpoint addresses, not the Service ClusterIP).
+    - to:
+        {{- range $np.apiServer.cidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        {{- range $np.apiServer.ports }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- with $np.cloudflareAPI.cidrs }}
+    # api.cloudflare.com and the tail WebSocket host (Cloudflare's published ranges).
+    - to:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        {{- range $np.cloudflareAPI.ports }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- end }}
+    {{- if .Values.flarefake.enabled }}
+    # flarefake in the release namespace.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "flare-operator.flarefake.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: {{ .Values.flarefake.port }}
+          protocol: TCP
+    {{- end }}
+    {{- with $np.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+{{- end }}

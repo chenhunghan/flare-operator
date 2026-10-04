@@ -290,7 +290,7 @@ func TestGenericConformance(t *testing.T) {
 	n := 0
 	for _, rec := range loadRecordings(t) {
 		if oneOf(label(rec.file), "final-vectorize", "final-secrets-stores") {
-			replay(t, s, hs.URL, rec)
+			replay(t, s, hs.URL, rec, "")
 			n++
 		}
 	}

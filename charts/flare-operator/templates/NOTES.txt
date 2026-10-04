@@ -42,3 +42,36 @@ Control API: http://{{ include "flare-operator.flarefake.fullname" . }}.{{ .Rele
 
 WARNING: --allow-base-url-override is on. Any CloudflareAccount may send its API token to any URL.
 {{- end }}
+{{- $wl := include "flare-operator.workersVK.values" . | fromYaml }}
+{{- if $wl.enabled }}
+
+Worker logs with kubectl are on: virtual node {{ $wl.nodeName }}, one stand-in Pod <name>-worker per WorkerScript.
+  kubectl get node {{ $wl.nodeName }}   # Ready once its serving certificate is issued
+  kubectl get pods -A -l flare.dev/stand-in=worker
+  kubectl logs <workerscript>-worker [-f] [--since=10m] [--tail=50]
+Anyone with `get pods/log` in a namespace (the view, edit and admin roles) can read its Workers' logs.
+{{- if and (eq $wl.tls.mode "csr") (not $wl.tls.csr.approve) }}
+tls.csr.approve is false: approve the virtual kubelet's CSR after every restart:
+  kubectl get csr --field-selector spec.signerName=kubernetes.io/kubelet-serving
+  kubectl certificate approve <csr>
+{{- end }}
+{{- if dig "enabled" false (.Values.networkPolicy | default (dict)) }}
+{{- if not .Values.networkPolicy.cloudflareAPI.cidrs }}
+
+WARNING: networkPolicy.cloudflareAPI.cidrs is empty, so the virtual kubelet's NetworkPolicy allows no
+egress to Cloudflare (api.cloudflare.com and the tail WebSockets) unless networkPolicy.extraEgress or
+your CNI's own policy does: `kubectl logs` on stand-in Pods will time out.
+{{- end }}
+{{- if $wl.hostNetwork }}
+
+NOTE: workersLogs.hostNetwork is on. Most CNIs do not enforce NetworkPolicy on host-network Pods, so
+the virtual kubelet's NetworkPolicy probably has no effect; protect port {{ include "flare-operator.workersVK.port" $wl }} on the nodes instead.
+{{- end }}
+{{- end }}
+{{- if not .Values.rbac.create }}
+
+NOTE: rbac.create is false. Create the virtual kubelet's RBAC yourself, including the ClusterRole
+{{ include "flare-operator.workersVK.fullname" . }}, which owns the node {{ $wl.nodeName }}. Disabling the feature then leaves the
+node and its stand-in Pods until you delete that ClusterRole (or `kubectl delete node {{ $wl.nodeName }}`).
+{{- end }}
+{{- end }}

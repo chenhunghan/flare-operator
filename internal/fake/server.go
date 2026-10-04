@@ -52,6 +52,17 @@ type Options struct {
 	// deploy/success (pages_deployments.go). Zero means DefaultPagesDeployDelay.
 	PagesDeployDelay time.Duration
 
+	// LogIngestionLag is how long injected Workers log events take to become queryable through
+	// the telemetry query (emulated clock; workers_logs.go). The real lag is 15–30 s (spike
+	// results §1); zero (the default) makes them queryable at once. SetLogIngestionLag changes it.
+	LogIngestionLag time.Duration
+	// LogRetention bounds how far back a telemetry query reaches. Zero means
+	// DefaultLogRetention (7 days, recording 0098).
+	LogRetention time.Duration
+	// TailURLBase, if set, is the ws:// or wss:// base of the tail WebSocket URLs that tail
+	// create returns (workers_tail.go). Empty means the scheme and host the request came in on.
+	TailURLBase string
+
 	// Generic lists generated kinds to emulate with the descriptor-driven generic profile
 	// (generic.go, UNVERIFIED; e.g. GeneratedGenericKinds()). Kinds with a hand-written profile
 	// are skipped. The profile needs the pinned spec: Spec, else LoadDefaultSpec.
@@ -79,6 +90,9 @@ type Server struct {
 	workerStartupMs int                 // startup_time_ms reported by script uploads (see SetWorkerStartupTime)
 	pagesJWTKey     []byte              // signs Pages upload tokens (pages_assets.go)
 	pagesFailNext   int                 // Pages deployments that will fail (FailPagesDeployments)
+
+	logLag      time.Duration          // SetLogIngestionLag (workers_logs.go)
+	tailSockets map[string]*workerTail // tails by WebSocket URL token, deleted ones included (workers_tail.go)
 
 	assetKey         []byte // signs the Workers assets upload JWTs (workers_assets_jwt.go)
 	assetBucketFiles int    // SetAssetBuckets; 0 = default
@@ -138,8 +152,11 @@ func New(opts Options) *Server {
 	if opts.PagesDeployDelay <= 0 {
 		opts.PagesDeployDelay = DefaultPagesDeployDelay
 	}
+	if opts.LogRetention <= 0 {
+		opts.LogRetention = DefaultLogRetention
+	}
 	s := &Server{opts: opts, Clock: &Clock{}, accounts: map[string]*account{}, workerStartupMs: workerDefaultStartupMs,
-		pagesJWTKey: randBytes(32), assetKey: randBytes(32)}
+		pagesJWTKey: randBytes(32), assetKey: randBytes(32), logLag: opts.LogIngestionLag}
 	s.limiter = newLimiter(opts.RateLimit, opts.RateWindow)
 	s.registerKV()
 	s.registerD1()
@@ -168,6 +185,8 @@ func (s *Server) Reset() {
 	s.workerStartupMs = workerDefaultStartupMs
 	s.pagesFailNext = 0
 	s.assetBucketFiles, s.assetBucketBytes = 0, 0
+	s.logLag = s.opts.LogIngestionLag
+	s.closeAllTailsLocked()
 	s.generic.reset()
 	s.ids.reset()
 	s.limiter.reset()
@@ -273,12 +292,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.serveControl(w, r)
 		return
 	}
+	if isTailSocket(r) { // a tail's capability URL: no API auth (workers_tail.go)
+		s.serveTailSocket(w, r)
+		return
+	}
 	path := strings.TrimPrefix(r.URL.Path, "/client/v4")
 	body, _ := io.ReadAll(r.Body)
-	// Content-Type differs by product in recordings: KV and Queues send a charset, D1, Tunnel and
-	// Workers VPC do not.
+	// Content-Type differs by product in recordings: KV and Queues send a charset, D1, Tunnel,
+	// Workers VPC and Workers Observability (0054, 0096) do not.
 	if strings.Contains(path, "/d1/") || strings.Contains(path, "/cfd_tunnel") ||
-		strings.Contains(path, "/teamnet/") || strings.Contains(path, "/connectivity/") {
+		strings.Contains(path, "/teamnet/") || strings.Contains(path, "/connectivity/") ||
+		strings.Contains(path, "/workers/observability/") {
 		w.Header().Set("Content-Type", "application/json")
 	}
 	now := s.Clock.Now()

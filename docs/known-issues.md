@@ -16,7 +16,8 @@ annotation keys such as `flare.dev/worker-binding`.
 - **Kinds.** CloudflareAccount, KVNamespace, Queue, D1Database, VectorizeIndex, SecretsStore,
   AIGateway and R2Bucket (generated); Tunnel, VPCService, WorkerScript, PagesProject and
   PagesDeployment (hand-written). The virtual kubelet for Cloudflare Containers is designed, not
-  implemented ([virtual-kubelet-design.md](virtual-kubelet-design.md)).
+  implemented ([virtual-kubelet-design.md](virtual-kubelet-design.md)); its Free-plan subset, `kubectl logs` for
+  WorkerScripts through a virtual node, is opt-in (chart `workersLogs`; see below).
 - **Emulator-verified, not live-verified.** Every controller is tested against `flarefake`, an
   in-memory emulator of the Cloudflare API, in envtest suites and in fault, crash-consistency and
   scale tests. Real Cloudflare clients (wrangler, cloudflared, cloudflare-go) run against
@@ -54,6 +55,44 @@ annotation keys such as `flare.dev/worker-binding`.
   D1 `primary_location_hint` enum case (recording 0019), the D1 `database_id` path parameter as
   an ambiguous oneOf (0020), and KV `DELETE` requiring a body in the spec while the API deletes
   without one (0013). The reconciler sends `DELETE` with no body.
+
+### `kubectl logs` for WorkerScripts (`workersLogs`)
+
+Opt-in through the chart ([workers-logs-design.md](workers-logs-design.md) §9). Limits users
+will hit:
+
+- **Lag and the `-f` gap.** Workers Logs are queryable 15–30 s after the event, so a plain
+  `kubectl logs` misses the last half-minute. `-f` opens the tail first and then reads history,
+  so events from about 15–30 s before the command can be missing.
+- **Sampling and truncation.** Free plan: 200,000 log events per day per account; past that
+  Cloudflare samples at 1 %, and `observability.head_sampling_rate` drops events before they are
+  stored. A busy Worker's tail goes into sampling mode (a `[notice] …` line says so). A record
+  over 256 KB is cut (` [truncated]`).
+- **At most 10 tail viewers per Worker,** wrangler and dashboard sessions included. The virtual
+  kubelet uses one tail per Worker however many `-f` sessions share it (`workersLogs.logs.maxFollowers`
+  caps the sessions).
+- **Observability must be on** (`forProvider.observability.enabled`) for history; `-f` works
+  without it. **Retention** is 3 days (Free) or 7 days (Paid); `--since=30d` brings nothing older.
+- **Not available:** `--previous`, `exec`, `attach`, `port-forward`, `cp`, `top` (the node reports
+  empty stats).
+- **Log collectors don't see these logs** (Fluent Bit, Vector, Promtail read `/var/log/pods` on
+  real nodes). Ship Worker logs with Workers Logpush (`forProvider.logpush`).
+- **Quotas and admission.** Each stand-in Pod counts against the namespace's `pods` quota (and
+  1m CPU / 1Mi memory). An admission policy can refuse it (image allowlist, required probes or
+  labels); the WorkerScript then gets the Warning event `StandInPodFailed`, and its own status is
+  not affected. `workersLogs.podImage` and `workersLogs.podLabels` exist for such policies.
+- **Token permissions.** History needs `Workers Observability` (the spec says Write; whether Read
+  is enough is UNVERIFIED), `-f` needs `Workers Tail Read` (or `Workers Scripts Write`). Without
+  them `kubectl logs` passes Cloudflare's 403 on.
+- **API budget.** 120 requests per 5 minutes per token by default, separate from the manager's;
+  a busy team can hit 429. Raise `workersLogs.apiBudget` and lower the account's `spec.rateLimit`
+  so the two stay at or under 1200.
+- **Tolerate-all DaemonSets without an OS selector** get Pods on the virtual node that fail with
+  `UnsupportedOnVirtualNode`; give them the node affinity `type NotIn [virtual-kubelet]`.
+- **Namespace viewers can read Worker logs** (`pods/log` is in the built-in `view` role). See
+  [SECURITY.md](../SECURITY.md#in-cluster-privileges) for this and the self-approved CSR trade-off.
+- **One node per cluster.** Two releases in one cluster need different `workersLogs.nodeName`
+  values; a virtual kubelet refuses a Node owned by another release.
 
 ## Behaviour that users will notice
 
@@ -163,3 +202,12 @@ are in [emulator-fidelity.md](emulator-fidelity.md).
   and RBAC for the account in-use listing were checked in envtest, not in a real namespace
   deletion; real namespace-controller ordering with a `Terminating` token Secret.
 - **Images:** only linux/arm64 images have run in e2e; linux/amd64 is built but not exercised.
+- **Workers logs** ([workers-logs-design.md](workers-logs-design.md) §13): whether managed
+  control planes (EKS with the VPC CNI, GKE, AKS) reach the virtual kubelet's Pod IP, and whether
+  their signers issue kubelet-serving certificates to a ServiceAccount (k0s is the only verified
+  target); the trace-v1 frame shape (SOURCED from wrangler, no recording) and telemetry shapes of
+  non-fetch triggers; the permission group of `telemetry/query`; the tail's behaviour past its
+  `expires_at` (about 6 h); whether `tail.developers.workers.dev` lies in Cloudflare's published
+  ranges (`networkPolicy.cloudflareAPI.cidrs`); the Node → ClusterRole garbage-collection path on
+  a real cluster (checked by the e2e only). Immediate deletion of a stand-in Pod (grace 0, no
+  kubelet needed) is checked in envtest.

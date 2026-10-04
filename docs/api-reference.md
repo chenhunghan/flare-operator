@@ -90,6 +90,8 @@ Every kind reports two conditions. `Ready` says whether the Cloudflare resource 
 |---|---|---|---|
 | `ExternalResourceKept` | Warning | managed kinds | An object with deletionPolicy Delete was deleted but its Cloudflare resource was kept (ownership not proven, or the CloudflareAccount is gone), or an orphaned resource keeps its owner tag. A PagesDeployment with a user-set forProvider.commit_hash also records it when a deployment it may have made (an interrupted create) cannot be identified and may be left in Cloudflare. |
 | `ForeignOwnerTunnelKept` | Warning | Tunnel | A Tunnel with deletionPolicy Delete was deleted but its Cloudflare tunnel was kept because another owner holds it. |
+| `StandInPodFailed` | Warning | WorkerScript | With the Workers logs feature on (chart workersLogs.enabled), the WorkerScript's stand-in Pod (<name>-worker on the virtual node) could not be created, updated or deleted: a ResourceQuota, a LimitRange or an admission policy (Pod Security, Kyverno, Gatekeeper) refused it. `kubectl logs` is unavailable for the WorkerScript until the cause is fixed; its status is not affected. workersLogs.podImage and workersLogs.podLabels exist for such policies. |
+| `StandInPodConflict` | Warning | WorkerScript | A Pod with the stand-in Pod's name (<name>-worker) exists and is not controlled by this WorkerScript. It is left alone and checked again every minute; delete or rename it to get `kubectl logs` for the WorkerScript, or opt the WorkerScript out with the annotation flare.dev/stand-in-pod "false". |
 
 ## CloudflareAccount
 

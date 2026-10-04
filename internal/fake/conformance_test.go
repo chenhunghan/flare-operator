@@ -42,7 +42,10 @@ type scenario struct {
 	include func(label string) bool
 	// before runs just before replaying the recording with the given label.
 	before map[string]func(s *Server)
-	opts   Options
+	// at replaces a recording's ts as the emulator's clock for its replay, where the ts (when the
+	// spike logged the call) is provably not when the API served it. Each entry says why.
+	at   map[string]string
+	opts Options
 }
 
 const tunnelID = "5456b9ca-8b73-4b44-93df-67ad7acc8e2c"
@@ -75,7 +78,20 @@ var scenarios = []scenario{
 					"final-tunnel-routes") ||
 				oneOf(l, "subdomain-get", "scripts-list", "logs-upload", "logs-subdomain-enable", "logs-versions-list",
 					"logs-deployments-list", "logs-upload-v2", "logs-script-delete", "logs-script-get-after-delete",
-					"logs-scripts-list-final", "verify-scripts", "final-workers-scripts")
+					"logs-scripts-list-final", "verify-scripts", "final-workers-scripts") ||
+				// Workers Logs and the legacy tail of the logs spike's Worker (workers_logs.go,
+				// workers_tail.go); keys/values and live-tail are not emulated.
+				strings.HasPrefix(l, "logs-telemetry-query") || strings.HasPrefix(l, "logs-telemetry-lagpoll") ||
+				strings.HasPrefix(l, "logs-tail")
+		},
+		at: map[string]string{
+			// 0064 was logged at 07:00:15.276, about 1 s after the API created the tail: its
+			// expires_at (13:00:14Z) is the create time plus the 6 h lifetime (0139 replays
+			// without an override because its logged time matches).
+			"logs-tail-create": "2026-09-29T07:00:14.5Z",
+			// 0098 was logged 924 ms after it was sent; the API evaluated the 7-day retention
+			// bound at 07:05:57.553 (its run.timeframe.from plus 7 d).
+			"logs-telemetry-query-30d": "2026-09-29T07:05:57.553Z",
 		},
 		before: map[string]func(s *Server){
 			// The tunnel create also auto-creates the default virtual network (0160); queue its ID.
@@ -93,6 +109,8 @@ var scenarios = []scenario{
 				s.EnqueueIDs("0c4f57ff0b02429388f1a47846ec4778", "dfc59c32-1bd3-4f5a-9554-16f398ba3026",
 					unlistedDeploymentID, "307dd4d0bd52bad574443e71714201b466dee3008fc4af5580ae65c09ffaee5d")
 			},
+			// The telemetry dataset the logs spike's queries saw (logs_conformance_test.go).
+			"logs-telemetry-query-events": seedSpikeLogs,
 			"logs-upload-v2": func(s *Server) {
 				s.EnqueueIDs("1b8ff0e5-5b98-4a00-9f78-f3894e14c37b", unlistedDeploymentID,
 					"c9a68a769728b1405d3215a896f01f6ebbadd7f2800dd61b52fe7b6079ce06e1")
@@ -164,6 +182,11 @@ func TestConformance(t *testing.T) {
 					t.Fatalf("hook for unknown recording label %q", l)
 				}
 			}
+			for l := range sc.at {
+				if !labels[l] {
+					t.Fatalf("clock override for unknown recording label %q", l)
+				}
+			}
 			srv := New(sc.opts)
 			hs := httptest.NewServer(srv)
 			defer hs.Close()
@@ -178,7 +201,7 @@ func TestConformance(t *testing.T) {
 				if fn := sc.before[l]; fn != nil {
 					fn(srv)
 				}
-				replay(t, srv, hs.URL, rec)
+				replay(t, srv, hs.URL, rec, sc.at[l])
 			}
 			if n == 0 {
 				t.Fatalf("scenario %s matched no recordings", sc.name)
@@ -208,7 +231,7 @@ func TestConformance(t *testing.T) {
 	t.Logf("recordings for surfaces not emulated yet (%d): %s", len(unused), strings.Join(unused, ", "))
 }
 
-func replay(t *testing.T, srv *Server, base string, rec recording) {
+func replay(t *testing.T, srv *Server, base string, rec recording, at string) {
 	t.Helper()
 	var want map[string]any
 	if err := json.Unmarshal(rec.ResponseBody, &want); err != nil {
@@ -224,10 +247,20 @@ func replay(t *testing.T, srv *Server, base string, rec recording) {
 					break
 				}
 			}
+			// A telemetry query's run ID (0054: result.run.id).
+			if run, ok := m["run"].(map[string]any); ok && strings.HasSuffix(rec.Path, "/telemetry/query") {
+				srv.EnqueueIDs(run["id"].(string))
+			}
 		}
 	}
-	if ts, err := time.Parse(time.RFC3339Nano, rec.TS); err == nil {
+	clock := rec.TS
+	if at != "" {
+		clock = at
+	}
+	if ts, err := time.Parse(time.RFC3339Nano, clock); err == nil {
 		srv.Clock.Set(ts)
+	} else if at != "" {
+		t.Fatalf("%s: clock override %q: %v", rec.file, at, err)
 	}
 
 	var body []byte
@@ -310,7 +343,13 @@ var volatile = map[string]bool{
 // JSON type of the real value is unknown.
 var presenceOnly = map[string]bool{"credentials_file": true}
 
+// tailURLRe: a tail's WebSocket URL. Recordings redact its capability token
+// ("wss://tail.developers.workers.dev/REDACTED", hack/sanitize_recordings.py) and flarefake
+// serves it on its own host, so the scheme and the one-segment shape are compared.
+var tailURLRe = regexp.MustCompile(`^wss?://[^/]+/([0-9a-f]{32}|REDACTED)$`)
+
 func normalize(path string, v any) any {
+	telemetry := strings.HasSuffix(path, "/telemetry/query")
 	switch x := v.(type) {
 	case map[string]any:
 		out := map[string]any{}
@@ -318,6 +357,20 @@ func normalize(path string, v any) any {
 			switch {
 			case presenceOnly[k]:
 				out[k] = "<present>"
+			case k == "url" && strings.Contains(path, "/tails"):
+				if s, ok := val.(string); ok && tailURLRe.MatchString(s) {
+					out[k] = "<tail-url>"
+				} else {
+					out[k] = val
+				}
+			case telemetry && k == "statistics":
+				// Scan statistics of the real backend (elapsed seconds, rows and bytes read
+				// across the account's whole dataset): only their keys and types compare.
+				out[k] = leafTypes(val)
+			case telemetry && k == "fields":
+				// The field list: the backend orders keys within each type by its own column
+				// order, which the emulator does not reproduce; compared as a set.
+				out[k] = sortedFields(normalize(path, val))
 			case volatile[k] || strings.HasSuffix(path, "/connections") && (k == "version" || k == "features"):
 				// connector metadata reported by cloudflared itself (0042: 2025.11.1, 0175: 2026.9.3)
 				out[k] = fmt.Sprintf("<%s>", jsonType(val))
@@ -348,6 +401,40 @@ func normalize(path string, v any) any {
 		return x
 	}
 	return v
+}
+
+// leafTypes replaces every scalar of v with its JSON type.
+func leafTypes(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := map[string]any{}
+		for k, val := range x {
+			out[k] = leafTypes(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, el := range x {
+			out[i] = leafTypes(el)
+		}
+		return out
+	}
+	return "<" + jsonType(v) + ">"
+}
+
+// sortedFields sorts a telemetry field list ([{key, type}]) by type and key.
+func sortedFields(v any) any {
+	arr, ok := v.([]any)
+	if !ok {
+		return v
+	}
+	out := append([]any(nil), arr...)
+	key := func(e any) string {
+		m, _ := e.(map[string]any)
+		return fmt.Sprint(m["type"], "\x00", m["key"])
+	}
+	sort.SliceStable(out, func(i, j int) bool { return key(out[i]) < key(out[j]) })
+	return out
 }
 
 func jsonType(v any) string {
