@@ -18,14 +18,15 @@ It ships as one Go manager binary and one Helm chart (`charts/flare-operator`).
 
 - **API.** Every kind is `v1alpha1` and may change without notice. There is no conversion
   webhook; [docs/api-versioning.md](docs/api-versioning.md) describes the path to `v1beta1`.
-- **Releases.** There are no releases and no published images, so you build the images
-  yourself. The Go module path `flare.dev/operator` is a placeholder until the repository has a
-  permanent home.
+- **Releases.** The project lives at
+  [github.com/chenhunghan/flare-operator](https://github.com/chenhunghan/flare-operator). A `v*`
+  tag publishes multi-arch images and the Helm chart to GHCR (see the [Quickstart](#quickstart));
+  until the first tag, build the images yourself.
 - **How it is verified.** Every controller is tested against `flarefake`, an in-memory
   emulator of the Cloudflare API, in envtest suites and in fault, crash and scale tests. The
   chart has an e2e suite (`test/e2e`) that runs on a real cluster with flarefake in the
-  cluster; it last passed on k0s on 2026-09-29, before some of the current kinds existed
-  ([docs/STATUS.md](docs/STATUS.md)). How far the emulator can be trusted rests on evidence,
+  cluster; it last passed on k0s on 2026-09-30
+  ([docs/known-issues.md](docs/known-issues.md)). How far the emulator can be trusted rests on evidence,
   strongest first:
   1. replayed recordings of the real API;
   2. behavior that Cloudflare's own clients (wrangler, cloudflare-go, cloudflared, the
@@ -52,7 +53,8 @@ It ships as one Go manager binary and one Helm chart (`charts/flare-operator`).
   is the recordings made during the design spikes
   ([docs/spike-results-2026-09-29.md](docs/spike-results-2026-09-29.md)).
 
-Open issues are tracked in [docs/STATUS.md](docs/STATUS.md).
+Known issues, deferred review findings and UNVERIFIED assumptions are listed in
+[docs/known-issues.md](docs/known-issues.md).
 
 ## Kinds
 
@@ -102,28 +104,31 @@ must not delete the index or store.
 
 ## Quickstart
 
-You need a Kubernetes cluster (1.30 or newer), `helm`, `docker` (or another builder, set with
-`CONTAINER_TOOL`), Go 1.26, and a Cloudflare account with an API token.
+You need a Kubernetes cluster (1.30 or newer), `helm` (3.14 or later), and a Cloudflare account
+with an API token. Building from source also needs `docker` (or another builder, set with
+`CONTAINER_TOOL`) and Go 1.26.
 
-### 1. Build the images and install the chart
+### 1. Install the chart
 
-```sh
-make docker-build docker-build-fake      # flare-operator:dev and flarefake:dev for linux/$(go env GOARCH)
-```
-
-Your cluster's nodes must be able to get these images. You can push them to a registry and
-set `image.repository` and `image.tag`, or import them into each node's container runtime. On
-k0s, for example, run `docker save flare-operator:dev | sudo k0s ctr -n k8s.io images import -`
-on each node. The chart's default `pullPolicy` is `IfNotPresent`, so imported images work.
+Each release (a `v*` tag) publishes multi-arch images (linux/amd64, linux/arm64) to GHCR,
+`ghcr.io/chenhunghan/flare-operator` and `ghcr.io/chenhunghan/flarefake`, and the chart as an
+OCI artifact. Pick a version from the
+[releases](https://github.com/chenhunghan/flare-operator/releases); the chart's default image
+tag is its own version.
 
 ```sh
-helm install flare-operator charts/flare-operator -n flare-system --create-namespace \
-  --set image.tag=dev --set clusterName=my-cluster \
+helm install flare-operator oci://ghcr.io/chenhunghan/charts/flare-operator --version <x.y.z> \
+  -n flare-system --create-namespace \
+  --set clusterName=my-cluster \
   --set reconcile.pollInterval=10m \
   --set reconcile.maxConcurrentReconciles=1 \
   --set reconcile.timeout=5m \
   --set reconcile.cloudflareRequestTimeout=60s
 ```
+
+GHCR creates every new package as private. Until the maintainer has made the
+`flare-operator`, `flarefake` and `charts/flare-operator` packages public (once, after the first
+release, in each package's settings), pulls without GHCR credentials fail.
 
 - Give every cluster that manages the same Cloudflare account its own `clusterName`. The name
   becomes part of the ownership tags (see [Ownership tags](#ownership-tags)).
@@ -136,15 +141,35 @@ helm install flare-operator charts/flare-operator -n flare-system --create-names
   [the API budget](docs/operations.md#reconcile-tuning-and-the-api-budget).
 - Every value is listed in [charts/flare-operator/README.md](charts/flare-operator/README.md#values).
 
-**Upgrading.** Helm installs the CRDs from `crds/` on the first install only and never
-upgrades them. Before every `helm upgrade`, apply the new CRDs from a checkout of the version
-you are upgrading to:
+**From source.** To run a build of your checkout instead, build the images:
 
 ```sh
-make crds-diff        # optional: kubectl diff --server-side against the cluster
-make crds-apply       # kubectl apply --server-side --force-conflicts --field-manager=flare-operator-crds -f charts/flare-operator/crds/
-helm upgrade flare-operator charts/flare-operator -n flare-system --reset-then-reuse-values --set image.tag=<new tag>
+make docker-build docker-build-fake      # flare-operator:dev and flarefake:dev for linux/$(go env GOARCH)
 ```
+
+Your cluster's nodes must be able to get these images. You can push them to a registry and
+set `image.repository` and `image.tag`, or import them into each node's container runtime. On
+k0s, for example, run `docker save flare-operator:dev | sudo k0s ctr -n k8s.io images import -`
+on each node. The chart's default `pullPolicy` is `IfNotPresent`, so imported images work.
+Install the chart from the checkout with the local image name:
+
+```sh
+helm install flare-operator charts/flare-operator -n flare-system --create-namespace \
+  --set image.repository=flare-operator --set image.tag=dev --set clusterName=my-cluster
+```
+
+**Upgrading.** Helm installs the CRDs from `crds/` on the first install only and never
+upgrades them. Before every `helm upgrade`, apply the CRDs of the version you are upgrading to:
+
+```sh
+helm pull oci://ghcr.io/chenhunghan/charts/flare-operator --version <new> --untar --untardir /tmp/flare-chart
+kubectl apply --server-side --force-conflicts --field-manager=flare-operator-crds -f /tmp/flare-chart/flare-operator/crds/
+helm upgrade flare-operator oci://ghcr.io/chenhunghan/charts/flare-operator --version <new> \
+  -n flare-system --reset-then-reuse-values
+```
+
+From a checkout of the new version, `make crds-diff` (optional: `kubectl diff --server-side`
+against the cluster) and `make crds-apply` do the same for `charts/flare-operator/crds/`.
 
 Use `--reset-then-reuse-values` (Helm 3.14 or later) or `-f <your values file>`, not
 `--reuse-values`: that flag drops the defaults of every value a newer chart adds.
@@ -237,8 +262,18 @@ against the CRDs on an envtest API server: schema, CEL rules and strict field va
 The chart can run the `flarefake` emulator next to the manager:
 
 ```sh
+helm install flare-operator oci://ghcr.io/chenhunghan/charts/flare-operator --version <x.y.z> \
+  -n flare-system --create-namespace --set clusterName=demo --set flarefake.enabled=true
+```
+
+With images built from source (`make docker-build docker-build-fake`), install from the
+checkout instead:
+
+```sh
 helm install flare-operator charts/flare-operator -n flare-system --create-namespace \
-  --set image.tag=dev -f charts/flare-operator/ci/flarefake-values.yaml --set flarefake.image.tag=dev
+  --set image.repository=flare-operator --set image.tag=dev \
+  -f charts/flare-operator/ci/flarefake-values.yaml \
+  --set flarefake.image.repository=flarefake --set flarefake.image.tag=dev
 ```
 
 Then point a CloudflareAccount at the emulator with
@@ -833,14 +868,14 @@ test/chart/              chart rendering and values-table tests
 test/differential/       real Cloudflare clients against flarefake
 test/e2e/, test/live/    e2e on a cluster (tag e2e); live smoke test (tag live)
 hack/                    chartsync, apidocs, classify_api.py (coverage map), sanitize_recordings.py
-docs/                    design docs, runbook, status
+docs/                    design docs, runbook, known issues
 ```
 
 ## Documentation
 
 | Doc | What |
 |---|---|
-| [docs/STATUS.md](docs/STATUS.md) | Build status, open issues, UNVERIFIED assumptions |
+| [docs/known-issues.md](docs/known-issues.md) | Project status, known limits, deferred findings, UNVERIFIED assumptions |
 | [docs/api-reference.md](docs/api-reference.md) | Every kind's fields, validation rules, printer columns and condition reasons (generated) |
 | [docs/api-versioning.md](docs/api-versioning.md) | The path from `v1alpha1` to `v1beta1` |
 | [docs/operations.md](docs/operations.md) | Runbook: install, upgrade (CRDs), reconcile tuning and API budget, crash consistency, uninstall semantics, metrics, HA, network policy, rate limits, troubleshooting, backup |
@@ -853,7 +888,14 @@ docs/                    design docs, runbook, status
 | [docs/cloudflare-api-coverage.md](docs/cloudflare-api-coverage.md) | All API operations, classified (generated by `make classify`) |
 | [docs/spike-results-2026-09-29.md](docs/spike-results-2026-09-29.md) | What we learned from the real API (tunnels, Workers VPC, `cloudflared` in Kubernetes) |
 | [docs/virtual-kubelet-design.md](docs/virtual-kubelet-design.md) | Planned: Pods on Cloudflare Containers |
-| [docs/plan-parallel.md](docs/plan-parallel.md) | How the work is split into workstreams |
 | [charts/flare-operator/README.md](charts/flare-operator/README.md) | Chart install, every value, e2e with flarefake |
 | [SECURITY.md](SECURITY.md) | Token handling, in-cluster privileges, supply chain |
+| [CLAUDE.md](CLAUDE.md) | Contributor rules: emulator evidence tiers, recordings, live-account safety |
 | [CHANGELOG.md](CHANGELOG.md) | Changes per release |
+
+## License
+
+flare-operator is licensed under the [Apache License 2.0](LICENSE); see [NOTICE](NOTICE).
+The pinned Cloudflare OpenAPI schema in `spec/` comes from
+[cloudflare/api-schemas](https://github.com/cloudflare/api-schemas) and is licensed under the
+BSD 3-Clause License ([spec/LICENSE](spec/LICENSE)).
