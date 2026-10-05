@@ -2,7 +2,7 @@ module github.com/chenhunghan/flare-operator
 
 go 1.26.1
 
-toolchain go1.26.8
+toolchain go1.27.1
 
 require (
 	github.com/getkin/kin-openapi v0.149.0

@@ -68,7 +68,7 @@ func get(read func() (*debug.BuildInfo, bool)) Info {
 }
 
 // String is the one-line form printed by --version, e.g.
-// "flare-operator v0.1.0 (commit 6fa76a7, built 2026-09-29T12:00:00Z, go1.26.8 linux/arm64)".
+// "flare-operator v0.1.0 (commit 6fa76a7, built 2026-09-29T12:00:00Z, go1.27.1 linux/arm64)".
 func (i Info) String(program string) string {
 	commit := i.Commit
 	if i.Modified {
