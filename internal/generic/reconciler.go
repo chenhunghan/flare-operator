@@ -113,9 +113,6 @@ type Reconciler struct {
 	// cache that does not have the status patch yet, and must not re-apply write-only fields
 	// because of that. Entries are dropped when the object is finalized or found gone.
 	applied sync.Map
-	// views makes each reconcile start from a copy no older than its own last write
-	// (reconcile.Views).
-	views reconcile.Views
 }
 
 type appliedWriteOnly struct {
@@ -263,7 +260,7 @@ func (r *Reconciler) objectsForAccount(ctx context.Context, o client.Object) []c
 // Reconcile implements reconcile.Reconciler.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := r.New()
-	if err := r.views.Get(ctx, r.Client, r.apiReader(), req.NamespacedName, obj); err != nil {
+	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.applied.Delete(req.NamespacedName)
 		}
@@ -278,21 +275,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if !obj.GetDeletionTimestamp().IsZero() {
 		res, err = r.finalize(ctx, obj)
 		if !controllerutil.ContainsFinalizer(obj, commonv1alpha1.Finalizer) {
-			r.views.Forget(req.NamespacedName)
 			return res, err // gone (or going): no status to write
 		}
 	} else {
 		res, err = r.observe(ctx, obj)
 	}
-	defer r.views.Done(obj)
+	var perr error
 	if !equality.Semantic.DeepEqual(statusOf(base), statusOf(obj)) {
-		if perr := r.Client.Status().Patch(ctx, obj, client.MergeFrom(base)); perr != nil && !apierrors.IsNotFound(perr) {
-			if err == nil {
-				err = perr
-			}
-		}
+		perr = reconcile.PatchStatus(ctx, r.Client, obj, base)
 	}
-	return res, err
+	return reconcile.StatusWritten(ctx, res, err, perr)
 }
 
 // scope holds the resolved account and paths of one object.
@@ -794,7 +786,9 @@ func (r *Reconciler) sync(ctx context.Context, obj reconcile.ManagedObject, sc s
 		return ctrl.Result{RequeueAfter: r.poll()}, nil
 	}
 
-	prevWO, woKnown := parseWriteOnlyHash(r.lastWriteOnly(obj, id))
+	last := r.lastWriteOnly(obj, id)
+	obj.GetResourceStatus().WriteOnlyHash = last // the status may not show it yet (its write conflicted)
+	prevWO, woKnown := parseWriteOnlyHash(last)
 	if imm := r.immutableChanges(desired, obs, prevWO, woKnown); len(imm) > 0 {
 		reconcile.MarkImmutable(obj, fmt.Sprintf("immutable fields cannot be changed after creation: %s (recreate the object to change them)",
 			strings.Join(imm, ", ")))

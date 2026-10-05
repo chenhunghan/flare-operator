@@ -62,9 +62,26 @@ previous reconcile's writes builds its status from it, and its status merge patc
 replaces the whole conditions list) could put an older Ready=False back over a newer
 Ready=True, while a later reconcile whose stale copy already showed the right status would skip
 the write that repairs it; since the watches ignore status-only changes, nothing corrected it
-before the resync. Every reconciler but CloudflareAccount's (which has its own check) therefore
-remembers the resourceVersion it last finished with and reads the object uncached when the
-cache serves a different one (`reconcile.Views`; `TestPagesProjectStaleCacheKeepsReadyStatus`).
+before the resync. Every status write (every reconciler, CloudflareAccount's included) is
+therefore optimistically locked (`reconcile.PatchStatus`): it carries the resourceVersion of the
+copy it was built from, advanced only by the reconcile's own metadata writes that found the
+object at that version, so a write from a stale copy fails with a Conflict instead. The Conflict
+is not reported (no error log, no condition, which would need another write from the same copy):
+the object is requeued (`reconcile.StatusWritten`) and rebuilt from a newer copy, after 200 ms,
+doubling per consecutive Conflict of the object up to a minute (a cache that does not catch
+up, or a writer that keeps changing the object, must not make it re-observe Cloudflare several
+times a second); a write that lands resets it. The
+create-pending and ownership records, which must land on any copy, are tried with the lock first
+and, on a Conflict, written without it; the copy then keeps its old resourceVersion, so its later
+locked writes conflict. What a reconcile applied in Cloudflare is kept in memory (the `applied`
+records) and copied into the next status, so a conflicted status write does not make the retry
+apply again or lose the record (`TestPagesProjectStaleCacheKeepsReadyStatus`,
+`TestStaleCopyStatusWriteConflicts`, `TestPatchStatusStaleBase`). This replaces an earlier
+per-reconciler memory of the last resourceVersion written (`reconcile.Views`), which was lost on
+a restart, did not cover CloudflareAccount, and cost an uncached read after every external write.
+One case stays: a reconcile whose stale copy already shows the status it computes writes
+nothing, although a newer stored status says otherwise; that needs the observed state to revert
+within the cache lag, and the next poll repairs it.
 WorkerScript's key also carries the hashes of the content, settings and secrets it uploaded, so
 the adopted script is not uploaded again. With tagging, a readable owner tag naming another
 object still wins (NameConflict).

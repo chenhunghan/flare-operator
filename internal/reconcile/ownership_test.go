@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
@@ -211,13 +212,67 @@ func TestRecordCreatedStaleObject(t *testing.T) {
 	if _, ok := a[reconcile.AnnotationLegacyCreatedByUID]; ok {
 		t.Errorf("legacy created-by-uid kept: %v", a)
 	}
-	if w.ResourceVersion != stored.ResourceVersion {
-		t.Errorf("resourceVersion not refreshed: %s, stored %s", w.ResourceVersion, stored.ResourceVersion)
+	// w was stale: it keeps its resourceVersion, so a later optimistically locked write from it
+	// (a finalizer, the status) conflicts instead of overwriting what w does not show.
+	if w.ResourceVersion != stale.ResourceVersion || w.ResourceVersion == stored.ResourceVersion {
+		t.Errorf("resourceVersion %s, want the stale %s (stored %s)", w.ResourceVersion, stale.ResourceVersion, stored.ResourceVersion)
 	}
 	// Idempotent.
 	rv := w.ResourceVersion
 	if err := reconcile.RecordCreated(ctx, kube, w, "cf-1"); err != nil || w.ResourceVersion != rv {
 		t.Errorf("second RecordCreated wrote (err %v)", err)
+	}
+}
+
+// Two consecutive unlocked fallback writes from one stale copy (MarkCreatePending, then
+// RecordCreated, as around a create): both land, and the copy keeps its old resourceVersion
+// through both, so a later locked write from it (the status) still conflicts.
+func TestConsecutiveFallbackWritesKeepStaleResourceVersion(t *testing.T) {
+	ctx := context.Background()
+	w := widget(nil, "")
+	w.UID = "uid-twice"
+	kube := newKube(t, w)
+	if err := kube.Get(ctx, client.ObjectKeyFromObject(w), w); err != nil {
+		t.Fatal(err)
+	}
+	staleRV := w.ResourceVersion
+	var other Widget // someone else changes the object: w is now stale
+	if err := kube.Get(ctx, client.ObjectKeyFromObject(w), &other); err != nil {
+		t.Fatal(err)
+	}
+	other.Labels = map[string]string{"team": "blue"}
+	if err := kube.Update(ctx, &other); err != nil {
+		t.Fatal(err)
+	}
+	base := w.DeepCopyObject().(*Widget)
+
+	if err := reconcile.MarkCreatePending(ctx, kube, w, "name"); err != nil {
+		t.Fatalf("MarkCreatePending on a stale copy: %v", err)
+	}
+	if w.ResourceVersion != staleRV {
+		t.Fatalf("after the first fallback write: resourceVersion %s, want the stale %s", w.ResourceVersion, staleRV)
+	}
+	if _, ok := reconcile.PendingCreate(w); !ok || w.Labels["team"] != "blue" {
+		t.Fatalf("the first fallback write did not refresh the metadata: %v %v", w.Annotations, w.Labels)
+	}
+	if err := reconcile.RecordCreated(ctx, kube, w, "cf-2"); err != nil {
+		t.Fatalf("RecordCreated on a stale copy: %v", err)
+	}
+	if w.ResourceVersion != staleRV {
+		t.Fatalf("after the second fallback write: resourceVersion %s, want the stale %s", w.ResourceVersion, staleRV)
+	}
+	var stored Widget
+	if err := kube.Get(ctx, client.ObjectKeyFromObject(w), &stored); err != nil {
+		t.Fatal(err)
+	}
+	if !reconcile.HasOwnershipProof(&stored, "cf-2") || stored.Labels["team"] != "blue" {
+		t.Fatalf("stored annotations %v labels %v", stored.Annotations, stored.Labels)
+	}
+	if _, pending := reconcile.PendingCreate(&stored); pending {
+		t.Fatalf("RecordCreated kept the create-pending record: %v", stored.Annotations)
+	}
+	if err := reconcile.PatchStatus(ctx, kube, w, base); !apierrors.IsConflict(err) {
+		t.Fatalf("a status write from the stale copy after two fallback writes: %v, want a Conflict", err)
 	}
 }
 

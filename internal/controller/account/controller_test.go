@@ -277,3 +277,97 @@ func TestTransientErrorKeepsReady(t *testing.T) {
 		t.Errorf("a transient 503 must not clear Ready: %s", rd)
 	}
 }
+
+// A reconciler with no record of the account's last status write (a restarted manager)
+// starts from a copy older than that write, as a lagging cache serves it, while a verify fails
+// transiently. The status it builds from that copy has no Ready to keep and would put
+// Ready=False over the stored Ready=True; the status write is preconditioned on the copy's
+// resourceVersion (reconcile.PatchStatus), so it conflicts instead, quietly (a short requeue,
+// no error), and the stored status is left alone.
+func TestStaleCopyStatusWriteConflicts(t *testing.T) {
+	e := testenv.Require(t, env)
+	ns := e.Namespace(t)
+	ctx := testenv.Context(t, time.Minute)
+	a := e.CreateAccount(t, ns, "restart", testenv.AccountOptions{RateLimit: &cloudflarev1alpha1.RateLimitSpec{
+		RequestsPerFiveMinutes: 300000, Burst: 1000, MaxRetries: ptr.To[int32](0)}}) // one GET per verify
+	key := client.ObjectKeyFromObject(a.CloudflareAccount)
+	direct, err := client.NewWithWatch(e.Config, client.Options{Scheme: e.Scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var (
+		snap  *cloudflarev1alpha1.CloudflareAccount // the account as the finalizer patch left it
+		stale *cloudflarev1alpha1.CloudflareAccount // non-nil: a Get of the account returns this copy
+	)
+	c := interceptor.NewClient(direct, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, k client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if acct, ok := obj.(*cloudflarev1alpha1.CloudflareAccount); ok && stale != nil && k == key {
+				stale.DeepCopyInto(acct)
+				return nil
+			}
+			return c.Get(ctx, k, obj, opts...)
+		},
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			err := c.Patch(ctx, obj, patch, opts...)
+			if acct, ok := obj.(*cloudflarev1alpha1.CloudflareAccount); ok && err == nil {
+				snap = acct.DeepCopy()
+			}
+			return err
+		},
+	})
+	newReconciler := func() *account.Reconciler {
+		return &account.Reconciler{Client: c,
+			Accounts: reconcile.NewAccounts(c, reconcile.WithBaseURLPolicy(reconcile.BaseURLPolicy{AllowAny: true}))}
+	}
+	req := ctrl.Request{NamespacedName: key}
+	live := func() *cloudflarev1alpha1.CloudflareAccount {
+		t.Helper()
+		var acct cloudflarev1alpha1.CloudflareAccount
+		if err := e.Client.Get(ctx, key, &acct); err != nil {
+			t.Fatal(err)
+		}
+		return &acct
+	}
+	ready := func(acct *cloudflarev1alpha1.CloudflareAccount) string {
+		c := meta.FindStatusCondition(acct.Status.Conditions, commonv1alpha1.ConditionReady)
+		if c == nil {
+			return "<none>"
+		}
+		return string(c.Status) + "/" + c.Reason
+	}
+	readyTrue := "True/" + commonv1alpha1.ReasonAvailable
+
+	// One reconcile adds the finalizer (snap) and writes Ready=True.
+	if _, err := newReconciler().Reconcile(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	stored := live()
+	if got := ready(stored); got != readyTrue {
+		t.Fatalf("Ready after the first verify: %s", got)
+	}
+	if snap == nil || snap.ResourceVersion == stored.ResourceVersion || len(snap.Status.Conditions) != 0 {
+		t.Fatalf("no copy from before the status write: %+v", snap)
+	}
+	if err := e.Control.InjectFault(ctx, fake.Fault{Method: "GET", PathRegex: "^/accounts/" + a.AccountID + "/tokens/verify$",
+		Status: 503, Code: 10000, Message: "maintenance"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = e.Control.ClearFaults(testenv.Context(t, 10*time.Second)) })
+
+	stale = snap
+	before := verifies(t, e, a.AccountID)
+	res, err := newReconciler().Reconcile(ctx, req) // a fresh reconciler: no memory of the write
+	if err != nil || res.RequeueAfter != reconcile.StatusConflictRetry {
+		t.Errorf("reconcile from a stale copy: %+v, %v; want a quiet requeue after %s", res, err, reconcile.StatusConflictRetry)
+	}
+	if n := verifies(t, e, a.AccountID); n != before+1 {
+		t.Fatalf("%d verifies from the stale copy, want 1 (the test must exercise the status write)", n-before)
+	}
+	got := live()
+	if r := ready(got); r != readyTrue {
+		t.Errorf("a status built from a stale copy replaced Ready=True: %s", r)
+	}
+	if got.ResourceVersion != stored.ResourceVersion {
+		t.Errorf("the stale reconcile wrote the account (resourceVersion %s → %s)", stored.ResourceVersion, got.ResourceVersion)
+	}
+}

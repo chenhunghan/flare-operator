@@ -290,14 +290,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	r.noteHeldSecret(ctx, &acct)
 	r.markSecretSync(&acct, serr)
 	if !equality.Semantic.DeepEqual(base.Status, acct.Status) {
-		if err := r.Status().Patch(ctx, &acct, client.MergeFrom(base)); err != nil {
+		if err := reconcile.PatchStatus(ctx, r.Client, &acct, base); err != nil {
 			// The verify's result was not written: the retry must verify (and write) again,
 			// not take the schedule as done.
 			r.clearSchedule(req.NamespacedName)
-			if apierrors.IsNotFound(err) {
-				return ctrl.Result{}, nil
-			}
-			return ctrl.Result{}, err
+			return reconcile.StatusWritten(ctx, ctrl.Result{}, nil, err)
 		}
 	}
 	if serr != nil {
@@ -425,12 +422,9 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, acct *cloudflarev1alph
 		r.setCond(acct, commonv1alpha1.ConditionSynced, metav1.ConditionFalse, reason, msg)
 	}
 	if !equality.Semantic.DeepEqual(base.Status, acct.Status) {
-		if err := r.Status().Patch(ctx, acct, client.MergeFrom(base)); err != nil {
+		if err := reconcile.PatchStatus(ctx, r.Client, acct, base); err != nil {
 			r.clearSchedule(nn) // not written: verify again on the retry
-			if apierrors.IsNotFound(err) {
-				return ctrl.Result{}, nil
-			}
-			return ctrl.Result{}, err
+			return reconcile.StatusWritten(ctx, ctrl.Result{}, nil, err)
 		}
 	}
 	if uerr != nil {

@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -209,29 +210,72 @@ func ClearCreatePending(ctx context.Context, c client.Client, mg ManagedObject) 
 	return patchAnnotations(ctx, c, mg, map[string]any{AnnotationCreatePending: nil})
 }
 
-// patchAnnotations merge-patches annotations (nil deletes) with mg's UID as precondition and
-// refreshes mg's metadata (resourceVersion, annotations, labels, finalizers) from the answer;
-// generation, spec and in-memory status are kept.
+// patchAnnotations merge-patches annotations (nil deletes) with mg's UID as precondition
+// (patchMetadata).
 func patchAnnotations(ctx context.Context, c client.Client, mg ManagedObject, ann map[string]any) error {
-	meta := map[string]any{"annotations": ann}
+	if err := patchMetadata(ctx, c, mg, map[string]any{"annotations": ann}); err != nil {
+		return fmt.Errorf("annotate %s/%s: %w", mg.GetNamespace(), mg.GetName(), err)
+	}
+	return nil
+}
+
+// errReplaced is returned by patchMetadata when the object was replaced by a namesake.
+var errReplaced = errors.New("the object was replaced")
+
+// patchMetadata merge-patches meta (a metadata object) onto mg whatever the stored object's
+// resourceVersion: these writes (the create-pending and ownership records) must land even
+// when mg is a stale cache copy. mg's UID is a precondition (the API server refuses to change
+// metadata.uid, so a namesake object that replaced mg is never written). mg's annotations,
+// labels and finalizers are refreshed from the answer; its generation, spec and in-memory
+// status are kept.
+//
+// mg's resourceVersion advances only when the stored object was at it (the patch is tried
+// with that precondition first): mg's content then still is the stored object's plus this
+// write. Otherwise it keeps the old one, so the reconcile's later optimistically locked writes
+// (finalizers, PersistExternalID, the status: PatchStatus) fail with a Conflict instead of
+// overwriting what mg does not show.
+//
+// After that unlocked fallback mg is mixed: its annotations, labels and finalizers are the
+// stored object's (newer), while its spec, generation, status and resourceVersion are still
+// the stale copy's. That is safe only because every later write from mg in the reconcile is
+// optimistically locked (or is another patchMetadata, which keeps the old resourceVersion
+// too): none of them can land with mg's stale content, and the requeue starts from a newer
+// copy. An unlocked write of anything else from mg would not be safe.
+func patchMetadata(ctx context.Context, c client.Client, mg ManagedObject, meta map[string]any) error {
 	if uid := mg.GetUID(); uid != "" {
 		meta["uid"] = string(uid)
 	}
-	data, err := json.Marshal(map[string]any{"metadata": meta})
-	if err != nil {
-		return err
+	send := func(cp client.Object, rv string) error {
+		m := meta
+		if rv != "" {
+			m = maps.Clone(meta)
+			m["resourceVersion"] = rv
+		}
+		data, err := json.Marshal(map[string]any{"metadata": m})
+		if err != nil {
+			return err
+		}
+		return c.Patch(ctx, cp, client.RawPatch(types.MergePatchType, data))
 	}
 	cp, ok := mg.DeepCopyObject().(client.Object)
 	if !ok {
 		panic("reconcile: DeepCopyObject did not return a client.Object")
 	}
-	if err := c.Patch(ctx, cp, client.RawPatch(types.MergePatchType, data)); err != nil {
+	rv := mg.GetResourceVersion()
+	err := send(cp, rv)
+	current := err == nil
+	if rv != "" && apierrors.IsConflict(err) {
+		err = send(cp, "")
+	}
+	if err != nil {
 		return err
 	}
 	if cp.GetUID() != mg.GetUID() {
-		return fmt.Errorf("annotate %s/%s: the object was replaced (UID %s, want %s)", mg.GetNamespace(), mg.GetName(), cp.GetUID(), mg.GetUID())
+		return fmt.Errorf("%w (UID %s, want %s)", errReplaced, cp.GetUID(), mg.GetUID())
 	}
-	mg.SetResourceVersion(cp.GetResourceVersion())
+	if current {
+		mg.SetResourceVersion(cp.GetResourceVersion())
+	}
 	mg.SetAnnotations(cp.GetAnnotations())
 	mg.SetLabels(cp.GetLabels())
 	mg.SetFinalizers(cp.GetFinalizers())
