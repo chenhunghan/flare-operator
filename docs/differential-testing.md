@@ -26,8 +26,8 @@ Each mismatch is recorded as a **known discrepancy**. It becomes a skipped subte
 
 | Client | Version | Source for citations | How it is pointed at flarefake |
 |---|---|---|---|
-| wrangler | 4.143.0 (npm, locked tree) | cloudflare/workers-sdk tag `wrangler@4.143.0` = `3bdcd0d` | `CLOUDFLARE_API_BASE_URL=<fake>/client/v4`. The override is defined in `packages/workers-utils/src/environment-variables/misc-variables.ts#L153-L166` (`getCloudflareApiBaseUrl`); `CF_API_BASE_URL` is its deprecated alias. |
-| cloudflare-go | v7.11.0 (`3da6607`), the current major | module cache | `option.WithBaseURL(<fake>/client/v4)`, `option.WithMaxRetries(0)` |
+| wrangler | 4.147.0 (npm, locked tree) | cloudflare/workers-sdk tag `wrangler@4.147.0` = `64c1337` | `CLOUDFLARE_API_BASE_URL=<fake>/client/v4`. The override is defined in `packages/workers-utils/src/environment-variables/misc-variables.ts#L153-L166` (`getCloudflareApiBaseUrl`); `CF_API_BASE_URL` is its deprecated alias. |
+| cloudflare-go | v7.12.0 (`05ca1e4`), the current major | module cache | `option.WithBaseURL(<fake>/client/v4)`, `option.WithMaxRetries(0)` |
 | cloudflared | 2026.9.3 (release binary, sha256 = GitHub asset digest) | cloudflare/cloudflared tag `2026.9.3` | `TUNNEL_API_URL` (hidden `--api-url` flag, `cmd/cloudflared/tunnel/cmd.go#L737-L743`), plus a generated origin cert (`TUNNEL_ORIGIN_CERT`) holding the fake token |
 
 Every client gets a fake token (`harness.Token`) and account (`harness.AccountID`). flarefake runs in open token mode.

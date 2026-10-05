@@ -3,8 +3,8 @@
 package pagesdeployment
 
 // mimeTypes is mime@3.0.0's extension → type table (mime.getType), as bundled in wrangler
-// (SOURCED, relies: wrangler@4.143.0:wrangler-dist/cli.js#L298474 (types/standard.js) and
-// #L298482 (types/other.js)).
+// (SOURCED, relies: wrangler@4.147.0:wrangler-dist/cli.js#L300452 (types/standard.js) and
+// #L300460 (types/other.js)).
 var mimeTypes = map[string]string{
 	"123":                      "application/vnd.lotus-1-2-3",
 	"1km":                      "application/vnd.1000minds.decision-model+xml",

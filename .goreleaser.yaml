@@ -107,7 +107,7 @@ dockers_v2:
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .CommitDate }}"
-      org.opencontainers.image.base.name: gcr.io/distroless/static-debian12:nonroot
+      org.opencontainers.image.base.name: gcr.io/distroless/static-debian13:nonroot
       org.opencontainers.image.source: https://github.com/chenhunghan/flare-operator
       org.opencontainers.image.licenses: Apache-2.0
   - id: flarefake
@@ -127,7 +127,7 @@ dockers_v2:
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .CommitDate }}"
-      org.opencontainers.image.base.name: gcr.io/distroless/static-debian12:nonroot
+      org.opencontainers.image.base.name: gcr.io/distroless/static-debian13:nonroot
       org.opencontainers.image.source: https://github.com/chenhunghan/flare-operator
       org.opencontainers.image.licenses: Apache-2.0
 

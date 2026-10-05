@@ -2,7 +2,7 @@
 # flarefake: the Cloudflare API emulator (cmd/flarefake) for e2e tests, with the pinned OpenAPI
 # spec baked in at /spec/openapi.json.gz for request validation. Multi-arch like ./Dockerfile.
 # Keep in step with the toolchain directive in go.mod (govulncheck: stdlib fixes).
-ARG GO_VERSION=1.26.8
+ARG GO_VERSION=1.27.1
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
 ARG TARGETOS=linux
@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     go build -trimpath -ldflags="-s -w -X github.com/chenhunghan/flare-operator/internal/version.Version=${VERSION} -X github.com/chenhunghan/flare-operator/internal/version.Commit=${COMMIT} -X github.com/chenhunghan/flare-operator/internal/version.Date=${BUILD_DATE}" \
     -o /out/flarefake ./cmd/flarefake
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian13:nonroot
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
@@ -35,7 +35,7 @@ LABEL org.opencontainers.image.title="flarefake" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.base.name="gcr.io/distroless/static-debian12:nonroot"
+      org.opencontainers.image.base.name="gcr.io/distroless/static-debian13:nonroot"
 COPY --from=build /out/flarefake /flarefake
 # spec/LOCK records the spec's source and sha256; ship it for traceability. spec/LICENSE is the
 # spec's own license (BSD-3-Clause, Cloudflare).

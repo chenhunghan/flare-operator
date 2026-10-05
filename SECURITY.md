@@ -149,7 +149,7 @@ without authentication; it exposes only controller-runtime metrics, no tokens. S
   runs staticcheck (pinned v0.8.1, 2026.1.1). Both run in `make ci` and in the CI workflow. The
   Go toolchain is pinned by the `toolchain` directive in `go.mod` and by `GO_VERSION` in the
   Dockerfiles. Raise both when govulncheck reports a standard-library fix.
-- Images are built on `gcr.io/distroless/static-debian12:nonroot` with `CGO_ENABLED=0`,
+- Images are built on `gcr.io/distroless/static-debian13:nonroot` with `CGO_ENABLED=0`,
   `-trimpath`, and OCI labels (`org.opencontainers.image.*`: version, revision, created,
   source, base name). `make docker-buildx` adds a BuildKit SPDX SBOM and minimal provenance
   attestations. `make sbom` writes SPDX SBOMs, with syft when it is installed. The release

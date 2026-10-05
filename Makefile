@@ -27,9 +27,9 @@ GOVULNCHECK ?= $(LOCALBIN)/govulncheck
 # controller-tools v0.22 / controller-runtime v0.25 match k8s.io/* v0.37 in go.mod
 # (controller-gen@latest failed with a klog error against apimachinery v0.37).
 CONTROLLER_TOOLS_VERSION ?= v0.22.0
-SETUP_ENVTEST_VERSION ?= v0.25.1
+SETUP_ENVTEST_VERSION ?= v0.25.2
 # Static analysis and vulnerability scanning (make lint-static vulncheck). staticcheck
-# v0.8.1 = 2026.1.1; both need Go >= 1.26.
+# v0.8.1 = 2026.2.1; both need Go >= 1.26.
 STATICCHECK_VERSION ?= v0.8.1
 GOVULNCHECK_VERSION ?= v1.8.0
 ENVTEST_K8S_VERSION ?= 1.37.0
@@ -155,17 +155,22 @@ ci:
 	$(MAKE) release-check
 	$(MAKE) conformance
 
-# go-install-tool installs a versioned binary ($1-$3) and points $1 at it, so bumping a
-# version re-installs.
+# The Go toolchain go.mod selects (its toolchain directive). Tools are built with it, not
+# with whatever go is on PATH: `go install pkg@version` ignores go.mod, and staticcheck and
+# govulncheck can't load code that needs a newer Go than the one they were built with.
+GO_TOOLCHAIN := $(shell go env GOVERSION)
+
+# go-install-tool installs a versioned binary ($1-$3-<toolchain>) and points $1 at it, so
+# bumping a tool version or the toolchain re-installs.
 define go-install-tool
-@[ -f "$(1)-$(3)" ] || { \
+@[ -f "$(1)-$(3)-$(GO_TOOLCHAIN)" ] || { \
 	set -e; \
-	echo "Installing $(2)@$(3)"; \
+	echo "Installing $(2)@$(3) with $(GO_TOOLCHAIN)"; \
 	rm -f $(1); \
-	GOBIN=$(LOCALBIN) go install $(2)@$(3); \
-	mv $(1) $(1)-$(3); \
+	GOBIN=$(LOCALBIN) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install $(2)@$(3); \
+	mv $(1) $(1)-$(3)-$(GO_TOOLCHAIN); \
 }; \
-ln -sf $(notdir $(1))-$(3) $(1)
+ln -sf $(notdir $(1))-$(3)-$(GO_TOOLCHAIN) $(1)
 endef
 
 .PHONY: generate-crds generate-check api-docs api-docs-check
@@ -204,7 +209,7 @@ KUBECTL ?= kubectl
 KUBECONFORM ?= $(shell command -v kubeconform 2>/dev/null)
 # Pinned Kubernetes schema version and a local schema cache, so helm-lint does not depend on
 # fetching the moving "master" schemas on every run.
-KUBECONFORM_K8S_VERSION ?= 1.36.0
+KUBECONFORM_K8S_VERSION ?= 1.37.1
 KUBECONFORM_CACHE ?= $(HOME)/.cache/flare-operator/kubeconform
 
 # Version stamp (internal/version) for local builds, the images and .goreleaser.yaml.
@@ -429,7 +434,7 @@ live: envtest    ## run test/live (skips unless FLARE_LIVE=1; see test/live/live
 ## is skipped. The versions must match test/differential/versions.go (checked by make test).
 .PHONY: differential differential-tools asset-mime
 DIFF_CACHE ?= $(HOME)/.cache/flare-operator/differential
-WRANGLER_VERSION ?= 4.143.0
+WRANGLER_VERSION ?= 4.147.0
 CLOUDFLARED_VERSION ?= 2026.9.3
 # Set to a directory to write every client's captured requests there as JSON.
 FLARE_DIFF_CAPTURE_DIR ?=
