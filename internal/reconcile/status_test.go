@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -122,5 +123,67 @@ func TestStatusWritten(t *testing.T) {
 				t.Fatalf("got %+v, %v", res, err)
 			}
 		})
+	}
+}
+
+// Consecutive status write Conflicts of one object back off (doubling from
+// StatusConflictRetry up to MaxStatusConflictRetry), quietly; a write that lands resets it.
+// Another object's Conflicts do not count.
+func TestStatusConflictBackoff(t *testing.T) {
+	ctx := context.Background()
+	w := widget(nil, "")
+	w.UID = "uid-backoff"
+	other := widget(nil, "")
+	other.Name, other.UID = "other", "uid-other"
+	kube := newKube(t, w, other)
+	read := func(o *Widget) *Widget {
+		t.Helper()
+		cp := &Widget{}
+		if err := kube.Get(ctx, client.ObjectKeyFromObject(o), cp); err != nil {
+			t.Fatal(err)
+		}
+		return cp
+	}
+	staleW, staleOther := read(w), read(other)
+	for _, o := range []*Widget{w, other} { // the stored objects move on
+		cur := read(o)
+		base := cur.DeepCopyObject().(*Widget)
+		cur.Status.Note = "newer"
+		if err := reconcile.PatchStatus(ctx, kube, cur, base); err != nil {
+			t.Fatal(err)
+		}
+	}
+	conflict := func(stale *Widget) time.Duration {
+		t.Helper()
+		obj := stale.DeepCopyObject().(*Widget)
+		obj.Status.Note = "stale"
+		res, err := reconcile.StatusWritten(ctx, ctrl.Result{RequeueAfter: time.Hour}, nil, reconcile.PatchStatus(ctx, kube, obj, stale))
+		if err != nil {
+			t.Fatalf("a status Conflict was not quiet: %v", err)
+		}
+		return res.RequeueAfter
+	}
+	want := reconcile.StatusConflictRetry
+	for i := range 12 {
+		if got := conflict(staleW); got != want {
+			t.Fatalf("Conflict %d: requeue after %s, want %s", i+1, got, want)
+		}
+		want = min(2*want, reconcile.MaxStatusConflictRetry)
+	}
+	if want != reconcile.MaxStatusConflictRetry {
+		t.Fatalf("the backoff did not reach its cap: %s", want)
+	}
+	if got := conflict(staleOther); got != reconcile.StatusConflictRetry {
+		t.Fatalf("another object's first Conflict: requeue after %s", got)
+	}
+	// A write from a current copy lands and resets the backoff.
+	cur := read(w)
+	base := cur.DeepCopyObject().(*Widget)
+	cur.Status.Note = "current"
+	if err := reconcile.PatchStatus(ctx, kube, cur, base); err != nil {
+		t.Fatal(err)
+	}
+	if got := conflict(staleW); got != reconcile.StatusConflictRetry {
+		t.Fatalf("the first Conflict after a write that landed: requeue after %s", got)
 	}
 }

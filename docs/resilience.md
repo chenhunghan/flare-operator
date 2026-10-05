@@ -67,7 +67,10 @@ therefore optimistically locked (`reconcile.PatchStatus`): it carries the resour
 copy it was built from, advanced only by the reconcile's own metadata writes that found the
 object at that version, so a write from a stale copy fails with a Conflict instead. The Conflict
 is not reported (no error log, no condition, which would need another write from the same copy):
-the object is requeued shortly (`reconcile.StatusWritten`) and rebuilt from a newer copy. The
+the object is requeued (`reconcile.StatusWritten`) and rebuilt from a newer copy, after 200 ms,
+doubling per consecutive Conflict of the object up to a minute (a cache that does not catch
+up, or a writer that keeps changing the object, must not make it re-observe Cloudflare several
+times a second); a write that lands resets it. The
 create-pending and ownership records, which must land on any copy, are tried with the lock first
 and, on a Conflict, written without it; the copy then keeps its old resourceVersion, so its later
 locked writes conflict. What a reconcile applied in Cloudflare is kept in memory (the `applied`

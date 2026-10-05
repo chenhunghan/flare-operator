@@ -234,6 +234,13 @@ var errReplaced = errors.New("the object was replaced")
 // write. Otherwise it keeps the old one, so the reconcile's later optimistically locked writes
 // (finalizers, PersistExternalID, the status: PatchStatus) fail with a Conflict instead of
 // overwriting what mg does not show.
+//
+// After that unlocked fallback mg is mixed: its annotations, labels and finalizers are the
+// stored object's (newer), while its spec, generation, status and resourceVersion are still
+// the stale copy's. That is safe only because every later write from mg in the reconcile is
+// optimistically locked (or is another patchMetadata, which keeps the old resourceVersion
+// too): none of them can land with mg's stale content, and the requeue starts from a newer
+// copy. An unlocked write of anything else from mg would not be safe.
 func patchMetadata(ctx context.Context, c client.Client, mg ManagedObject, meta map[string]any) error {
 	if uid := mg.GetUID(); uid != "" {
 		meta["uid"] = string(uid)
