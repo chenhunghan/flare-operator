@@ -139,10 +139,6 @@ type Reconciler struct {
 	// applied remembers what each object last deployed (object key → appliedState): a reconcile
 	// that reads a stale cache must not deploy twice.
 	applied sync.Map
-
-	// views makes each reconcile start from a copy no older than its own last write
-	// (reconcile.Views).
-	views reconcile.Views
 }
 
 type appliedState struct {
@@ -275,7 +271,7 @@ func (r *Reconciler) referencing(prefix string) handler.MapFunc {
 // Reconcile syncs one PagesDeployment.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var pd pagesv1alpha1.PagesDeployment
-	if err := r.views.Get(ctx, r.Client, r.apiReader(), req.NamespacedName, &pd); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, &pd); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.applied.Delete(req.NamespacedName)
 		}
@@ -293,17 +289,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		res, err = r.sync(ctx, &pd)
 	}
 	if gone {
-		r.views.Forget(req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 	reconcile.SetObservedGeneration(&pd)
-	defer r.views.Done(&pd)
+	var perr error
 	if !equality.Semantic.DeepEqual(base.Status, pd.Status) {
-		if perr := r.Status().Patch(ctx, &pd, client.MergeFrom(base)); perr != nil && !apierrors.IsNotFound(perr) {
-			return ctrl.Result{}, errors.Join(err, perr)
-		}
+		perr = reconcile.PatchStatus(ctx, r.Client, &pd, base)
 	}
-	return res, err
+	return reconcile.StatusWritten(ctx, res, err, perr)
 }
 
 // last returns what pd last deployed: this process's record, else the status.
@@ -493,7 +486,12 @@ func (r *Reconciler) sync(ctx context.Context, pd *pagesv1alpha1.PagesDeployment
 	}
 	switch {
 	case cur != nil && prev.hash == hash:
-		// In sync: follow the deploy stage.
+		// In sync: follow the deploy stage. The status may not show the deployment yet (the
+		// status write of the reconcile that deployed it conflicted): it is taken from prev.
+		pd.Status.ID, pd.Status.DeployedHash = prev.id, prev.hash
+		if prev.digest != nil {
+			pd.Status.Artifact = prev.digest
+		}
 	case cur != nil && !pol.CanUpdate():
 		observeDeployment(pd, cur, canonical)
 		reconcile.MarkAvailable(pd)

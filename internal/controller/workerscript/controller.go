@@ -172,10 +172,6 @@ type Reconciler struct {
 	// from a cache that does not have the status patch yet and must not upload again because of
 	// that. Entries are dropped when the object is finalized or the script is found missing.
 	applied sync.Map
-
-	// views makes each reconcile start from a copy no older than its own last write
-	// (reconcile.Views).
-	views reconcile.Views
 }
 
 // appliedState is what an object last applied to script name.
@@ -378,7 +374,7 @@ func (r *Reconciler) referencing(prefix string) handler.MapFunc {
 // Reconcile syncs one WorkerScript.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var ws workersv1alpha1.WorkerScript
-	if err := r.views.Get(ctx, r.Client, r.apiReader(), req.NamespacedName, &ws); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, &ws); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.applied.Delete(req.NamespacedName)
 		}
@@ -396,17 +392,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		res, err = r.sync(ctx, &ws)
 	}
 	if gone {
-		r.views.Forget(req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 	reconcile.SetObservedGeneration(&ws)
-	defer r.views.Done(&ws)
+	var perr error
 	if !equality.Semantic.DeepEqual(base.Status, ws.Status) {
-		if perr := r.Status().Patch(ctx, &ws, client.MergeFrom(base)); perr != nil && !apierrors.IsNotFound(perr) {
-			return ctrl.Result{}, errors.Join(err, perr)
-		}
+		perr = reconcile.PatchStatus(ctx, r.Client, &ws, base)
 	}
-	return res, err
+	return reconcile.StatusWritten(ctx, res, err, perr)
 }
 
 // last returns what ws last applied to name: this process's record, else the status.

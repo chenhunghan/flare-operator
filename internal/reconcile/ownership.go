@@ -2,11 +2,10 @@ package reconcile
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonv1alpha1 "github.com/chenhunghan/flare-operator/api/common/v1alpha1"
@@ -97,42 +96,26 @@ func RecordOwnership(ctx context.Context, c client.Client, mg ManagedObject, id 
 // Cloudflare. The create cannot be undone, so the ID must not be lost to a Conflict because
 // the object changed in between (a spec edit, a label, another controller): instead of an
 // optimistic lock it sends a merge patch of just these annotations, carrying mg's UID as a
-// precondition (the API server refuses to change metadata.uid), so a namesake object that
-// replaced mg is never annotated. Other metadata is left alone. mg's metadata
-// (resourceVersion, annotations, labels, finalizers) is refreshed from the answer; its
-// generation, spec and in-memory status are kept.
+// precondition (patchMetadata), so a namesake object that replaced mg is never annotated.
+// Other metadata is left alone. mg's annotations, labels and finalizers are refreshed from the
+// answer, and its resourceVersion when mg was current; its generation, spec and in-memory
+// status are kept.
 func RecordCreated(ctx context.Context, c client.Client, mg ManagedObject, id string) error {
 	mg.GetResourceStatus().ID = id
 	if recorded(mg, id) {
 		return nil
 	}
-	meta := map[string]any{"annotations": map[string]any{
+	if err := patchMetadata(ctx, c, mg, map[string]any{"annotations": map[string]any{
 		commonv1alpha1.AnnotationExternalID: id,
 		AnnotationOwnershipProof:            ownershipProofValue(mg, id),
 		AnnotationLegacyCreatedByUID:        nil,
 		AnnotationCreatePending:             nil,
-	}}
-	if uid := mg.GetUID(); uid != "" {
-		meta["uid"] = string(uid)
-	}
-	data, err := json.Marshal(map[string]any{"metadata": meta})
-	if err != nil {
+	}}); err != nil {
+		if errors.Is(err, errReplaced) {
+			return fmt.Errorf("record ownership of %s: %w", id, err)
+		}
 		return err
 	}
-	cp, ok := mg.DeepCopyObject().(client.Object)
-	if !ok {
-		panic("reconcile: DeepCopyObject did not return a client.Object")
-	}
-	if err := c.Patch(ctx, cp, client.RawPatch(types.MergePatchType, data)); err != nil {
-		return err
-	}
-	if cp.GetUID() != mg.GetUID() {
-		return fmt.Errorf("record ownership of %s: the object was replaced (UID %s, want %s)", id, cp.GetUID(), mg.GetUID())
-	}
-	mg.SetResourceVersion(cp.GetResourceVersion())
-	mg.SetAnnotations(cp.GetAnnotations())
-	mg.SetLabels(cp.GetLabels())
-	mg.SetFinalizers(cp.GetFinalizers())
 	return nil
 }
 

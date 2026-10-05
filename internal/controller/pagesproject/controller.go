@@ -137,10 +137,6 @@ type Reconciler struct {
 	// applied remembers what each object last applied (see workerscript: a stale cache must
 	// not make the next reconcile write again).
 	applied sync.Map
-
-	// views makes each reconcile start from a copy no older than its own last write
-	// (reconcile.Views).
-	views reconcile.Views
 }
 
 type appliedState struct {
@@ -328,7 +324,7 @@ func (r *Reconciler) referencing(prefix string) handler.MapFunc {
 // Reconcile syncs one PagesProject.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var pp pagesv1alpha1.PagesProject
-	if err := r.views.Get(ctx, r.Client, r.apiReader(), req.NamespacedName, &pp); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, &pp); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.applied.Delete(req.NamespacedName)
 		}
@@ -346,17 +342,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		res, err = r.sync(ctx, &pp)
 	}
 	if gone {
-		r.views.Forget(req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 	reconcile.SetObservedGeneration(&pp)
-	defer r.views.Done(&pp)
+	var perr error
 	if !equality.Semantic.DeepEqual(base.Status, pp.Status) {
-		if perr := r.Status().Patch(ctx, &pp, client.MergeFrom(base)); perr != nil && !apierrors.IsNotFound(perr) {
-			return ctrl.Result{}, errors.Join(err, perr)
-		}
+		perr = reconcile.PatchStatus(ctx, r.Client, &pp, base)
 	}
-	return res, err
+	return reconcile.StatusWritten(ctx, res, err, perr)
 }
 
 func (r *Reconciler) last(pp *pagesv1alpha1.PagesProject, name string) appliedState {
@@ -567,6 +560,8 @@ func (r *Reconciler) sync(ctx context.Context, pp *pagesv1alpha1.PagesProject) (
 		}
 		pp.Status.ID = name
 		prev := r.last(pp, name)
+		// The status may not show what was applied yet (its write conflicted).
+		pp.Status.SettingsHash, pp.Status.WriteOnlyHash = prev.settings, prev.secrets
 		dr := drift(des, cur)
 		need := des.settingsHash != prev.settings || des.secretsHash != prev.secrets || len(dr) > 0
 		switch {

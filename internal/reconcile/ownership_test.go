@@ -211,8 +211,10 @@ func TestRecordCreatedStaleObject(t *testing.T) {
 	if _, ok := a[reconcile.AnnotationLegacyCreatedByUID]; ok {
 		t.Errorf("legacy created-by-uid kept: %v", a)
 	}
-	if w.ResourceVersion != stored.ResourceVersion {
-		t.Errorf("resourceVersion not refreshed: %s, stored %s", w.ResourceVersion, stored.ResourceVersion)
+	// w was stale: it keeps its resourceVersion, so a later optimistically locked write from it
+	// (a finalizer, the status) conflicts instead of overwriting what w does not show.
+	if w.ResourceVersion != stale.ResourceVersion || w.ResourceVersion == stored.ResourceVersion {
+		t.Errorf("resourceVersion %s, want the stale %s (stored %s)", w.ResourceVersion, stale.ResourceVersion, stored.ResourceVersion)
 	}
 	// Idempotent.
 	rv := w.ResourceVersion

@@ -119,10 +119,6 @@ type Reconciler struct {
 	// APIReader confirms, uncached, that a CloudflareAccount is gone before a finalizer gives
 	// up on its Cloudflare resource (default: Client).
 	APIReader client.Reader
-
-	// views makes each reconcile start from a copy no older than its own last write
-	// (reconcile.Views).
-	views reconcile.Views
 }
 
 // +kubebuilder:rbac:groups=flare.dev,resources=vpcservices,verbs=get;list;watch;update;patch
@@ -189,7 +185,7 @@ func (r *Reconciler) servicesForTunnel(ctx context.Context, o client.Object) []c
 // Reconcile syncs one VPCService.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var vs workersvpcv1alpha1.VPCService
-	if err := r.views.Get(ctx, r.Client, r.apiReader(), req.NamespacedName, &vs); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, &vs); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	base := vs.DeepCopy()
@@ -204,17 +200,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		res, err = r.sync(ctx, &vs)
 	}
 	if gone {
-		r.views.Forget(req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 	reconcile.SetObservedGeneration(&vs)
-	defer r.views.Done(&vs)
+	var perr error
 	if !equality.Semantic.DeepEqual(base.Status, vs.Status) {
-		if perr := r.Status().Patch(ctx, &vs, client.MergeFrom(base)); perr != nil && !apierrors.IsNotFound(perr) {
-			return ctrl.Result{}, errors.Join(err, perr)
-		}
+		perr = reconcile.PatchStatus(ctx, r.Client, &vs, base)
 	}
-	return res, err
+	return reconcile.StatusWritten(ctx, res, err, perr)
 }
 
 func (r *Reconciler) apiReader() client.Reader {

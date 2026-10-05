@@ -158,11 +158,11 @@ func serve(snap *pagesv1alpha1.PagesProject) func(client.Object) {
 // Ready status; the one after that sees the cache caught up with the create's reconcile but not
 // with the second one's writes. Neither may leave a stale status behind: a status computed from
 // the stale copy must not replace the stored Ready=True, and a reconcile whose stale copy
-// already looks right must not skip the write that repairs it. Before reads were checked
-// against the reconciler's last write, the second reconcile's ownership record failed with a
-// Conflict and its status patch (a merge patch of the whole conditions list) dropped Ready; the
-// third found its cached status already Ready and wrote nothing, so the object stayed not Ready
-// until the resync.
+// already looks right must not skip the write that repairs it. Before status writes were
+// optimistically locked (reconcile.PatchStatus), the second reconcile's ownership record failed
+// with a Conflict and its status patch (a merge patch of the whole conditions list) dropped
+// Ready; the third found its cached status already Ready and wrote nothing, so the object
+// stayed not Ready until the resync. Now the second reconcile's status write conflicts too.
 func TestPagesProjectStaleCacheKeepsReadyStatus(t *testing.T) {
 	h, lc, r := startDirect(t)
 	sc := &snapshotClient{LaggingClient: lc}

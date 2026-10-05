@@ -42,8 +42,13 @@ func TestRecordCreatedSurvivesConflict(t *testing.T) {
 	if !reconcile.HasOwnershipProof(obj, "id-1") || obj.GetAnnotations()[commonv1alpha1.AnnotationExternalID] != "id-1" || obj.GetLabels()["team"] != "blue" {
 		t.Errorf("stored annotations %v labels %v", obj.GetAnnotations(), obj.GetLabels())
 	}
-	if stale.GetResourceVersion() != obj.GetResourceVersion() || stale.GetLabels()["team"] != "blue" {
-		t.Errorf("in-memory metadata not refreshed: rv %s (stored %s), labels %v", stale.GetResourceVersion(), obj.GetResourceVersion(), stale.GetLabels())
+	// The labels are refreshed; the resourceVersion is not (stale did not show the concurrent
+	// change), so a later optimistically locked write from stale (the status) conflicts.
+	if stale.GetResourceVersion() == obj.GetResourceVersion() || stale.GetLabels()["team"] != "blue" {
+		t.Errorf("in-memory metadata: rv %s (stored %s), labels %v", stale.GetResourceVersion(), obj.GetResourceVersion(), stale.GetLabels())
+	}
+	if err := reconcile.PatchStatus(h.ctx(), h.e.Client, stale, stale.DeepCopyObject().(reconcile.ManagedObject)); !apierrors.IsConflict(err) {
+		t.Errorf("a status write from the stale copy after RecordCreated: %v, want a Conflict", err)
 	}
 
 	// The object is replaced by a namesake (new UID): the old object's record is refused.
