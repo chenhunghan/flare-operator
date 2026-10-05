@@ -37,7 +37,9 @@ func (f *fixedReader) Get(_ context.Context, key client.ObjectKey, obj client.Ob
 	return nil
 }
 
-func (f *fixedReader) List(context.Context, client.ObjectList, ...client.ListOption) error { return nil }
+func (f *fixedReader) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return nil
+}
 
 func cmAt(rv string, ann map[string]string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "o", ResourceVersion: rv, Annotations: ann}}

@@ -372,4 +372,20 @@ func TestFinalizeAccount(t *testing.T) {
 		t.Errorf("event without a note: %q", e)
 	default:
 	}
+
+	// The cache still shows a usable account that is gone (uncached): gone, nothing returned
+	// to reach Cloudflare with.
+	cached := newKube(t, readyAccount(1, 1, true), tokenSecret("t"))
+	acct, err = reconcile.FinalizeAccount(ctx, reconcile.NewAccounts(cached, policy), newKube(t), rec, deleting(), "Delete", "kept")
+	if acct != nil || err != nil {
+		t.Fatalf("account gone but cached: %v %v", acct, err)
+	}
+	select {
+	case e := <-rec.Events:
+		if !strings.Contains(e, `"acct" no longer exists`) {
+			t.Errorf("event %q", e)
+		}
+	default:
+		t.Error("no ExternalResourceKept event for the account gone but cached")
+	}
 }
