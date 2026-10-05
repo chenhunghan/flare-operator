@@ -155,17 +155,22 @@ ci:
 	$(MAKE) release-check
 	$(MAKE) conformance
 
-# go-install-tool installs a versioned binary ($1-$3) and points $1 at it, so bumping a
-# version re-installs.
+# The Go toolchain go.mod selects (its toolchain directive). Tools are built with it, not
+# with whatever go is on PATH: `go install pkg@version` ignores go.mod, and staticcheck and
+# govulncheck can't load code that needs a newer Go than the one they were built with.
+GO_TOOLCHAIN := $(shell go env GOVERSION)
+
+# go-install-tool installs a versioned binary ($1-$3-<toolchain>) and points $1 at it, so
+# bumping a tool version or the toolchain re-installs.
 define go-install-tool
-@[ -f "$(1)-$(3)" ] || { \
+@[ -f "$(1)-$(3)-$(GO_TOOLCHAIN)" ] || { \
 	set -e; \
-	echo "Installing $(2)@$(3)"; \
+	echo "Installing $(2)@$(3) with $(GO_TOOLCHAIN)"; \
 	rm -f $(1); \
-	GOBIN=$(LOCALBIN) go install $(2)@$(3); \
-	mv $(1) $(1)-$(3); \
+	GOBIN=$(LOCALBIN) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install $(2)@$(3); \
+	mv $(1) $(1)-$(3)-$(GO_TOOLCHAIN); \
 }; \
-ln -sf $(notdir $(1))-$(3) $(1)
+ln -sf $(notdir $(1))-$(3)-$(GO_TOOLCHAIN) $(1)
 endef
 
 .PHONY: generate-crds generate-check api-docs api-docs-check
