@@ -57,6 +57,14 @@ NameConflict (PagesDeployment: deploy it a second time; it now finds the earlier
 its commit hash first). The ownership proof is read with it, so a RecordCreated the cache does
 not show yet counts. The regression tests drive each reconciler on a lagging client
 (`testenv.LaggingClient`).
+The same lag affects the status: a reconcile that starts from a cached copy older than the
+previous reconcile's writes builds its status from it, and its status merge patch (which
+replaces the whole conditions list) could put an older Ready=False back over a newer
+Ready=True, while a later reconcile whose stale copy already showed the right status would skip
+the write that repairs it; since the watches ignore status-only changes, nothing corrected it
+before the resync. Every reconciler but CloudflareAccount's (which has its own check) therefore
+remembers the resourceVersion it last finished with and reads the object uncached when the
+cache serves a different one (`reconcile.Views`; `TestPagesProjectStaleCacheKeepsReadyStatus`).
 WorkerScript's key also carries the hashes of the content, settings and secrets it uploaded, so
 the adopted script is not uploaded again. With tagging, a readable owner tag naming another
 object still wins (NameConflict).

@@ -1,6 +1,7 @@
 package pagesproject_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -121,5 +122,76 @@ func TestPagesProjectStaleCacheMissesRecord(t *testing.T) {
 	if !reconcile.HasOwnershipProof(pp, name) || pp.Status.ID != name {
 		t.Fatalf("the own lost create was not adopted: status.id %q annotations %v %s", pp.Status.ID, pp.Annotations,
 			condOf(pp.Status.Conditions, "Synced"))
+	}
+}
+
+// snapshotClient is a LaggingClient that keeps a copy of the object every Patch answered
+// with: the object as the informer cache would serve it at that resourceVersion (the status
+// subresource is written through Status(), which it does not record).
+type snapshotClient struct {
+	*testenv.LaggingClient
+	snaps []*pagesv1alpha1.PagesProject
+}
+
+func (c *snapshotClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if err := c.LaggingClient.Patch(ctx, obj, patch, opts...); err != nil {
+		return err
+	}
+	if pp, ok := obj.(*pagesv1alpha1.PagesProject); ok {
+		c.snaps = append(c.snaps, pp.DeepCopy())
+	}
+	return nil
+}
+
+// serve returns a lag that serves snap (a whole, older copy of the object) instead of the
+// stored object: an informer cache that has not seen the reconciler's latest writes yet.
+func serve(snap *pagesv1alpha1.PagesProject) func(client.Object) {
+	return func(o client.Object) {
+		if pp, ok := o.(*pagesv1alpha1.PagesProject); ok && pp.UID == snap.UID {
+			*pp = *snap.DeepCopy()
+		}
+	}
+}
+
+// The reconcile that follows a create sees the cache as it was when the create was announced
+// (the create-pending annotation is what queued it), without the recorded ownership or the
+// Ready status; the one after that sees the cache caught up with the create's reconcile but not
+// with the second one's writes. Neither may leave a stale status behind: a status computed from
+// the stale copy must not replace the stored Ready=True, and a reconcile whose stale copy
+// already looks right must not skip the write that repairs it. Before reads were checked
+// against the reconciler's last write, the second reconcile's ownership record failed with a
+// Conflict and its status patch (a merge patch of the whole conditions list) dropped Ready; the
+// third found its cached status already Ready and wrote nothing, so the object stayed not Ready
+// until the resync.
+func TestPagesProjectStaleCacheKeepsReadyStatus(t *testing.T) {
+	h, lc, r := startDirect(t)
+	sc := &snapshotClient{LaggingClient: lc}
+	r.Client = sc
+	name := h.projectName("ready")
+	pp := h.newProject("ready", &pagesv1alpha1.PagesProjectParameters{Name: name, ProductionBranch: "main"}, nil)
+	if err := h.e.ReconcileDirect(t, r, pp); err != nil {
+		t.Fatal(err)
+	}
+	if !ready(pp) {
+		t.Fatalf("the create did not make the object Ready: %s %s", condOf(pp.Status.Conditions, "Ready"), condOf(pp.Status.Conditions, "Synced"))
+	}
+	afterCreate := pp.DeepCopy()
+	var announced *pagesv1alpha1.PagesProject
+	for _, s := range sc.snaps {
+		if _, ok := reconcile.PendingCreate(s); ok {
+			announced = s
+		}
+	}
+	if announced == nil {
+		t.Fatal("the create was not announced")
+	}
+
+	lc.SetLag(serve(announced))
+	_ = h.e.ReconcileDirect(t, r, pp)
+	lc.SetLag(serve(afterCreate))
+	_ = h.e.ReconcileDirect(t, r, pp)
+	lc.SetLag(nil)
+	if !ready(pp) {
+		t.Fatalf("reconciles on a lagging cache left a stale status: %s %s", condOf(pp.Status.Conditions, "Ready"), condOf(pp.Status.Conditions, "Synced"))
 	}
 }

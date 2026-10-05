@@ -131,6 +131,10 @@ type Reconciler struct {
 	// APIReader confirms, uncached, that a CloudflareAccount is gone before a finalizer gives
 	// up on its Cloudflare resource (default: Client).
 	APIReader client.Reader
+
+	// views makes each reconcile start from a copy no older than its own last write
+	// (reconcile.Views).
+	views reconcile.Views
 }
 
 // EventReasonTunnelKept is the reason of the Warning Event recorded when a Tunnel with the
@@ -262,7 +266,7 @@ func (r *Reconciler) tunnelsForService(ctx context.Context, o client.Object) []c
 // Reconcile syncs one Tunnel.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var t tunnelsv1alpha1.Tunnel
-	if err := r.Get(ctx, req.NamespacedName, &t); err != nil {
+	if err := r.views.Get(ctx, r.Client, r.apiReader(), req.NamespacedName, &t); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	base := t.DeepCopy()
@@ -277,9 +281,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		res, err = r.sync(ctx, &t)
 	}
 	if gone {
+		r.views.Forget(req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 	reconcile.SetObservedGeneration(&t)
+	defer r.views.Done(&t)
 	if !equality.Semantic.DeepEqual(base.Status, t.Status) {
 		if perr := r.Status().Patch(ctx, &t, client.MergeFrom(base)); perr != nil && !apierrors.IsNotFound(perr) {
 			return ctrl.Result{}, errors.Join(err, perr)

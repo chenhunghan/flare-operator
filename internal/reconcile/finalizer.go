@@ -163,7 +163,8 @@ func WarnExternalKept(rec events.EventRecorder, obj runtime.Object, action, note
 // FinalizeAccount resolves the CloudflareAccount of mg, which is being finalized and needs
 // Cloudflare to clean up. It is the account step of every kind's finalizer:
 //
-//   - The account is usable: it is returned.
+//   - The account is usable, and reader confirms that it still exists (the cache may show one
+//     that is gone): it is returned.
 //   - The CloudflareAccount does not exist (confirmed through reader: pass an uncached reader
 //     such as the manager's APIReader), or spec.accountRef is empty: nothing can reach
 //     Cloudflare. It returns nil, nil after recording, when keptNote is not "", a Warning event
@@ -179,9 +180,17 @@ func FinalizeAccount(ctx context.Context, accounts *Accounts, reader client.Read
 	name := mg.GetResourceSpec().AccountRef.Name
 	acct, err := accounts.Resolve(ctx, mg)
 	if err == nil {
-		return acct, nil
-	}
-	if name != "" {
+		// Resolve reads the account from the cache, which may still show an account that is
+		// gone (its in-use finalizer removed by hand): confirm it uncached, so that the
+		// finalizer does not reach Cloudflare through an account that no longer exists.
+		var a cloudflarev1alpha1.CloudflareAccount
+		switch gerr := reader.Get(ctx, client.ObjectKey{Namespace: mg.GetNamespace(), Name: name}, &a); {
+		case gerr == nil:
+			return acct, nil
+		case !apierrors.IsNotFound(gerr):
+			return nil, gerr
+		}
+	} else if name != "" {
 		if !IsAccountNotReady(err) {
 			return nil, err
 		}

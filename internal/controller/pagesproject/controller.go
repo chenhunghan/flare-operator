@@ -137,6 +137,10 @@ type Reconciler struct {
 	// applied remembers what each object last applied (see workerscript: a stale cache must
 	// not make the next reconcile write again).
 	applied sync.Map
+
+	// views makes each reconcile start from a copy no older than its own last write
+	// (reconcile.Views).
+	views reconcile.Views
 }
 
 type appliedState struct {
@@ -324,7 +328,7 @@ func (r *Reconciler) referencing(prefix string) handler.MapFunc {
 // Reconcile syncs one PagesProject.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var pp pagesv1alpha1.PagesProject
-	if err := r.Get(ctx, req.NamespacedName, &pp); err != nil {
+	if err := r.views.Get(ctx, r.Client, r.apiReader(), req.NamespacedName, &pp); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.applied.Delete(req.NamespacedName)
 		}
@@ -342,9 +346,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		res, err = r.sync(ctx, &pp)
 	}
 	if gone {
+		r.views.Forget(req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 	reconcile.SetObservedGeneration(&pp)
+	defer r.views.Done(&pp)
 	if !equality.Semantic.DeepEqual(base.Status, pp.Status) {
 		if perr := r.Status().Patch(ctx, &pp, client.MergeFrom(base)); perr != nil && !apierrors.IsNotFound(perr) {
 			return ctrl.Result{}, errors.Join(err, perr)

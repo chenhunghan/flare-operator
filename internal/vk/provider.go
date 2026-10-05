@@ -38,6 +38,13 @@ type Provider struct {
 	now    func() time.Time
 	log    logr.Logger
 
+	// syncMu serializes syncs (compute the status, record it, notify) and OnWorkerScript's
+	// choice of Pods. Unserialized, a sync that read the WorkerScript before a change could
+	// record and notify its stale status after the change's own sync (or record the Pod only
+	// after OnWorkerScript had looked for it), and the Pod kept the stale status until the next
+	// change of its WorkerScript.
+	syncMu sync.Mutex
+
 	mu     sync.Mutex
 	pods   map[types.NamespacedName]*corev1.Pod // last Pod seen, with the status last notified
 	notify func(*corev1.Pod)
@@ -86,6 +93,13 @@ func pendingStatus(pod *corev1.Pod, reason, message string, now time.Time) corev
 // sync records pod with a freshly computed status and notifies the PodController when the
 // status changed (or force is set).
 func (p *Provider) sync(ctx context.Context, pod *corev1.Pod, force bool) error {
+	p.syncMu.Lock()
+	defer p.syncMu.Unlock()
+	return p.syncLocked(ctx, pod, force)
+}
+
+// syncLocked is sync for a caller holding syncMu.
+func (p *Provider) syncLocked(ctx context.Context, pod *corev1.Pod, force bool) error {
 	st, err := p.status(ctx, pod)
 	if err != nil {
 		return err
@@ -121,6 +135,8 @@ func (p *Provider) UpdatePod(ctx context.Context, pod *corev1.Pod) error {
 // so the PodController completes a graceful deletion at once.
 func (p *Provider) DeletePod(_ context.Context, pod *corev1.Pod) error {
 	key := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}
+	p.syncMu.Lock() // a sync in progress must not record the Pod again after this
+	defer p.syncMu.Unlock()
 	p.mu.Lock()
 	known, ok := p.pods[key]
 	if ok && known.UID == pod.UID {
@@ -218,6 +234,8 @@ func (p *Provider) NotifyPods(_ context.Context, cb func(*corev1.Pod)) {
 // OnWorkerScript recomputes the status of the Pods that show the WorkerScript namespace/name
 // (call it from a WorkerScript informer on every add, update and delete).
 func (p *Provider) OnWorkerScript(ctx context.Context, namespace, name string) {
+	p.syncMu.Lock()
+	defer p.syncMu.Unlock()
 	p.mu.Lock()
 	var pods []*corev1.Pod
 	for key, pod := range p.pods {
@@ -230,7 +248,7 @@ func (p *Provider) OnWorkerScript(ctx context.Context, namespace, name string) {
 	}
 	p.mu.Unlock()
 	for _, pod := range pods {
-		if err := p.sync(ctx, pod, false); err != nil {
+		if err := p.syncLocked(ctx, pod, false); err != nil {
 			p.log.Error(err, "recompute stand-in pod status", "pod", client.ObjectKeyFromObject(pod), "workerScript", name)
 		}
 	}

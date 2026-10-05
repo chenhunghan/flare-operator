@@ -216,3 +216,81 @@ func TestWorkerScriptKey(t *testing.T) {
 	}
 	var _ client.Object = ws
 }
+
+// gatedReader reads through client.Reader; while gate is set, a Get of a WorkerScript reads and
+// then waits for the gate to close before it returns (a sync that read the WorkerScript just
+// before it changed).
+type gatedReader struct {
+	client.Reader
+	mu      sync.Mutex
+	gate    chan struct{}
+	entered chan struct{}
+}
+
+func (g *gatedReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	err := g.Reader.Get(ctx, key, obj, opts...)
+	g.mu.Lock()
+	gate, entered := g.gate, g.entered
+	g.gate = nil
+	g.mu.Unlock()
+	if _, ok := obj.(*workersv1alpha1.WorkerScript); ok && gate != nil {
+		close(entered)
+		<-gate
+	}
+	return err
+}
+
+// A sync that read the WorkerScript before it turned Ready must not record and notify its stale
+// Pending status after the Ready change's own sync (OnWorkerScript) notified Running.
+func TestProviderStaleSyncDoesNotWin(t *testing.T) {
+	ctx := context.Background()
+	ws := workerScript("ns", "api", "uid-api", false)
+	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(ws).WithStatusSubresource(&workersv1alpha1.WorkerScript{}).Build()
+	g := &gatedReader{Reader: c}
+	p := NewProvider(g, fakeMapper{}, func() time.Time { return testNow }, logrDiscard())
+	var n notifications
+	p.NotifyPods(ctx, n.add)
+	pod := standInPod(ws, "cf-workers")
+	if err := p.CreatePod(ctx, pod); err != nil {
+		t.Fatal(err)
+	}
+	n.wait(t, 1)
+
+	gate, entered := make(chan struct{}), make(chan struct{})
+	g.mu.Lock()
+	g.gate, g.entered = gate, entered
+	g.mu.Unlock()
+	upd := pod.DeepCopy()
+	upd.Labels["extra"] = "x"
+	stale := make(chan error, 1)
+	go func() { stale <- p.UpdatePod(ctx, upd) }()
+	<-entered // UpdatePod has read the WorkerScript (not Ready)
+
+	ready := ws.DeepCopy()
+	if err := c.Get(ctx, client.ObjectKeyFromObject(ws), ready); err != nil {
+		t.Fatal(err)
+	}
+	meta.SetStatusCondition(&ready.Status.Conditions, metav1.Condition{Type: commonv1alpha1.ConditionReady, Status: metav1.ConditionTrue, Reason: "Available"})
+	if err := c.Status().Update(ctx, ready); err != nil {
+		t.Fatal(err)
+	}
+	changed := make(chan struct{})
+	go func() { p.OnWorkerScript(ctx, "ns", "api"); close(changed) }()
+	select {
+	case <-changed: // without serialization OnWorkerScript notifies Running before UpdatePod ends
+	case <-time.After(100 * time.Millisecond): // serialized: it waits for UpdatePod
+	}
+	close(gate)
+	if err := <-stale; err != nil {
+		t.Fatal(err)
+	}
+	<-changed
+
+	got := n.wait(t, 2)
+	if last := got[len(got)-1]; last.Status.Phase != corev1.PodRunning {
+		t.Fatalf("last notification: phase %s, want Running (a stale sync won)", last.Status.Phase)
+	}
+	if st, err := p.GetPodStatus(ctx, "ns", pod.Name); err != nil || st.Phase != corev1.PodRunning {
+		t.Fatalf("recorded status %v %v, want Running", st, err)
+	}
+}
