@@ -32,7 +32,9 @@ func TestPatchStatusStaleBase(t *testing.T) {
 			set: func(o client.Object, s metav1.ConditionStatus, r string) {
 				reconcile.SetReady(o.(*Widget), s, r, "")
 			},
-			get: func(o client.Object) *metav1.Condition { return reconcile.GetCondition(o.(*Widget), commonv1alpha1.ConditionReady) }},
+			get: func(o client.Object) *metav1.Condition {
+				return reconcile.GetCondition(o.(*Widget), commonv1alpha1.ConditionReady)
+			}},
 		{name: "CloudflareAccount", obj: &cloudflarev1alpha1.CloudflareAccount{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "acct"}},
 			set: func(o client.Object, s metav1.ConditionStatus, r string) {
 				a := o.(*cloudflarev1alpha1.CloudflareAccount)
