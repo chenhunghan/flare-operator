@@ -3,7 +3,7 @@
 # Produces, for a tag vX.Y.Z:
 #   - manager (linux) and flarefake (linux, darwin) binaries for amd64 and arm64, archived,
 #     with checksums and an SPDX SBOM per archive (syft)
-#   - multi-arch images <IMAGE_REGISTRY>/flare-operator and <IMAGE_REGISTRY>/flarefake
+#   - multi-arch images <IMAGE_REGISTRY>/flare-operator (/manager and /workers-vk) and <IMAGE_REGISTRY>/flarefake
 #     (linux/amd64 + linux/arm64) with OCI labels and BuildKit SBOM attestations
 #   - the Helm chart packaged as flare-operator-X.Y.Z.tgz (chart version = appVersion = X.Y.Z)
 #
@@ -33,6 +33,19 @@ builds:
   - id: manager
     main: ./cmd/manager
     binary: manager
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/chenhunghan/flare-operator/internal/version.Version={{ .Version }}
+      - -X github.com/chenhunghan/flare-operator/internal/version.Commit={{ .FullCommit }}
+      - -X github.com/chenhunghan/flare-operator/internal/version.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+  # The Workers virtual kubelet: shipped in the flare-operator image beside /manager.
+  - id: workers-vk
+    main: ./cmd/workers-vk
+    binary: workers-vk
     goos: [linux]
     goarch: [amd64, arm64]
     flags: [-trimpath]
@@ -82,7 +95,7 @@ sboms:
 
 dockers_v2:
   - id: manager
-    ids: [manager]
+    ids: [manager, workers-vk]
     dockerfile: hack/release/Dockerfile.manager
     images: ["{{ .Env.IMAGE_REGISTRY }}/flare-operator"]
     tags: ["{{ .Version }}", "{{ if not .Prerelease }}latest{{ end }}"]

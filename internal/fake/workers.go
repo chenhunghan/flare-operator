@@ -22,9 +22,11 @@ import (
 // the secrets list, the services and Workers-resource reads that wrangler uses are in
 // workers_versions.go.
 //
-// Not emulated yet: tails (0064, 0073…0075, 0139…0141), Workers Observability telemetry and
-// live-tail (0047, 0053, 0054, 0077…0098, 0107, 0115…0138), GET of the script content, secret
-// writes and schedules.
+// The legacy tail (0064, 0073…0075, 0139…0141) is in workers_tail.go and the Workers Logs
+// telemetry query (0054, 0077…0098, 0122…0130) in workers_logs.go.
+//
+// Not emulated yet: telemetry keys/values (0047, 0053), live-tail (0107, 0115…0138), GET of the
+// script content, secret writes and schedules.
 
 type workerScript struct {
 	Name     string
@@ -193,6 +195,7 @@ func (s *Server) registerWorkers() {
 	s.handle(http.MethodDelete, base+"/{script_name}/subdomain", workerSubdomainDelete)
 	s.registerWorkerVersions()
 	s.registerWorkerAssets()
+	s.registerTails() // and the telemetry query (workers_tail.go, workers_logs.go)
 }
 
 // SetWorkerStartupTime sets the startup_time_ms reported by subsequent script uploads. The real

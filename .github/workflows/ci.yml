@@ -110,6 +110,11 @@ jobs:
           restore-keys: envtest-${{ runner.os }}-
       - name: Fetch envtest assets
         run: make envtest
+      # test/chart renders the chart (and its NOTES via `helm install --dry-run=client`, which
+      # helm 3 can't do without a cluster): use the helm the chart is developed with.
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.0.4
       - name: make test
         run: make test
 
@@ -140,6 +145,11 @@ jobs:
           restore-keys: envtest-${{ runner.os }}-
       - name: Fetch envtest assets
         run: make envtest
+      # test/chart renders the chart (and its NOTES via `helm install --dry-run=client`, which
+      # helm 3 can't do without a cluster): use the helm the chart is developed with.
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.0.4
       - name: make test-race
         run: make test-race
 

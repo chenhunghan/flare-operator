@@ -19,6 +19,11 @@ type account struct {
 	// name, and the upload sessions by ID.
 	assets        map[string]*assetStore
 	assetSessions map[string]*assetSession
+	// Workers Logs (workers_logs.go): the telemetry events in arrival order, and per millisecond
+	// the last event ID sequence number used. Tails by ID (workers_tail.go). Created lazily.
+	logs   []*logEvent
+	logSeq map[int64]int
+	tails  map[string]*workerTail
 }
 
 func (s *Server) accountLocked(id string) *account {

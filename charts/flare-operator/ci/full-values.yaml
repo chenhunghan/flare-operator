@@ -1,5 +1,5 @@
 # Rendered by `make helm-lint`: every optional feature on (a PDB through replicas 2, topology
-# spread, NetworkPolicy, ServiceMonitor, flarefake). The API server CIDR is an example value.
+# spread, NetworkPolicy, ServiceMonitor, flarefake, workersLogs). The API server CIDR is an example value.
 replicas: 2
 topologySpreadConstraints:
   - maxSkew: 1
@@ -17,6 +17,20 @@ metrics:
     enabled: true
 flarefake:
   enabled: true
+workersLogs:
+  enabled: true
+  namespaceSelector:
+    matchLabels: {flare.dev/worker-logs: "on"}
+    matchExpressions:
+      - {key: team, operator: In, values: [a, b]}
+      - {key: private, operator: DoesNotExist}
+  podLabels: {team: platform}
+  networkPolicy:
+    kubeletAPIFrom:
+      - namespaceSelector:
+          matchLabels: {kubernetes.io/metadata.name: kube-system}
+        podSelector:
+          matchLabels: {k8s-app: konnectivity-agent}
 
 # clusterName is required and has no default.
 clusterName: ci

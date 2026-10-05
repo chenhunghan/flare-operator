@@ -128,7 +128,7 @@ A validating webhook applies only to Pods that tolerate `virtual-kubelet.io/prov
 
 Applications created by the virtual kubelet carry the tag `flare.dev/managed-by=virtual-kubelet`, and the CRD controllers ignore them.
 
-Workers and Workflows aren't Pods in v0. Optional read-only mirror Pods, whose logs would come from live tail, can come later.
+Workers and Workflows aren't Pods in v0. For Workers, read-only stand-in Pods on a separate virtual node give `kubectl logs` without Containers (Free plan): see [workers-logs-design.md](workers-logs-design.md).
 
 ## 9. Spikes before committing
 
@@ -145,7 +145,7 @@ Spikes S1–S3 decide whether the design holds. If S2 fails, exec is dropped fro
 
 **Results from 2026-09-29** (see [spike-results-2026-09-29.md](spike-results-2026-09-29.md)):
 
-- **Worker logs are solved.** `logs`, `--since`, `--tail` and `-p` work through `telemetry/query`, with 15–30 s ingestion lag. `-f` works through the legacy tail WebSocket, which must be proxied because anyone holding its URL can read the logs.
+- **Worker logs are solved.** `logs`, `--since`, `--tail` and `-p` work through `telemetry/query`, with 15–30 s ingestion lag. `-f` works through the legacy tail WebSocket, which must be proxied because anyone holding its URL can read the logs. The design that turns this into `kubectl logs` for WorkerScripts is [workers-logs-design.md](workers-logs-design.md).
 - **The private-backend path is proven.** Worker → Workers VPC → Tunnel → `cloudflared` works, including `*.svc.cluster.local` hostnames resolved on the `cloudflared` side when `resolver_ips` is set.
 - **All container spikes (S1 for containers, S2–S6) are blocked** because the test account is on the Free plan, and Containers requires Workers Paid.
 

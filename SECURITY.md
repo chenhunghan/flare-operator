@@ -108,6 +108,36 @@ capabilities dropped, and a distroless static base image. This meets the Kuberne
 **restricted** Pod Security Standard, so the release namespace can be labeled
 `pod-security.kubernetes.io/enforce=restricted`.
 
+**Workers logs (`workersLogs.enabled`, off by default).** The Workers virtual kubelet is a
+separate Deployment with its own ServiceAccount and ClusterRole `…-workers-vk`; the manager's
+privileges do not change. Turning it on has two consequences to weigh
+([docs/workers-logs-design.md §10](docs/workers-logs-design.md#10-security-analysis)):
+
+- **Namespace viewers can read Worker logs.** `kubectl logs` on a stand-in Pod needs only
+  `get pods/log` in the WorkerScript's namespace, which the built-in `view`, `edit` and `admin`
+  roles grant. Worker logs can hold client IPs, request headers and URLs and anything the code
+  logs, which until now needed Cloudflare dashboard access. Scope the feature with
+  `workersLogs.namespaceSelector` and opt WorkerScripts out with `flare.dev/stand-in-pod: "false"`.
+  The kubelet API itself admits only callers that pass mTLS against the cluster client CA (or a
+  TokenReview) and a SubjectAccessReview for `nodes/proxy` on the virtual node; a request is
+  resolved only to a WorkerScript of the Pod's own namespace (UID-checked) and that namespace's
+  CloudflareAccount, never from Pod annotations.
+- **Self-approved serving certificates** (`tls.mode: csr`, `tls.csr.approve: true`, the
+  defaults). The ServiceAccount may approve `kubernetes.io/kubelet-serving` CSRs, and RBAC cannot
+  restrict that to one name. A stolen token of that ServiceAccount could get a serving
+  certificate for any node's name and IP and, with a network position between kube-apiserver
+  and a kubelet, impersonate that kubelet (exec and log streams of real Pods). The virtual
+  kubelet approves only CSRs it created for its own node and address, and its token is a
+  short-lived projected token. Set `tls.csr.approve: false` (approve by hand) or use
+  `tls.mode: secret` where this is not acceptable.
+
+Its other grants: create the one virtual Node and manage it by name; Pods (stand-ins) and their
+status cluster-wide; read-only WorkerScripts and CloudflareAccounts; `get` on Secrets (token
+Secrets, never listed or watched, the same power the manager has); namespaces; TokenReviews and
+SubjectAccessReviews; the node Lease in `kube-node-lease`; and reading the cluster client CA
+(`kube-system/extension-apiserver-authentication`). Tail URLs (capability URLs) are kept only in
+memory and never logged.
+
 Network: `networkPolicy.enabled=true` limits the manager to DNS, the API server, HTTPS to
 Cloudflare's published ranges, and the metrics port inbound. The metrics endpoint is plain HTTP
 without authentication; it exposes only controller-runtime metrics, no tokens. See

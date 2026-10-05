@@ -14,6 +14,7 @@ validated by `values.schema.json`; every manager flag in the README's
 - [Health, metrics and logs](#health-metrics-and-logs)
 - [High availability and leader election](#high-availability-and-leader-election)
 - [Network policy](#network-policy)
+- [Worker logs with kubectl](#worker-logs-with-kubectl)
 - [Reconcile tuning and the API budget](#reconcile-tuning-and-the-api-budget)
 - [Rate limiting and HTTP 429](#rate-limiting-and-http-429)
 - [Crash consistency](#crash-consistency)
@@ -296,6 +297,109 @@ Things to know:
   `Synced=False`/`ReconcileError` and a dial or TLS timeout in the message.
 - **cloudflared.** The Tunnel controller writes its own egress NetworkPolicy for each
   `cloudflared` Deployment (see the README). This chart value does not affect it.
+- **Workers logs.** With `workersLogs.enabled`, the Workers virtual kubelet gets its own
+  NetworkPolicy: the same egress, plus ingress to the kubelet API port from
+  `networkPolicy.apiServer.cidrs` and `workersLogs.networkPolicy.kubeletAPIFrom` (see
+  [below](#worker-logs-with-kubectl)).
+
+## Worker logs with kubectl
+
+`workersLogs.enabled=true` (off by default) runs the Workers virtual kubelet: the Deployment
+`<fullname>-workers-vk` (one replica, `Recreate`, leader election on the Lease
+`flare-operator-workers-vk.flare.dev`), the virtual node `workersLogs.nodeName` (`cf-workers`)
+and one stand-in Pod `<name>-worker` per WorkerScript. `kubectl logs` on a stand-in Pod reads the
+Worker's logs from Cloudflare. The manager is not involved and its flags, RBAC and metrics do
+not change. Design: [workers-logs-design.md](workers-logs-design.md).
+
+**Check an installation:**
+
+```sh
+kubectl -n flare-system rollout status deploy/flare-operator-workers-vk
+kubectl get csr --field-selector spec.signerName=kubernetes.io/kubelet-serving   # tls.mode csr: Approved,Issued
+kubectl get node cf-workers                                                       # Ready
+kubectl get pods -A -l flare.dev/stand-in=worker -o wide                          # one per WorkerScript
+kubectl logs -n <ns> <workerscript>-worker --tail=5
+```
+
+**How kube-apiserver reaches it.** The node advertises the virtual kubelet Pod's IP and port
+10250. kube-apiserver dials it directly (or through konnectivity), so it must reach Pod IPs, as
+it must for metrics-server. Where the control plane reaches node IPs but not Pod IPs, set
+`workersLogs.hostNetwork=true`: the node then advertises the host IP and port 10260. With
+`networkPolicy.enabled`, list the API server's addresses in `networkPolicy.apiServer.cidrs` (a
+NetworkPolicy does not reliably admit traffic from the API server host otherwise) and add
+konnectivity agents to `workersLogs.networkPolicy.kubeletAPIFrom`. The policy allows egress to
+Cloudflare through `networkPolicy.cloudflareAPI.cidrs`; with that list empty the install NOTES
+warn that `kubectl logs` will time out unless `networkPolicy.extraEgress` covers Cloudflare.
+Health probes need no rule (they come from the kubelet on the Pod's node, which NetworkPolicy
+always allows). With `hostNetwork: true`, most CNIs do not enforce NetworkPolicy on the Pod at
+all: protect port 10260 on the nodes (host firewall, cloud security groups) instead.
+
+**Stand-in Pod changes.** The placeholder image (`workersLogs.podImage`, default
+`registry.k8s.io/pause:3.10`, never pulled) does not follow operator releases, so an upgrade
+leaves the stand-in Pods untouched; a new `podImage` is patched into the running Pods. A change
+of `nodeName` or `podResources` can only be applied by recreating each Pod; the virtual kubelet
+recreates them at most two per second, so a large cluster converges gradually.
+
+**Serving certificate** (`workersLogs.tls.mode`):
+
+| Mode | Use it when |
+|---|---|
+| `csr` (default) | kube-apiserver verifies kubelet certificates (`--kubelet-certificate-authority`, e.g. k0s), or you don't know. The virtual kubelet requests a `kubernetes.io/kubelet-serving` certificate for `system:node:<node>`; kube-controller-manager signs it. With `tls.csr.approve: true` it approves its own CSR (k0s's approver ignores CSRs from ServiceAccounts); with `false`, run `kubectl certificate approve <csr>` after every virtual kubelet restart, since the Pod IP changes. Managed clusters whose signer refuses non-node requesters (EKS, GKE: UNVERIFIED) need `secret`. |
+| `selfSigned` | kube-apiserver does not verify kubelet certificates (the kubeadm default). metrics-server then needs `--kubelet-insecure-tls`. |
+| `secret` | You issue the certificate (cert-manager with the cluster CA, for example) into `tls.secretName` in the release namespace; its SANs must cover the node address. It is reloaded when the Secret changes. |
+
+The node reports Ready only once a certificate is served. Self-approval is a privilege: see the
+[chart README](../charts/flare-operator/README.md#worker-logs-with-kubectl) and
+[SECURITY.md](../SECURITY.md#in-cluster-privileges).
+
+**API budget.** The virtual kubelet has its own limiter, `workersLogs.apiBudget` (120) requests
+per 5 minutes per token, next to the manager's (`CloudflareAccount` `spec.rateLimit`, default
+1080). Keep the two at or under Cloudflare's 1200. A `kubectl logs` costs one request per 2000
+events (at most `logs.maxEvents`, 10000, so 5); `-f` costs two (create and delete the tail),
+however many people follow the same Worker.
+
+**Connection limits.** The kubelet API bounds what one caller can hold open. Change them with
+`workersLogs.extraArgs`:
+
+| Flag | Default | Limits |
+|---|---|---|
+| `--max-connections` | 1000 | open connections to the kubelet API |
+| `--logs-max-concurrent-requests` | 32 | `kubectl logs` requests without `-f` in flight |
+| `--logs-max-followers-per-script` | 10 | `-f` streams per Worker (Cloudflare also caps tails per Worker) |
+| `--logs-max-followers-per-namespace` | 25 | `-f` streams per namespace |
+| `--logs-write-timeout` | 60s | how long a client may stop reading before its stream ends |
+| `--logs-max-stream-duration` | 4h | the length of one `-f` stream |
+
+Unauthenticated requests are rate-limited per source IP. Token and access reviews use their own
+API client, so a flood of bad tokens can't starve the node's heartbeat.
+
+**Who can read logs** is whoever has `get pods/log` in the WorkerScript's namespace (the
+built-in `view`, `edit` and `admin` roles). Use `workersLogs.namespaceSelector` to limit the
+namespaces, and the WorkerScript annotation `flare.dev/stand-in-pod: "false"` to opt one out.
+
+**Disabling and uninstalling.** `workersLogs.enabled=false` (or `helm uninstall`) deletes the
+Deployment and the ClusterRole `<fullname>-workers-vk`. The virtual Node has an ownerReference
+to that ClusterRole, so the garbage collector deletes it, and the pod garbage collector then
+deletes every stand-in Pod (about 40 s after the node is gone). No hook Job is involved. With
+`rbac.create=false` the chart renders none of the virtual kubelet's RBAC; you create it,
+including the ClusterRole `<fullname>-workers-vk` that owns the Node. Helm then does not delete
+it, so disabling the feature leaves the Node and its stand-in Pods: delete that ClusterRole, or
+`kubectl delete node cf-workers` (the pod garbage collector then removes the Pods). While
+the virtual kubelet is down, the node turns NotReady and `kubectl logs` fails with a connection
+error; the stand-in Pods tolerate the taints and stay.
+
+**Troubleshooting:**
+
+| Symptom | Cause and fix |
+|---|---|
+| Node `cf-workers` missing or NotReady | `kubectl -n flare-system logs deploy/flare-operator-workers-vk`. A pending CSR: approve it, or set `tls.csr.approve`. A Node of that name owned by another release: the virtual kubelet refuses to start; pick another `workersLogs.nodeName`. |
+| `kubectl logs`: `dial tcp <ip>:10250: i/o timeout` or `connection refused` | kube-apiserver cannot reach the Pod IP: a NetworkPolicy (`networkPolicy.apiServer.cidrs`, `kubeletAPIFrom`), a control plane without a route to Pod IPs (`hostNetwork: true`), or the virtual kubelet is down. |
+| `kubectl logs`: `x509: certificate signed by unknown authority` / `tls: failed to verify certificate` | `tls.mode: selfSigned` on a cluster that verifies kubelet certificates: use `csr` or `secret`. |
+| `kubectl logs`: `Forbidden (user=…, verb=get, resource=nodes, subresource=proxy)` | The caller of the kubelet API (kube-apiserver's kubelet client identity, or a bearer token) lacks `nodes/proxy`. On kubeadm it is bound to `system:kubelet-api-admin`; check that binding. |
+| `kubectl logs` shows nothing | Observability is off on the script (`forProvider.observability.enabled`), the events are older than the window (`--since`, 72 h default, 3-day retention on Free), or they are younger than the 15–30 s ingestion lag. |
+| `kubectl logs`: 403 or 429 from Cloudflare | The token lacks `Workers Observability` (history) or `Workers Tail Read` (`-f`), or the budget is spent: raise `workersLogs.apiBudget` and lower the account's `spec.rateLimit`. |
+| No stand-in Pod for a WorkerScript | `kubectl describe workerscript <name>`: `StandInPodFailed` (a quota, LimitRange or admission policy refused it: see `workersLogs.podImage` and `podLabels`) or `StandInPodConflict` (another Pod is called `<name>-worker`). Also check `workersLogs.namespaceSelector` and the opt-out annotation. |
+| A DaemonSet's Pod on `cf-workers` is `Failed`, reason `UnsupportedOnVirtualNode` | The DaemonSet tolerates every taint and selects no OS. Give it the node affinity `type NotIn [virtual-kubelet]`. |
 
 ## Reconcile tuning and the API budget
 

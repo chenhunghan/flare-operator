@@ -213,9 +213,14 @@ LDFLAGS ?= -s -w -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$
 IMAGE_BUILD_ARGS = --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg BUILD_DATE=$(BUILD_DATE) --build-arg SOURCE_URL=$(SOURCE_URL)
 
 .PHONY: build
-build:           ## manager and flarefake binaries into ./bin, version-stamped (bin/manager --version)
+build:           ## manager, workers-vk and flarefake binaries into ./bin, version-stamped (bin/manager --version)
 	go build -trimpath -ldflags="$(LDFLAGS)" -o $(LOCALBIN)/manager ./cmd/manager
+	go build -trimpath -ldflags="$(LDFLAGS)" -o $(LOCALBIN)/workers-vk ./cmd/workers-vk
 	go build -trimpath -ldflags="$(LDFLAGS)" -o $(LOCALBIN)/flarefake ./cmd/flarefake
+
+.PHONY: test-vk
+test-vk: envtest ## the Workers virtual kubelet's tests (internal/vk/..., cmd/workers-vk; envtest)
+	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS)" go test ./internal/vk/... ./cmd/workers-vk/ -count=1
 
 docker-build:    ## manager image $(IMG) for $(PLATFORM)
 	$(CONTAINER_TOOL) build --platform=$(PLATFORM) $(IMAGE_BUILD_ARGS) -f Dockerfile -t $(IMG) .
@@ -359,9 +364,14 @@ e2e-images:      ## build flare-operator, flarefake and the cloudflared stub as 
 		$(CONTAINER_TOOL) save $(E2E_IMAGES) | $(E2E_IMAGE_LOAD); \
 	else echo "E2E_IMAGE_LOAD is empty: images were not loaded into the cluster"; fi
 
-e2e-install:     ## helm install the chart with flarefake into $(E2E_NAMESPACE) (CRDs from the chart)
+# 1: e2e-install also enables `kubectl logs` for Workers (the workers-vk Deployment and its
+# virtual node; chart values ci/workers-logs-values.yaml). 0 installs without it.
+E2E_WORKERS_LOGS ?= 1
+
+e2e-install:     ## helm install the chart with flarefake into $(E2E_NAMESPACE) (CRDs from the chart; workers logs unless E2E_WORKERS_LOGS=0)
 	$(HELM) upgrade --install $(E2E_RELEASE) $(CHART) -n $(E2E_NAMESPACE) --create-namespace --wait --timeout 5m \
-		-f $(CHART)/ci/flarefake-values.yaml --set clusterName=$(E2E_CLUSTER_NAME) \
+		-f $(CHART)/ci/flarefake-values.yaml $(if $(filter 1,$(E2E_WORKERS_LOGS)),-f $(CHART)/ci/workers-logs-values.yaml) \
+		--set clusterName=$(E2E_CLUSTER_NAME) \
 		--set image.repository=flare-operator --set image.tag=$(E2E_TAG) --set image.pullPolicy=$(E2E_PULL_POLICY) \
 		--set flarefake.image.repository=flarefake --set flarefake.image.tag=$(E2E_TAG) --set flarefake.image.pullPolicy=$(E2E_PULL_POLICY)
 
@@ -387,6 +397,7 @@ e2e:             ## run test/e2e against the installed chart (skips without KUBE
 
 e2e-uninstall:   ## helm uninstall, delete the chart's CRDs (Helm keeps them) and $(E2E_NAMESPACE), then remove the e2e images (E2E_IMAGE_REMOVE)
 	-$(HELM) uninstall $(E2E_RELEASE) -n $(E2E_NAMESPACE) --wait
+	kubectl delete csr -l app.kubernetes.io/managed-by=flare-operator-workers-vk --ignore-not-found
 	kubectl delete -f $(CHART)/crds/ --ignore-not-found
 	kubectl delete namespace $(E2E_NAMESPACE) --ignore-not-found --wait
 	@$(MAKE) --no-print-directory e2e-rmi

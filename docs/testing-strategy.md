@@ -58,7 +58,8 @@ So for us, **"API version" means a spec snapshot (the `cloudflare/api-schemas` c
   - It **fails** if a recording hits an emulated route that no scenario replays, if a hook label doesn't exist, or if a queued ID is left over.
   - **Mutation-checked:** 10 of 10 deliberate emulator regressions were caught.
 - **Peer review (2026-09-29):** an independent review found a rate-limiter data race, an overflow in page arithmetic that could wedge the server, a panic when a fault had no status, a wrong queue-list default, filters that were silently ignored, and a user ID left in the recordings. **All are fixed and covered by tests** (`behavior_test.go`, which includes a concurrent test that reproduces the race).
-- **Not yet:** Workers tails, Observability telemetry and live-tail, script content GET, secrets, version upload and gradual deployments, and the resource model generated from `x-fern` annotations. Profiles are hand-declared for now.
+- **Added 2026-10-04:** Workers Logs (the telemetry query's `events` view over an in-memory log store) and the legacy Workers tail with its `trace-v1` WebSocket; see `docs/emulator-fidelity.md` §4.
+- **Not yet:** Observability telemetry keys/values and live-tail, script content GET, secrets, version upload and gradual deployments, and the resource model generated from `x-fern` annotations. Profiles are hand-declared for now.
 
 ### 3.1 Generic engine (driven by the spec)
 
@@ -105,6 +106,7 @@ Anything the spec can't express lives in `internal/fake/profiles/<kind>.go`:
 - **Control time:** set or advance the fake clock, which drives state machines, rate-limit windows and sunsets.
 - **Inspect:** dump state, and a request journal so tests can assert "exactly one create was made" or "no GET per object was made".
 - **Container instances:** crash an instance, set `unhealthy`, emit log lines.
+- **Worker logs:** `POST /_fake/accounts/{account}/workers/{script}/logs` records one invocation (console lines, exception, request, script version): telemetry events queryable after the ingestion lag (`POST /_fake/log_ingestion_lag`, default 0) and a `trace-v1` frame pushed to the script's tails at once. `GET …/tails` and `POST …/tails/disconnect` inspect and drop tail WebSocket connections. Go: `Server.InjectWorkerLogs`, `testenv.FakeControl.InjectWorkerLogs`.
 
 ## 4. API versioning
 

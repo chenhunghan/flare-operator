@@ -19,6 +19,10 @@ import (
 //	POST   /_fake/accounts/{account}/tunnels/{id}/disconnect
 //	POST   /_fake/tokens  Token                DELETE /_fake/tokens   (tokens.go)
 //	GET    /_fake/accounts/{account}/workers/{script}/assets   {"manifest":{path:hash},"config":{…}}
+//	POST   /_fake/accounts/{account}/workers/{script}/logs     WorkerInvocation → InjectedLogs (workers_logs.go)
+//	POST   /_fake/log_ingestion_lag  {"lag":"20s"}
+//	GET    /_fake/accounts/{account}/workers/{script}/tails    []TailSession (workers_tail.go)
+//	POST   /_fake/accounts/{account}/workers/{script}/tails/disconnect   {"disconnected":n}
 func (s *Server) serveControl(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/_fake/"), "/"), "/")
 	writeJSON := func(status int, v any) {
@@ -140,6 +144,40 @@ func (s *Server) serveControl(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(http.StatusOK, map[string]bool{"ok": true})
+
+	case parts[0] == "log_ingestion_lag" && r.Method == http.MethodPost:
+		var req struct {
+			Lag string `json:"lag"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			bad(err.Error())
+			return
+		}
+		d, err := time.ParseDuration(req.Lag)
+		if err != nil || d < 0 {
+			bad("lag: want a non-negative duration such as \"20s\"")
+			return
+		}
+		s.SetLogIngestionLag(d)
+		writeJSON(http.StatusOK, map[string]string{"lag": d.String()})
+
+	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "workers" && parts[4] == "logs" && r.Method == http.MethodPost:
+		var inv WorkerInvocation
+		if err := json.NewDecoder(r.Body).Decode(&inv); err != nil {
+			bad(err.Error())
+			return
+		}
+		res, err := s.InjectWorkerLogs(parts[1], parts[3], inv)
+		if err != nil {
+			bad(err.Error())
+			return
+		}
+		writeJSON(http.StatusOK, res)
+
+	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "workers" && parts[4] == "tails" && r.Method == http.MethodGet:
+		writeJSON(http.StatusOK, s.TailSessions(parts[1], parts[3]))
+	case len(parts) == 6 && parts[0] == "accounts" && parts[2] == "workers" && parts[4] == "tails" && parts[5] == "disconnect" && r.Method == http.MethodPost:
+		writeJSON(http.StatusOK, map[string]int{"disconnected": s.DisconnectTails(parts[1], parts[3])})
 
 	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "workers" && parts[4] == "assets" && r.Method == http.MethodGet:
 		manifest, config, found := s.WorkerAssets(parts[1], parts[3])

@@ -245,3 +245,21 @@ events:
     type: Warning
     kinds: Tunnel
     meaning: A Tunnel with deletionPolicy Delete was deleted but its Cloudflare tunnel was kept because another owner holds it.
+  - reason: StandInPodFailed
+    type: Warning
+    kinds: WorkerScript
+    meaning: >-
+      With the Workers logs feature on (chart workersLogs.enabled), the WorkerScript's stand-in
+      Pod (<name>-worker on the virtual node) could not be created, updated or deleted: a
+      ResourceQuota, a LimitRange or an admission policy (Pod Security, Kyverno, Gatekeeper)
+      refused it. `kubectl logs` is unavailable for the WorkerScript until the cause is fixed;
+      its status is not affected. workersLogs.podImage and workersLogs.podLabels exist for such
+      policies.
+  - reason: StandInPodConflict
+    type: Warning
+    kinds: WorkerScript
+    meaning: >-
+      A Pod with the stand-in Pod's name (<name>-worker) exists and is not controlled by this
+      WorkerScript. It is left alone and checked again every minute; delete or rename it to get
+      `kubectl logs` for the WorkerScript, or opt the WorkerScript out with the annotation
+      flare.dev/stand-in-pod "false".

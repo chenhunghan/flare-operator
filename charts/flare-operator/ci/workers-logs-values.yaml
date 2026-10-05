@@ -1,0 +1,12 @@
+# e2e profile for `kubectl logs` on WorkerScripts: flarefake plus the Workers virtual kubelet
+# (test/e2e TestWorkersLogs). Install it on top of the flarefake profile, e.g.
+#   make e2e-install ... then
+#   helm upgrade flare-operator charts/flare-operator -n flare-system --reset-then-reuse-values \
+#     -f charts/flare-operator/ci/workers-logs-values.yaml
+flarefake:
+  enabled: true
+workersLogs:
+  enabled: true
+
+# clusterName is required and has no default.
+clusterName: ci
