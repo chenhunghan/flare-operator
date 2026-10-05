@@ -27,9 +27,9 @@ GOVULNCHECK ?= $(LOCALBIN)/govulncheck
 # controller-tools v0.22 / controller-runtime v0.25 match k8s.io/* v0.37 in go.mod
 # (controller-gen@latest failed with a klog error against apimachinery v0.37).
 CONTROLLER_TOOLS_VERSION ?= v0.22.0
-SETUP_ENVTEST_VERSION ?= v0.25.1
+SETUP_ENVTEST_VERSION ?= v0.25.2
 # Static analysis and vulnerability scanning (make lint-static vulncheck). staticcheck
-# v0.8.1 = 2026.1.1; both need Go >= 1.26.
+# v0.8.1 = 2026.2.1; both need Go >= 1.26.
 STATICCHECK_VERSION ?= v0.8.1
 GOVULNCHECK_VERSION ?= v1.8.0
 ENVTEST_K8S_VERSION ?= 1.37.0
@@ -204,7 +204,7 @@ KUBECTL ?= kubectl
 KUBECONFORM ?= $(shell command -v kubeconform 2>/dev/null)
 # Pinned Kubernetes schema version and a local schema cache, so helm-lint does not depend on
 # fetching the moving "master" schemas on every run.
-KUBECONFORM_K8S_VERSION ?= 1.36.0
+KUBECONFORM_K8S_VERSION ?= 1.37.1
 KUBECONFORM_CACHE ?= $(HOME)/.cache/flare-operator/kubeconform
 
 # Version stamp (internal/version) for local builds, the images and .goreleaser.yaml.
