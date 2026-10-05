@@ -46,7 +46,8 @@ type workerTail struct {
 }
 
 type tailConn struct {
-	ws   *websocket.Conn
+	mu   sync.Mutex
+	ws   *websocket.Conn // set by attach once the handshake is done
 	send chan []byte
 	once sync.Once
 	done chan struct{}
@@ -55,8 +56,27 @@ type tailConn struct {
 func (tc *tailConn) close() {
 	tc.once.Do(func() {
 		close(tc.done)
-		_ = tc.ws.Close()
+		tc.mu.Lock()
+		ws := tc.ws
+		tc.mu.Unlock()
+		if ws != nil {
+			_ = ws.Close()
+		}
 	})
+}
+
+// attach sets the upgraded connection; it reports false (and leaves ws to the caller to
+// close) when the connection was closed during the handshake.
+func (tc *tailConn) attach(ws *websocket.Conn) bool {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	select {
+	case <-tc.done:
+		return false
+	default:
+	}
+	tc.ws = ws
+	return true
 }
 
 // push queues a frame; a connection that cannot keep up loses frames (UNVERIFIED: the real
@@ -208,19 +228,34 @@ func (s *Server) serveTailSocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Sec-WebSocket-Protocol must be "+tailSubprotocol, http.StatusBadRequest)
 		return
 	}
-	ws, err := tailUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return // Upgrade already answered
-	}
-	tc := &tailConn{ws: ws, send: make(chan []byte, tailSendBuffer), done: make(chan struct{})}
-	s.mu.Lock()
-	if s.tailSockets[token] != t { // Reset ran during the upgrade
+	// The connection is registered before the handshake answer goes out: a client whose dial
+	// has returned receives the frame of every invocation injected after that (frames queued
+	// meanwhile wait in tc.send). Registered after the answer, an invocation injected right
+	// after the dial could miss the connection.
+	tc := &tailConn{send: make(chan []byte, tailSendBuffer), done: make(chan struct{})}
+	unregister := func() {
+		s.mu.Lock()
+		delete(t.conns, tc)
 		s.mu.Unlock()
-		_ = ws.Close()
+	}
+	s.mu.Lock()
+	if s.tailSockets[token] != t { // Reset ran meanwhile
+		s.mu.Unlock()
+		http.Error(w, "tail not found", http.StatusNotFound)
 		return
 	}
 	t.conns[tc] = struct{}{}
 	s.mu.Unlock()
+	ws, err := tailUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		unregister()
+		return // Upgrade already answered
+	}
+	if !tc.attach(ws) { // closed (Reset, DisconnectTails) during the upgrade
+		unregister()
+		_ = ws.Close()
+		return
+	}
 
 	go func() { // writer
 		for {
@@ -239,9 +274,7 @@ func (s *Server) serveTailSocket(w http.ResponseWriter, r *http.Request) {
 	go func() { // reader: drives ping/pong and notices the close
 		defer func() {
 			tc.close()
-			s.mu.Lock()
-			delete(t.conns, tc)
-			s.mu.Unlock()
+			unregister()
 		}()
 		for {
 			if _, _, err := ws.ReadMessage(); err != nil {
