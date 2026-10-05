@@ -8,6 +8,27 @@ may change the API. The chart version equals the release version.
 From the first release on, [release-please](https://github.com/googleapis/release-please) writes
 this file from Conventional Commit messages; new entries are added above the pre-release notes.
 
+## 0.1.0 (2026-10-05)
+
+
+### Features
+
+* kubectl logs for Workers via a virtual kubelet ([11988b6](https://github.com/chenhunghan/flare-operator/commit/11988b6ba98dc1014774570802410d8a7dcecc79))
+* kubectl logs for Workers via a virtual kubelet ([7da295f](https://github.com/chenhunghan/flare-operator/commit/7da295ffcd89f27557aa96ae16b291b251357555))
+* release with release-please; publish images and the Helm chart to GHCR ([161e9e9](https://github.com/chenhunghan/flare-operator/commit/161e9e9410e938e6ad96df08dc8a21a9795cc638))
+
+
+### Bug Fixes
+
+* back off per object on repeated status write conflicts ([b44fc57](https://github.com/chenhunghan/flare-operator/commit/b44fc573403a55b7f075242401fc0472a54e60a9))
+* confirm a finalizer's CloudflareAccount uncached before reaching Cloudflare ([66a3b15](https://github.com/chenhunghan/flare-operator/commit/66a3b1588d55f08f8a786bde661fb8a8b45984b2))
+* **fake:** register a tail connection before answering the WebSocket handshake ([433aab8](https://github.com/chenhunghan/flare-operator/commit/433aab8f079b3a2f5b5b068db5c51a1059df7022))
+* never build a status from a cached copy older than the last write ([8cfce82](https://github.com/chenhunghan/flare-operator/commit/8cfce8289a7da30bf30ab492d3dd2be01bd95b1d))
+* never build a status from a cached copy older than the last write ([4912f7a](https://github.com/chenhunghan/flare-operator/commit/4912f7a5d88f5743eda3bfb824901bb7cc7c313f))
+* optimistically lock every status write instead of re-reading uncached ([893e7b9](https://github.com/chenhunghan/flare-operator/commit/893e7b901333dbb656f7c79289aecafdae096e79))
+* optimistically lock every status write instead of re-reading uncached ([7a7ba82](https://github.com/chenhunghan/flare-operator/commit/7a7ba825898dc801e48b814b8691abbfa8b2d9a3))
+* **vk:** serialize stand-in Pod status syncs ([bdd29d0](https://github.com/chenhunghan/flare-operator/commit/bdd29d0705893e321f6b41de1895fb99a217c9f5))
+
 ## [Pre-release] development history
 
 Everything below was built before the first public release, 0.1.0, and ships in it.
