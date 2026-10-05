@@ -139,6 +139,10 @@ type Reconciler struct {
 	// applied remembers what each object last deployed (object key → appliedState): a reconcile
 	// that reads a stale cache must not deploy twice.
 	applied sync.Map
+
+	// views makes each reconcile start from a copy no older than its own last write
+	// (reconcile.Views).
+	views reconcile.Views
 }
 
 type appliedState struct {
@@ -271,7 +275,7 @@ func (r *Reconciler) referencing(prefix string) handler.MapFunc {
 // Reconcile syncs one PagesDeployment.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var pd pagesv1alpha1.PagesDeployment
-	if err := r.Get(ctx, req.NamespacedName, &pd); err != nil {
+	if err := r.views.Get(ctx, r.Client, r.apiReader(), req.NamespacedName, &pd); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.applied.Delete(req.NamespacedName)
 		}
@@ -289,9 +293,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		res, err = r.sync(ctx, &pd)
 	}
 	if gone {
+		r.views.Forget(req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 	reconcile.SetObservedGeneration(&pd)
+	defer r.views.Done(&pd)
 	if !equality.Semantic.DeepEqual(base.Status, pd.Status) {
 		if perr := r.Status().Patch(ctx, &pd, client.MergeFrom(base)); perr != nil && !apierrors.IsNotFound(perr) {
 			return ctrl.Result{}, errors.Join(err, perr)
