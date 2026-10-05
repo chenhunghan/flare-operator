@@ -429,7 +429,7 @@ live: envtest    ## run test/live (skips unless FLARE_LIVE=1; see test/live/live
 ## is skipped. The versions must match test/differential/versions.go (checked by make test).
 .PHONY: differential differential-tools asset-mime
 DIFF_CACHE ?= $(HOME)/.cache/flare-operator/differential
-WRANGLER_VERSION ?= 4.143.0
+WRANGLER_VERSION ?= 4.147.0
 CLOUDFLARED_VERSION ?= 2026.9.3
 # Set to a directory to write every client's captured requests there as JSON.
 FLARE_DIFF_CAPTURE_DIR ?=

@@ -11,6 +11,6 @@ package differential
 // WRANGLER_VERSION and CLOUDFLARED_VERSION and test/differential/npm/package.json must match
 // (TestPinnedVersionsMatch). cloudflare-go is pinned in test/differential/go/go.mod.
 const (
-	WranglerVersion    = "4.143.0"
+	WranglerVersion    = "4.147.0"
 	CloudflaredVersion = "2026.9.3"
 )
