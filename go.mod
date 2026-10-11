@@ -11,7 +11,7 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
-	github.com/virtual-kubelet/virtual-kubelet v1.14.0
+	github.com/virtual-kubelet/virtual-kubelet v1.14.1
 	golang.org/x/net v0.59.0
 	golang.org/x/time v0.16.0
 	k8s.io/api v0.37.1
