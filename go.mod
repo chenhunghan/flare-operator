@@ -5,7 +5,7 @@ go 1.26.1
 toolchain go1.27.1
 
 require (
-	github.com/getkin/kin-openapi v0.149.0
+	github.com/getkin/kin-openapi v0.151.0
 	github.com/go-logr/logr v1.4.4
 	github.com/google/go-containerregistry v0.22.1
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
